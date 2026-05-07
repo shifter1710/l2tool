@@ -93,7 +93,8 @@ def yaml_raw_ticket(raw_ticket):
 
 
 def history_path(ctx, shortid):
-    event_date = ctx["event_time"].date()
+    event_time = ctx.get("event_time")
+    event_date = event_time.date() if event_time else datetime.now().date()
     return (
         HISTORY_DIR
         / f"{event_date:%Y}"

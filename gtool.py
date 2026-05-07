@@ -85,6 +85,9 @@ def main():
     for k, v in ctx.items():
         print(f"{k}: {v}")
 
+    if not ctx.get("event_time"):
+        print("Дата/время не найдены — выполняю поиск без привязки ко времени")
+
     if ctx.get("msisdn"):
         print(f"msisdn_hash: {hash_phone(ctx['msisdn'])}")
 

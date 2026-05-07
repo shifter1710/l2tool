@@ -75,13 +75,10 @@ def parse(text: str):
         r"Регион\s*[:：]\s*(.+)",
     ])
 
-    if not time_raw:
-        raise ValueError("Не найдено поле даты/времени")
-
     return {
         "phone_a": normalize_phone(phone_a_raw),
         "phone_b": normalize_phone(phone_b_raw),
         "msisdn": normalize_phone(msisdn_raw),
-        "event_time": parse_time_value(time_raw),
+        "event_time": parse_time_value(time_raw) if time_raw else None,
         "region": region,
     }
