@@ -10,16 +10,11 @@ def fmt(dt):
 
 
 def build(ctx):
-    local = ctx["event_time"].replace(tzinfo=ZoneInfo(ctx["tz"]))
-    utc = local.astimezone(ZoneInfo("UTC"))
-
     params = {
         "orgId": "263",
-        "from": fmt(utc - timedelta(minutes=ctx.get("window", 60))),
-        "to": fmt(utc + timedelta(minutes=ctx.get("window", 60))),
         "timezone": "Europe/Moscow",
 
-        "var-phone": ctx.get("phone_a") or "",
+        "var-phone": ctx.get("phone_a") or ctx.get("msisdn") or "",
         "var-second_phone": ctx.get("phone_b") or "",
 
         "var-call_id": "",
@@ -31,5 +26,11 @@ def build(ctx):
         "var-env": "prod",
         "var-env_cluster": "prod",
     }
+
+    if ctx.get("event_time"):
+        local = ctx["event_time"].replace(tzinfo=ZoneInfo(ctx["tz"]))
+        utc = local.astimezone(ZoneInfo("UTC"))
+        params["from"] = fmt(utc - timedelta(minutes=ctx.get("window", 60)))
+        params["to"] = fmt(utc + timedelta(minutes=ctx.get("window", 60)))
 
     return [f"{BASE}?{urlencode(params, quote_via=quote_plus)}"]
