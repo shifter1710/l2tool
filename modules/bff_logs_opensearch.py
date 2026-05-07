@@ -8,9 +8,13 @@ def build(ctx):
     time_from = "now-1M"
     time_to = "now"
 
-    phone = ctx.get("msisdn") or ctx.get("phone_a") or ctx.get("phone_b") or ""
+    phone = ctx.get("msisdn") or ctx.get("phone_a") or ctx.get("phone_b")
 
-    query_value = hash_phone(phone) if phone else ""
+    if not phone:
+        print("[WARN] bff_logs_opensearch: phone not found, skip")
+        return []
+
+    query_value = hash_phone(phone)
     query = quote_plus(f'"{query_value}"')
 
     url = (
