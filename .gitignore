@@ -1,0 +1,13 @@
+# sensitive / local ticket data
+examples/*.txt
+!examples/*.example.txt
+tickets/
+*.ticket.txt
+
+# python
+__pycache__/
+*.pyc
+
+# local env
+.env
+.venv/
