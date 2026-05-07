@@ -1,21 +1,10 @@
-from urllib.parse import quote_plus
-from datetime import timedelta
-from zoneinfo import ZoneInfo
 from core.utils import hash_phone
+from urllib.parse import quote_plus
 
 BASE = "https://dashboards.example.local/app/data-explorer/discover"
 
 
-def fmt(dt):
-    return dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-
-
 def build(ctx):
-    local = ctx["event_time"].replace(tzinfo=ZoneInfo(ctx["tz"]))
-    utc = local.astimezone(ZoneInfo("UTC"))
-
-    window = ctx.get("window", 60)
-
     time_from = "now-1M"
     time_to = "now"
 
