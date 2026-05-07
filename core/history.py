@@ -92,23 +92,23 @@ def yaml_raw_ticket(raw_ticket):
     return f"raw_ticket: |\n{body}\n"
 
 
-def history_path(ctx, history_uuid):
+def history_path(ctx, shortid):
     event_date = ctx["event_time"].date()
     return (
         HISTORY_DIR
         / f"{event_date:%Y}"
         / f"{event_date:%m}"
-        / f"{event_date:%Y-%m-%d}_{main_number(ctx)}_{history_uuid[:8]}.yaml"
+        / f"{event_date:%Y-%m-%d}_{main_number(ctx)}_{shortid}.yaml"
     )
 
 
 def write_history(ctx, input_file, raw_ticket, selected_modules, links_by_module):
-    history_uuid = uuid4().hex
-    path = history_path(ctx, history_uuid)
+    shortid = uuid4().hex[:8]
+    path = history_path(ctx, shortid)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     content = "\n".join([
-        f"uuid: {yaml_scalar(history_uuid)}",
+        'uuid: ""',
         f"created_at: {yaml_scalar(datetime.now().astimezone().isoformat(timespec='seconds'))}",
         f"input_file: {yaml_scalar(input_file)}",
         "",
