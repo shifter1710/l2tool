@@ -25,7 +25,7 @@ def normalize_phone(value: str | None):
     return None
 
 
-def parse_time_value(value: str):
+def parse_datetime_value(value: str):
     value = value.strip()
 
     for fmt in (
@@ -41,7 +41,49 @@ def parse_time_value(value: str):
         except ValueError:
             continue
 
-    raise ValueError(f"Bad time: {value}")
+    return None
+
+
+def parse_date_value(value: str | None):
+    if not value:
+        return None
+
+    value = value.strip()
+    if not re.fullmatch(r"\d{2}\.\d{2}\.\d{4}", value):
+        return None
+
+    try:
+        return datetime.strptime(value, "%d.%m.%Y").date()
+    except ValueError:
+        return None
+
+
+def parse_time_value(value: str | None):
+    if not value:
+        return None
+
+    value = value.strip()
+    if not re.fullmatch(r"\d{1,2}:\d{2}(:\d{2})?", value):
+        return None
+
+    for fmt in ("%H:%M:%S", "%H:%M"):
+        try:
+            return datetime.strptime(value, fmt).time()
+        except ValueError:
+            continue
+
+    return None
+
+
+def combine_event_datetime(raw_value, event_date, event_clock):
+    event_datetime = parse_datetime_value(raw_value) if raw_value else None
+    if event_datetime:
+        return event_datetime
+
+    if event_date and event_clock:
+        return datetime.combine(event_date, event_clock)
+
+    return None
 
 
 def parse(text: str):
@@ -63,10 +105,23 @@ def parse(text: str):
         r"Номер клиента\s*[:：]\s*(.+)",
     ])
 
-    time_raw = find_field(text, [
+    datetime_raw = find_field(text, [
         r"Дата и время проблемного звонка\s*[:：]\s*(.+)",
         r"Дата и время звонка\s*[:：]\s*(.+)",
         r"Время события\s*[:：]\s*(.+)",
+    ])
+
+    date_raw = find_field(text, [
+        r"Дата проблемного звонка\s*[:：]\s*(.+)",
+        r"Дата звонка\s*[:：]\s*(.+)",
+        r"Дата события\s*[:：]\s*(.+)",
+        r"Дата\s*[:：]\s*(.+)",
+    ])
+
+    time_raw = find_field(text, [
+        r"Время проблемного звонка\s*[:：]\s*(.+)",
+        r"Время звонка\s*[:：]\s*(.+)",
+        r"Время\s*[:：]\s*(.+)",
     ])
 
     region = find_field(text, [
@@ -75,10 +130,19 @@ def parse(text: str):
         r"Регион\s*[:：]\s*(.+)",
     ])
 
+    event_date = parse_date_value(date_raw) or parse_date_value(datetime_raw)
+    event_clock = parse_time_value(time_raw)
+    event_datetime = combine_event_datetime(datetime_raw, event_date, event_clock)
+
+    if event_datetime and not event_date:
+        event_date = event_datetime.date()
+
     return {
         "phone_a": normalize_phone(phone_a_raw),
         "phone_b": normalize_phone(phone_b_raw),
         "msisdn": normalize_phone(msisdn_raw),
-        "event_time": parse_time_value(time_raw) if time_raw else None,
+        "event_date": event_date,
+        "event_clock": event_clock,
+        "event_time": event_datetime,
         "region": region,
     }

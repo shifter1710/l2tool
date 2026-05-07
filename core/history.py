@@ -94,7 +94,7 @@ def yaml_raw_ticket(raw_ticket):
 
 def history_path(ctx, shortid):
     event_time = ctx.get("event_time")
-    event_date = event_time.date() if event_time else datetime.now().date()
+    event_date = ctx.get("event_date") or (event_time.date() if event_time else datetime.now().date())
     return (
         HISTORY_DIR
         / f"{event_date:%Y}"
@@ -117,6 +117,8 @@ def write_history(ctx, input_file, raw_ticket, selected_modules, links_by_module
         f"  msisdn: {yaml_scalar(ctx.get('msisdn'))}",
         f"  phone_a: {yaml_scalar(ctx.get('phone_a'))}",
         f"  phone_b: {yaml_scalar(ctx.get('phone_b'))}",
+        f"  event_date: {yaml_scalar(ctx.get('event_date'))}",
+        f"  event_clock: {yaml_scalar(ctx.get('event_clock'))}",
         f"  event_time: {yaml_scalar(ctx.get('event_time'))}",
         f"  region: {yaml_scalar(ctx.get('region'))}",
         f"  timezone: {yaml_scalar(ctx.get('tz'))}",
