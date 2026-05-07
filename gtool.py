@@ -67,7 +67,11 @@ def main():
 
     for url in urls:
         print(url)
-        open_url(url)
+        if name == "myconnect":
+            from core.utils import open_url_chrome
+            open_url_chrome(url)
+        else:
+            open_url(url)
 
 
 if __name__ == "__main__":
