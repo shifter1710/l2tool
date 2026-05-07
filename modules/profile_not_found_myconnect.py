@@ -3,13 +3,14 @@ from urllib.parse import quote_plus
 BASE = "https://dashboards.obs.mts.ru/app/data-explorer/discover"
 
 FIXED_FILTER = "failed starting call on IMS side: profile not found"
+OPEN_IN_CHROME = True
 
 
 def build(ctx):
     msisdn = ctx.get("msisdn")
 
     if not msisdn:
-        print("[WARN] myconnect: msisdn not found, skip")
+        print("[WARN] profile_not_found_myconnect: msisdn not found, skip")
         return []
 
     query = quote_plus(msisdn)

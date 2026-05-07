@@ -7,13 +7,20 @@ from core import parser
 from core.timezones import resolve_timezone
 from core.utils import open_url, hash_phone
 
-import modules.grafana_call as grafana
-import modules.logs_discover as logs
-import modules.myconnect as myconnect
+import modules.bff_logs_opensearch as bff_logs_opensearch
+import modules.find_call_in_logs as find_call_in_logs
+import modules.profile_not_found_myconnect as profile_not_found_myconnect
 
 MODULES = {
-    "grafana": grafana,
-    "logs": logs,
+    "find_call_in_logs": find_call_in_logs,
+    "bff_logs_opensearch": bff_logs_opensearch,
+    "profile_not_found_myconnect": profile_not_found_myconnect,
+}
+
+ALIASES = {
+    "grafana": "find_call_in_logs",
+    "logs": "bff_logs_opensearch",
+    "myconnect": "profile_not_found_myconnect",
 }
 
 
@@ -24,7 +31,14 @@ def read_file(path: str) -> str:
 def main():
     ap = argparse.ArgumentParser(description="L2 ticket helper")
     ap.add_argument("--file", required=True, help="Path to ticket text file")
-    ap.add_argument("--open", default="grafana", help="Modules: grafana,logs or all")
+    ap.add_argument(
+        "--open",
+        default="find_call_in_logs",
+        help=(
+            "Modules: find_call_in_logs,bff_logs_opensearch,"
+            "profile_not_found_myconnect or all"
+        ),
+    )
     ap.add_argument("--window", type=int, default=60, help="Window in minutes for Grafana")
 
     args = ap.parse_args()
@@ -48,16 +62,18 @@ def main():
 
     urls = []
 
-    for name in selected:
-        name = name.strip()
+    for raw_name in selected:
+        raw_name = raw_name.strip()
+        name = ALIASES.get(raw_name, raw_name)
 
         mod = MODULES.get(name)
         if not mod:
-            print(f"[WARN] Unknown module: {name}")
+            print(f"[WARN] Unknown module: {raw_name}")
             continue
 
         try:
-            urls.extend(mod.build(ctx))
+            for url in mod.build(ctx):
+                urls.append((name, url))
         except Exception as e:
             print(f"[ERROR] Module failed: {name}: {e}")
 
@@ -65,9 +81,10 @@ def main():
         print("No URLs generated")
         return
 
-    for url in urls:
+    for name, url in urls:
+        print(f"[{name}]")
         print(url)
-        if name == "myconnect":
+        if getattr(MODULES[name], "OPEN_IN_CHROME", False):
             from core.utils import open_url_chrome
             open_url_chrome(url)
         else:
