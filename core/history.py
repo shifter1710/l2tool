@@ -115,6 +115,7 @@ def write_history(ctx, input_file, raw_ticket, selected_modules, links_by_module
         "",
         "parsed:",
         f"  msisdn: {yaml_scalar(ctx.get('msisdn'))}",
+        f"  msisdn_raw: {yaml_scalar(ctx.get('msisdn_raw'))}",
         f"  phone_a: {yaml_scalar(ctx.get('phone_a'))}",
         f"  phone_b: {yaml_scalar(ctx.get('phone_b'))}",
         f"  event_date: {yaml_scalar(ctx.get('event_date'))}",

@@ -25,6 +25,23 @@ def normalize_phone(value: str | None):
     return None
 
 
+def normalize_msisdn(value: str | None):
+    if not value:
+        return None
+
+    digits = re.sub(r"\D", "", value)
+
+    if len(digits) == 10 and digits.startswith("9"):
+        digits = "7" + digits
+    elif len(digits) == 11 and digits.startswith("8"):
+        digits = "7" + digits[1:]
+
+    if len(digits) == 11 and digits.startswith("79"):
+        return digits
+
+    return None
+
+
 def parse_datetime_value(value: str):
     value = value.strip()
 
@@ -140,7 +157,8 @@ def parse(text: str):
     return {
         "phone_a": normalize_phone(phone_a_raw),
         "phone_b": normalize_phone(phone_b_raw),
-        "msisdn": normalize_phone(msisdn_raw),
+        "msisdn": normalize_msisdn(msisdn_raw),
+        "msisdn_raw": msisdn_raw,
         "event_date": event_date,
         "event_clock": event_clock,
         "event_time": event_datetime,

@@ -88,6 +88,12 @@ def main():
     if not ctx.get("event_time"):
         print("Дата/время не найдены — выполняю поиск без привязки ко времени")
 
+    if ctx.get("msisdn_raw") and ctx.get("msisdn"):
+        print(f"Номер клиента нормализован: {ctx['msisdn_raw']} -> {ctx['msisdn']}")
+    elif ctx.get("msisdn_raw") and not ctx.get("msisdn"):
+        print(f"Не удалось нормализовать номер клиента: {ctx['msisdn_raw']}")
+        print("Поиск по msisdn пропущен")
+
     if ctx.get("msisdn"):
         print(f"msisdn_hash: {hash_phone(ctx['msisdn'])}")
 
