@@ -1,7 +1,7 @@
 from core import parser
 
 
-def test_normalize_msisdn_formats():
+def test_normalize_phone_formats():
     cases = {
         "79991234567": "79991234567",
         "+79991234567": "79991234567",
@@ -12,12 +12,23 @@ def test_normalize_msisdn_formats():
     }
 
     for raw, expected in cases.items():
-        assert parser.normalize_msisdn(raw) == expected
+        assert parser.normalize_phone(raw) == expected
 
 
-def test_normalize_msisdn_invalid_formats():
-    assert parser.normalize_msisdn("12345") is None
-    assert parser.normalize_msisdn("74951234567") is None
+def test_normalize_phone_invalid_formats():
+    assert parser.normalize_phone("12345") is None
+    assert parser.normalize_phone("74951234567") is None
+
+
+def test_parse_normalizes_all_phone_fields():
+    ctx = parser.parse("""Номер клиента (msisdn): +7 (999) 123-45-67
+Номер звонящего (А): 8 (999) 765-43-21
+Номер принимающего звонок (Б): 999 111-22-33
+""")
+
+    assert ctx["msisdn"] == "79991234567"
+    assert ctx["phone_a"] == "79997654321"
+    assert ctx["phone_b"] == "79991112233"
 
 
 def test_date_only_is_not_time():
