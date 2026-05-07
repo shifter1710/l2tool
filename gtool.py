@@ -7,6 +7,7 @@ from core import parser
 from core.timezones import resolve_timezone
 from core.utils import open_url, hash_phone
 
+import modules.attached_call_myconnect as attached_call_myconnect
 import modules.bff_logs_opensearch as bff_logs_opensearch
 import modules.find_call_in_logs as find_call_in_logs
 import modules.profile_not_found_myconnect as profile_not_found_myconnect
@@ -15,12 +16,14 @@ MODULES = {
     "find_call_in_logs": find_call_in_logs,
     "bff_logs_opensearch": bff_logs_opensearch,
     "profile_not_found_myconnect": profile_not_found_myconnect,
+    "attached_call_myconnect": attached_call_myconnect,
 }
 
 ALIASES = {
     "grafana": "find_call_in_logs",
     "logs": "bff_logs_opensearch",
     "myconnect": "profile_not_found_myconnect",
+    "attached": "attached_call_myconnect",
 }
 
 
@@ -36,7 +39,7 @@ def main():
         default="find_call_in_logs",
         help=(
             "Modules: find_call_in_logs,bff_logs_opensearch,"
-            "profile_not_found_myconnect or all"
+            "profile_not_found_myconnect,attached_call_myconnect or all"
         ),
     )
     ap.add_argument("--window", type=int, default=60, help="Window in minutes for Grafana")
