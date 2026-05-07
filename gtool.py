@@ -58,6 +58,31 @@ def resolve_modules(open_arg: str):
     return resolved
 
 
+def print_phone_normalization(ctx):
+    labels = {
+        "msisdn": "Номер клиента",
+        "phone_a": "Номер А",
+        "phone_b": "Номер Б",
+        "caller": "caller",
+        "callee": "callee",
+    }
+
+    phone_fields = ctx.get("phone_fields", {})
+    normalized_phones = ctx.get("normalized_phones", {})
+
+    for field_name, raw_value in phone_fields.items():
+        if not raw_value:
+            continue
+
+        label = labels.get(field_name, field_name)
+        normalized_value = normalized_phones.get(field_name)
+
+        if normalized_value:
+            print(f"Номер нормализован {label}: {raw_value} -> {normalized_value}")
+        else:
+            print(f"Не удалось нормализовать номер {label}: {raw_value}")
+
+
 def main():
     ap = argparse.ArgumentParser(description="L2 ticket helper")
     ap.add_argument("--file", default=DEFAULT_FILE, help="Path to ticket text file")
@@ -83,15 +108,16 @@ def main():
 
     print("\n--- Parsed context ---")
     for k, v in ctx.items():
+        if k in ("phone_fields", "normalized_phones"):
+            continue
         print(f"{k}: {v}")
 
     if not ctx.get("event_time"):
         print("Дата/время не найдены — выполняю поиск без привязки ко времени")
 
-    if ctx.get("msisdn_raw") and ctx.get("msisdn"):
-        print(f"Номер клиента нормализован: {ctx['msisdn_raw']} -> {ctx['msisdn']}")
-    elif ctx.get("msisdn_raw") and not ctx.get("msisdn"):
-        print(f"Не удалось нормализовать номер клиента: {ctx['msisdn_raw']}")
+    print_phone_normalization(ctx)
+
+    if ctx.get("msisdn_raw") and not ctx.get("msisdn"):
         print("Поиск по msisdn пропущен")
 
     if ctx.get("msisdn"):

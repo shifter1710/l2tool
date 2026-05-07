@@ -16,21 +16,6 @@ def normalize_phone(value: str | None):
 
     digits = re.sub(r"\D", "", value)
 
-    if len(digits) == 11 and digits.startswith("8"):
-        digits = "7" + digits[1:]
-
-    if len(digits) == 11 and digits.startswith("7"):
-        return digits
-
-    return None
-
-
-def normalize_msisdn(value: str | None):
-    if not value:
-        return None
-
-    digits = re.sub(r"\D", "", value)
-
     if len(digits) == 10 and digits.startswith("9"):
         digits = "7" + digits
     elif len(digits) == 11 and digits.startswith("8"):
@@ -154,11 +139,25 @@ def parse(text: str):
     if event_datetime and not event_date:
         event_date = event_datetime.date()
 
+    phone_fields = {
+        "msisdn": msisdn_raw,
+        "phone_a": phone_a_raw,
+        "phone_b": phone_b_raw,
+    }
+    normalized_phones = {
+        field: normalize_phone(raw_value)
+        for field, raw_value in phone_fields.items()
+    }
+
     return {
-        "phone_a": normalize_phone(phone_a_raw),
-        "phone_b": normalize_phone(phone_b_raw),
-        "msisdn": normalize_msisdn(msisdn_raw),
+        "phone_a": normalized_phones["phone_a"],
+        "phone_a_raw": phone_a_raw,
+        "phone_b": normalized_phones["phone_b"],
+        "phone_b_raw": phone_b_raw,
+        "msisdn": normalized_phones["msisdn"],
         "msisdn_raw": msisdn_raw,
+        "phone_fields": phone_fields,
+        "normalized_phones": normalized_phones,
         "event_date": event_date,
         "event_clock": event_clock,
         "event_time": event_datetime,
