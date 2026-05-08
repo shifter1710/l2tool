@@ -1,8 +1,8 @@
 from core.utils import hash_phone
-from core.time_windows import time_ranges
 from urllib.parse import quote_plus
 
 BASE = "https://dashboards.obs.mts.ru/app/data-explorer/discover"
+SEARCH_PERIOD = ("now-1M", "now")
 
 
 def build_one(ctx, time_from, time_to):
@@ -30,9 +30,6 @@ def build_one(ctx, time_from, time_to):
 
 
 def build(ctx):
-    urls = [
-        build_one(ctx, time_from, time_to)
-        for time_from, time_to in time_ranges(ctx, "now-1M", "now")
-    ]
+    url = build_one(ctx, *SEARCH_PERIOD)
 
-    return [url for url in urls if url]
+    return [url] if url else []

@@ -1,8 +1,8 @@
-from core.time_windows import time_ranges
 from urllib.parse import quote_plus
 
 BASE = "https://dashboards.obs.mts.ru/app/data-explorer/discover"
 OPEN_IN_CHROME = True
+SEARCH_PERIOD = ("now-2M", "now")
 
 
 def select_other_phone(msisdn, phone_a, phone_b):
@@ -52,9 +52,6 @@ def build_one(ctx, time_from, time_to):
 
 
 def build(ctx):
-    urls = [
-        build_one(ctx, time_from, time_to)
-        for time_from, time_to in time_ranges(ctx, "now-2M", "now")
-    ]
+    url = build_one(ctx, *SEARCH_PERIOD)
 
-    return [url for url in urls if url]
+    return [url] if url else []

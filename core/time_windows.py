@@ -21,12 +21,3 @@ def utc_window(ctx, event_time):
     window = timedelta(minutes=ctx.get("window", 60))
 
     return fmt_utc(utc - window), fmt_utc(utc + window)
-
-
-def time_ranges(ctx, fallback_from, fallback_to):
-    values = event_datetimes(ctx)
-
-    if not values:
-        return [(fallback_from, fallback_to)]
-
-    return [utc_window(ctx, event_time) for event_time in values]

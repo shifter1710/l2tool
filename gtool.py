@@ -84,6 +84,11 @@ def print_phone_normalization(ctx):
 
 
 def print_event_time(ctx):
+    event_count = len(ctx.get("event_datetimes", []))
+
+    if event_count:
+        print(f"События звонков найдены: {event_count}")
+
     if len(ctx.get("event_datetimes", [])) > 1:
         print("Найдено несколько времен события:")
         for event_datetime in ctx["event_datetimes"]:
@@ -92,6 +97,18 @@ def print_event_time(ctx):
         print(f"Найдено время события: {ctx['event_time']:%Y-%m-%d %H:%M:%S}")
     else:
         print("Дата/время не найдены — выполняю поиск без привязки ко времени")
+
+
+def print_opensearch_periods(selected_modules):
+    periods = []
+
+    for name in selected_modules:
+        period = getattr(MODULES[name], "SEARCH_PERIOD", None)
+        if period and period not in periods:
+            periods.append(period)
+
+    for date_from, date_to in periods:
+        print(f"OpenSearch: период поиска с {date_from} по {date_to}")
 
 
 def main():
@@ -116,6 +133,7 @@ def main():
     ctx = parser.parse(text)
     ctx["tz"] = resolve_timezone(ctx.get("region"))
     ctx["window"] = args.window
+    selected = resolve_modules(args.open)
 
     print("\n--- Parsed context ---")
     for k, v in ctx.items():
@@ -124,6 +142,7 @@ def main():
         print(f"{k}: {v}")
 
     print_event_time(ctx)
+    print_opensearch_periods(selected)
 
     print_phone_normalization(ctx)
 
@@ -138,7 +157,6 @@ def main():
     history.print_matches(history.find_matches(ctx))
     print()
 
-    selected = resolve_modules(args.open)
     links_by_module = {}
 
     for name in selected:
