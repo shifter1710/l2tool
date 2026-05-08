@@ -1,10 +1,10 @@
-from core.time_windows import time_ranges
 from urllib.parse import quote_plus
 
 BASE = "https://dashboards.example.local/app/data-explorer/discover"
 
 FIXED_FILTER = "failed starting call on IMS side: profile not found"
 OPEN_IN_CHROME = True
+SEARCH_PERIOD = ("now-2M", "now")
 
 
 def build_one(ctx, time_from, time_to):
@@ -33,9 +33,6 @@ def build_one(ctx, time_from, time_to):
 
 
 def build(ctx):
-    urls = [
-        build_one(ctx, time_from, time_to)
-        for time_from, time_to in time_ranges(ctx, "now-2M", "now")
-    ]
+    url = build_one(ctx, *SEARCH_PERIOD)
 
-    return [url for url in urls if url]
+    return [url] if url else []
