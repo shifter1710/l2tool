@@ -31,6 +31,27 @@ def test_parse_normalizes_all_phone_fields():
     assert ctx["phone_b"] == "79991112233"
 
 
+def test_parse_callee_landline_phone_b():
+    ctx = parser.parse("Номер принимающего звонок (Б): 83912777454")
+
+    assert ctx["phone_b"] == "73912777454"
+    assert ctx["number_b"] == "73912777454"
+    assert ctx["callee"] == "73912777454"
+
+
+def test_parse_phone_b_field_variants():
+    cases = [
+        "Номер принимающего звонок (Б): 83912777454",
+        "Номер принимающего звонок Б: 83912777454",
+        "Номер Б: 83912777454",
+        "Б: 83912777454",
+        "callee: 83912777454",
+    ]
+
+    for raw in cases:
+        assert parser.parse(raw)["phone_b"] == "73912777454"
+
+
 def test_date_only_is_not_time():
     assert parser.parse_time_value("31.03.2026") is None
 

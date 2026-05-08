@@ -10,7 +10,7 @@ def find_field(text: str, patterns: list[str]):
     return None
 
 
-def normalize_phone(value: str | None):
+def normalize_phone(value: str | None, allow_landline: bool = False):
     if not value:
         return None
 
@@ -22,6 +22,9 @@ def normalize_phone(value: str | None):
         digits = "7" + digits[1:]
 
     if len(digits) == 11 and digits.startswith("79"):
+        return digits
+
+    if allow_landline and len(digits) == 11 and digits.startswith("7"):
         return digits
 
     return None
@@ -106,8 +109,12 @@ def parse(text: str):
 
     phone_b_raw = find_field(text, [
         r"Номер принимающего звонок\s*\(Б\)\s*[:：]\s*(.+)",
+        r"Номер принимающего звонок\s*Б\s*[:：]\s*(.+)",
         r"Номер принимающего\s*[:：]\s*(.+)",
         r"Номер Б\s*[:：]\s*(.+)",
+        r"^\s*Б\s*[:：]\s*(.+)",
+        r"callee\s*[:：]\s*(.+)",
+        r"number_b\s*[:：]\s*(.+)",
     ])
 
     msisdn_raw = find_field(text, [
@@ -154,7 +161,7 @@ def parse(text: str):
         "phone_b": phone_b_raw,
     }
     normalized_phones = {
-        field: normalize_phone(raw_value)
+        field: normalize_phone(raw_value, allow_landline=(field == "phone_b"))
         for field, raw_value in phone_fields.items()
     }
 
@@ -163,6 +170,10 @@ def parse(text: str):
         "phone_a_raw": phone_a_raw,
         "phone_b": normalized_phones["phone_b"],
         "phone_b_raw": phone_b_raw,
+        "number_b": normalized_phones["phone_b"],
+        "number_b_raw": phone_b_raw,
+        "callee": normalized_phones["phone_b"],
+        "callee_raw": phone_b_raw,
         "msisdn": normalized_phones["msisdn"],
         "msisdn_raw": msisdn_raw,
         "phone_fields": phone_fields,
