@@ -78,7 +78,7 @@ def print_phone_normalization(ctx):
         normalized_value = normalized_phones.get(field_name)
 
         if normalized_value:
-            print(f"Номер нормализован {label}: {raw_value} -> {normalized_value}")
+            print(f"{label} нормализован: {raw_value} -> {normalized_value}")
         else:
             print(f"Не удалось нормализовать номер {label}: {raw_value}")
 
