@@ -1,18 +1,16 @@
 from core.utils import hash_phone
+from core.time_windows import time_ranges
 from urllib.parse import quote_plus
 
 BASE = "https://dashboards.example.local/app/data-explorer/discover"
 
 
-def build(ctx):
-    time_from = "now-1M"
-    time_to = "now"
-
+def build_one(ctx, time_from, time_to):
     phone = ctx.get("msisdn") or ctx.get("phone_a") or ctx.get("phone_b")
 
     if not phone:
         print("[WARN] bff_logs_opensearch: phone not found, skip")
-        return []
+        return None
 
     query_value = hash_phone(phone)
     query = quote_plus(f'"{query_value}"')
@@ -28,4 +26,13 @@ def build(ctx):
         f"&_q=(filters:!(),query:(language:kuery,query:{query}))"
     )
 
-    return [url]
+    return url
+
+
+def build(ctx):
+    urls = [
+        build_one(ctx, time_from, time_to)
+        for time_from, time_to in time_ranges(ctx, "now-1M", "now")
+    ]
+
+    return [url for url in urls if url]

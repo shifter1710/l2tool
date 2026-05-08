@@ -1,15 +1,11 @@
-from datetime import timedelta
 from urllib.parse import urlencode, quote_plus
-from zoneinfo import ZoneInfo
+
+from core.time_windows import event_datetimes, utc_window
 
 BASE = "https://grafana.example.local/d/example-dashboard/find-call-in-logs"
 
 
-def fmt(dt):
-    return dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-
-
-def build(ctx):
+def build_one(ctx, event_time=None):
     params = {
         "orgId": "263",
         "timezone": "Europe/Moscow",
@@ -27,10 +23,16 @@ def build(ctx):
         "var-env_cluster": "prod",
     }
 
-    if ctx.get("event_time"):
-        local = ctx["event_time"].replace(tzinfo=ZoneInfo(ctx["tz"]))
-        utc = local.astimezone(ZoneInfo("UTC"))
-        params["from"] = fmt(utc - timedelta(minutes=ctx.get("window", 60)))
-        params["to"] = fmt(utc + timedelta(minutes=ctx.get("window", 60)))
+    if event_time:
+        params["from"], params["to"] = utc_window(ctx, event_time)
 
-    return [f"{BASE}?{urlencode(params, quote_via=quote_plus)}"]
+    return f"{BASE}?{urlencode(params, quote_via=quote_plus)}"
+
+
+def build(ctx):
+    values = event_datetimes(ctx)
+
+    if values:
+        return [build_one(ctx, event_time) for event_time in values]
+
+    return [build_one(ctx)]

@@ -1,3 +1,4 @@
+from core.time_windows import time_ranges
 from urllib.parse import quote_plus
 
 BASE = "https://dashboards.example.local/app/data-explorer/discover"
@@ -28,14 +29,14 @@ def build_query(msisdn, phone_a, phone_b):
     return master
 
 
-def build(ctx):
+def build_one(ctx, time_from, time_to):
     msisdn = ctx.get("msisdn")
     phone_a = ctx.get("phone_a")
     phone_b = ctx.get("phone_b")
 
     if not msisdn:
         print("[WARN] attached_call_myconnect: msisdn not found, skip")
-        return []
+        return None
 
     query = quote_plus(build_query(msisdn, phone_a, phone_b))
 
@@ -43,8 +44,17 @@ def build(ctx):
         f"{BASE}#"
         f"?_a=(discover:(columns:!(rawData,message,params),isDirty:!f,sort:!()),"
         f"metadata:(indexPattern:myconnect-example,view:discover))"
-        f"&_g=(filters:!(),refreshInterval:(pause:!t,value:0),time:(from:now-2M,to:now))"
+        f"&_g=(filters:!(),refreshInterval:(pause:!t,value:0),time:(from:{time_from},to:{time_to}))"
         f"&_q=(filters:!(),query:(language:kuery,query:'{query}'))"
     )
 
-    return [url]
+    return url
+
+
+def build(ctx):
+    urls = [
+        build_one(ctx, time_from, time_to)
+        for time_from, time_to in time_ranges(ctx, "now-2M", "now")
+    ]
+
+    return [url for url in urls if url]
