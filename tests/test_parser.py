@@ -20,6 +20,11 @@ def test_normalize_phone_invalid_formats():
     assert parser.normalize_phone("74951234567") is None
 
 
+def test_empty_phone_values_are_not_normalized():
+    for raw in ("любой", "нет", "не указан", "неизвестно", "-", ""):
+        assert parser.normalize_phone(raw) is None
+
+
 def test_parse_normalizes_all_phone_fields():
     ctx = parser.parse("""Номер клиента (msisdn): +7 (999) 123-45-67
 Номер звонящего (А): 8 (999) 765-43-21
@@ -29,6 +34,18 @@ def test_parse_normalizes_all_phone_fields():
     assert ctx["msisdn"] == "79991234567"
     assert ctx["phone_a"] == "79997654321"
     assert ctx["phone_b"] == "79991112233"
+
+
+def test_parse_keeps_empty_phone_a_raw_without_normalizing():
+    ctx = parser.parse("""Номер клиента (msisdn): 79144880859
+Номер звонящего (А): любой
+Номер принимающего звонок (Б): 914 488 0859
+""")
+
+    assert ctx["phone_a_raw"] == "любой"
+    assert ctx["phone_a"] is None
+    assert ctx["phone_b"] == "79144880859"
+    assert ctx["msisdn"] == "79144880859"
 
 
 def test_parse_callee_landline_phone_b():
