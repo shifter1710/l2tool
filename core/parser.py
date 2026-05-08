@@ -29,6 +29,15 @@ def normalize_phone(value: str | None):
 
 def parse_datetime_value(value: str):
     value = value.strip()
+    m = re.search(
+        r"(?P<date>\d{2}\.\d{2}\.\d{4})"
+        r"(?:\s*,\s*|\s+в\s+|\s+)"
+        r"(?P<time>\d{1,2}:\d{2}(?::\d{2})?)",
+        value,
+        re.IGNORECASE,
+    )
+    if m:
+        value = f"{m.group('date')} {m.group('time')}"
 
     for fmt in (
         "%d.%m.%Y %H:%M:%S",

@@ -112,7 +112,9 @@ def main():
             continue
         print(f"{k}: {v}")
 
-    if not ctx.get("event_time"):
+    if ctx.get("event_time"):
+        print(f"Найдено время события: {ctx['event_time']:%Y-%m-%d %H:%M:%S}")
+    else:
         print("Дата/время не найдены — выполняю поиск без привязки ко времени")
 
     print_phone_normalization(ctx)

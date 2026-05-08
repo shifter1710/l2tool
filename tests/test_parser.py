@@ -69,3 +69,24 @@ def test_parse_separate_date_and_time():
     assert str(ctx["event_date"]) == "2026-03-31"
     assert str(ctx["event_clock"]) == "12:30:00"
     assert str(ctx["event_time"]) == "2026-03-31 12:30:00"
+
+
+def test_parse_problem_call_datetime_with_comma():
+    ctx = parser.parse("""Номер клиента (msisdn): 79990000000
+Дата и время проблемного звонка: 04.05.2026, 12:28
+""")
+
+    assert str(ctx["event_date"]) == "2026-05-04"
+    assert str(ctx["event_time"]) == "2026-05-04 12:28:00"
+
+
+def test_parse_datetime_variants():
+    cases = [
+        "04.05.2026 12:28",
+        "04.05.2026, 12:28",
+        "04.05.2026 в 12:28",
+        "04.05.2026 12:28:45",
+    ]
+
+    for raw in cases:
+        assert parser.parse_datetime_value(raw) is not None
