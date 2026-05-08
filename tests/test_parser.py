@@ -111,3 +111,13 @@ def test_parse_datetime_variants():
 
     for raw in cases:
         assert parser.parse_datetime_value(raw) is not None
+
+
+def test_parse_multiple_times_after_problem_call_date():
+    ctx = parser.parse("Дата и время проблемного звонка: 04.05.2026  10-49    11-01")
+
+    assert [str(value) for value in ctx["event_datetimes"]] == [
+        "2026-05-04 10:49:00",
+        "2026-05-04 11:01:00",
+    ]
+    assert str(ctx["event_time"]) == "2026-05-04 10:49:00"

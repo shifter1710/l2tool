@@ -17,3 +17,20 @@ def test_problem_call_datetime_builds_absolute_link_window():
     assert params["from"] == ["2026-05-04T08:28:00.000Z"]
     assert params["to"] == ["2026-05-04T10:28:00.000Z"]
     assert "now-1h" not in url
+
+
+def test_multiple_problem_call_datetimes_build_multiple_absolute_links():
+    ctx = parser.parse("Дата и время проблемного звонка: 04.05.2026  10-49    11-01")
+    ctx["tz"] = "Europe/Moscow"
+    ctx["window"] = 60
+
+    urls = find_call_in_logs.build(ctx)
+
+    assert len(urls) == 2
+    first_params = parse_qs(urlparse(urls[0]).query)
+    second_params = parse_qs(urlparse(urls[1]).query)
+    assert first_params["from"] == ["2026-05-04T06:49:00.000Z"]
+    assert first_params["to"] == ["2026-05-04T08:49:00.000Z"]
+    assert second_params["from"] == ["2026-05-04T07:01:00.000Z"]
+    assert second_params["to"] == ["2026-05-04T09:01:00.000Z"]
+    assert all("now-1h" not in url for url in urls)

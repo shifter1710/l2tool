@@ -30,7 +30,43 @@ def normalize_phone(value: str | None, allow_landline: bool = False):
     return None
 
 
+def parse_event_datetimes(value: str | None):
+    if not value:
+        return []
+
+    date_match = re.search(r"\d{2}\.\d{2}\.\d{4}", value)
+    if not date_match:
+        return []
+
+    try:
+        event_date = datetime.strptime(date_match.group(0), "%d.%m.%Y").date()
+    except ValueError:
+        return []
+
+    remainder = value[date_match.end():]
+    time_matches = re.finditer(
+        r"(?<!\d)(?P<hour>[01]?\d|2[0-3])[:.-](?P<minute>[0-5]\d)"
+        r"(?:[:.-](?P<second>[0-5]\d))?(?!\d)",
+        remainder,
+    )
+
+    return [
+        datetime.combine(
+            event_date,
+            datetime.strptime(
+                f"{m.group('hour')}:{m.group('minute')}:{m.group('second') or '00'}",
+                "%H:%M:%S",
+            ).time(),
+        )
+        for m in time_matches
+    ]
+
+
 def parse_datetime_value(value: str):
+    event_datetimes = parse_event_datetimes(value)
+    if event_datetimes:
+        return event_datetimes[0]
+
     value = value.strip()
     m = re.search(
         r"(?P<date>\d{2}\.\d{2}\.\d{4})"
@@ -76,7 +112,7 @@ def parse_time_value(value: str | None):
     if not value:
         return None
 
-    value = value.strip()
+    value = value.strip().replace("-", ":").replace(".", ":")
     if not re.fullmatch(r"\d{1,2}:\d{2}(:\d{2})?", value):
         return None
 
@@ -150,10 +186,18 @@ def parse(text: str):
 
     event_date = parse_date_value(date_raw) or parse_date_value(datetime_raw)
     event_clock = parse_time_value(time_raw)
-    event_datetime = combine_event_datetime(datetime_raw, event_date, event_clock)
+    event_datetimes = parse_event_datetimes(datetime_raw)
+    event_datetime = event_datetimes[0] if event_datetimes else combine_event_datetime(
+        datetime_raw,
+        event_date,
+        event_clock,
+    )
 
     if event_datetime and not event_date:
         event_date = event_datetime.date()
+
+    if not event_datetimes and event_datetime:
+        event_datetimes = [event_datetime]
 
     phone_fields = {
         "msisdn": msisdn_raw,
@@ -181,5 +225,6 @@ def parse(text: str):
         "event_date": event_date,
         "event_clock": event_clock,
         "event_time": event_datetime,
+        "event_datetimes": event_datetimes,
         "region": region,
     }

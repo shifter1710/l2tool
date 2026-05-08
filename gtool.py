@@ -83,6 +83,17 @@ def print_phone_normalization(ctx):
             print(f"Не удалось нормализовать номер {label}: {raw_value}")
 
 
+def print_event_time(ctx):
+    if len(ctx.get("event_datetimes", [])) > 1:
+        print("Найдено несколько времен события:")
+        for event_datetime in ctx["event_datetimes"]:
+            print(f"- {event_datetime:%Y-%m-%d %H:%M:%S}")
+    elif ctx.get("event_time"):
+        print(f"Найдено время события: {ctx['event_time']:%Y-%m-%d %H:%M:%S}")
+    else:
+        print("Дата/время не найдены — выполняю поиск без привязки ко времени")
+
+
 def main():
     ap = argparse.ArgumentParser(description="L2 ticket helper")
     ap.add_argument("--file", default=DEFAULT_FILE, help="Path to ticket text file")
@@ -112,10 +123,7 @@ def main():
             continue
         print(f"{k}: {v}")
 
-    if ctx.get("event_time"):
-        print(f"Найдено время события: {ctx['event_time']:%Y-%m-%d %H:%M:%S}")
-    else:
-        print("Дата/время не найдены — выполняю поиск без привязки ко времени")
+    print_event_time(ctx)
 
     print_phone_normalization(ctx)
 
