@@ -1,6 +1,8 @@
 import re
 from datetime import datetime
 
+EMPTY_PHONE_VALUES = {"", "-", "любой", "нет", "не указан", "неизвестно"}
+
 
 def find_field(text: str, patterns: list[str]):
     for p in patterns:
@@ -10,8 +12,15 @@ def find_field(text: str, patterns: list[str]):
     return None
 
 
+def is_empty_phone_value(value: str | None):
+    if value is None:
+        return True
+
+    return value.strip().lower() in EMPTY_PHONE_VALUES
+
+
 def normalize_phone(value: str | None, allow_landline: bool = False):
-    if not value:
+    if is_empty_phone_value(value):
         return None
 
     digits = re.sub(r"\D", "", value)

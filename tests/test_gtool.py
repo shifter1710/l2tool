@@ -10,6 +10,14 @@ def test_print_phone_b_normalization(capsys):
     assert "Номер Б нормализован: 83912777454 -> 73912777454" in capsys.readouterr().out
 
 
+def test_print_phone_a_not_set(capsys):
+    ctx = parser.parse("Номер звонящего (А): любой")
+
+    print_phone_normalization(ctx)
+
+    assert "Номер А не задан: любой" in capsys.readouterr().out
+
+
 def test_print_multiple_event_times(capsys):
     ctx = parser.parse("Дата и время проблемного звонка: 04.05.2026  10-49    11-01")
 

@@ -34,3 +34,18 @@ def test_multiple_problem_call_datetimes_build_multiple_absolute_links():
     assert second_params["from"] == ["2026-05-04T07:01:00.000Z"]
     assert second_params["to"] == ["2026-05-04T09:01:00.000Z"]
     assert all("now-1h" not in url for url in urls)
+
+
+def test_does_not_duplicate_same_phone_in_grafana_params():
+    ctx = parser.parse("""Номер клиента (msisdn): 79144880859
+Номер звонящего (А): любой
+Номер принимающего звонок (Б): 914 488 0859
+""")
+
+    url = find_call_in_logs.build(ctx)[0]
+    params = parse_qs(urlparse(url).query, keep_blank_values=True)
+
+    assert ctx["phone_a_raw"] == "любой"
+    assert ctx["phone_a"] is None
+    assert params["var-phone"] == ["79144880859"]
+    assert params["var-second_phone"] == [""]

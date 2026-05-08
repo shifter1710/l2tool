@@ -5,6 +5,7 @@ from pathlib import Path
 
 from core import history
 from core import parser
+from core.parser import is_empty_phone_value
 from core.timezones import resolve_timezone
 from core.utils import open_url, hash_phone
 
@@ -79,6 +80,8 @@ def print_phone_normalization(ctx):
 
         if normalized_value:
             print(f"{label} нормализован: {raw_value} -> {normalized_value}")
+        elif is_empty_phone_value(raw_value):
+            print(f"{label} не задан: {raw_value}")
         else:
             print(f"Не удалось нормализовать номер {label}: {raw_value}")
 

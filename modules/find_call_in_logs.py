@@ -5,13 +5,29 @@ from core.time_windows import event_datetimes, utc_window
 BASE = "https://grafana.obs.mts.ru/d/feoiotv7dw9a8e/find-call-in-logs"
 
 
+def select_phones(ctx):
+    phones = []
+
+    for field in ("phone_a", "msisdn", "phone_b"):
+        phone = ctx.get(field)
+        if phone and phone not in phones:
+            phones.append(phone)
+
+    return (
+        phones[0] if phones else "",
+        phones[1] if len(phones) > 1 else "",
+    )
+
+
 def build_one(ctx, event_time=None):
+    phone, second_phone = select_phones(ctx)
+
     params = {
         "orgId": "263",
         "timezone": "Europe/Moscow",
 
-        "var-phone": ctx.get("phone_a") or ctx.get("msisdn") or "",
-        "var-second_phone": ctx.get("phone_b") or "",
+        "var-phone": phone,
+        "var-second_phone": second_phone,
 
         "var-call_id": "",
         "var-nats_msg_id": "",
