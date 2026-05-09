@@ -34,7 +34,7 @@ jobs:
         run: python -m pytest -q
 
       - name: Build EXE
-        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name l2tool gui.py
+        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name l2tool --collect-all tzdata gui.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
