@@ -35,6 +35,44 @@ python3 gtool.py --dry-run
 python3 gtool.py --no-history
 ```
 
+## Windows app
+
+Run the GUI next to the CLI:
+
+```bash
+python gui.py
+```
+
+The window lets you paste a ticket, choose modules, generate links, save local
+history, and open the generated links.
+
+On Windows, build a standalone app with:
+
+```bat
+build_windows.bat
+```
+
+The executable is created at:
+
+```text
+dist\l2tool.exe
+```
+
+GitHub Actions also builds the Windows executable automatically. Open:
+
+```text
+GitHub -> Actions -> Build Windows EXE -> latest run -> Artifacts -> l2tool-windows-exe
+```
+
+For a release download, push a version tag:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The workflow attaches `l2tool.exe` to that GitHub Release.
+
 ## Modules
 
 - `zapis` - search call logs in the Grafana dashboard `find-call-in-logs`.
