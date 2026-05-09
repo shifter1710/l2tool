@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from core import history
@@ -36,6 +37,17 @@ ALIASES = {
 }
 
 
+@dataclass
+class RunResult:
+    ctx: dict
+    selected_modules: list[str]
+    history_matches: dict
+    links_by_module: dict[str, list[str]]
+    lines: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    history_path: Path | None = None
+
+
 def read_file(path: str) -> str:
     return Path(path).read_text(encoding="utf-8")
 
@@ -59,7 +71,7 @@ def resolve_modules(open_arg: str):
     return resolved
 
 
-def print_phone_normalization(ctx):
+def format_phone_normalization(ctx):
     labels = {
         "msisdn": "Номер клиента",
         "phone_a": "Номер А",
@@ -70,6 +82,7 @@ def print_phone_normalization(ctx):
 
     phone_fields = ctx.get("phone_fields", {})
     normalized_phones = ctx.get("normalized_phones", {})
+    lines = []
 
     for field_name, raw_value in phone_fields.items():
         if not raw_value:
@@ -79,30 +92,45 @@ def print_phone_normalization(ctx):
         normalized_value = normalized_phones.get(field_name)
 
         if normalized_value:
-            print(f"{label} нормализован: {raw_value} -> {normalized_value}")
+            lines.append(f"{label} нормализован: {raw_value} -> {normalized_value}")
         elif is_empty_phone_value(raw_value):
-            print(f"{label} не задан: {raw_value}")
+            lines.append(f"{label} не задан: {raw_value}")
         else:
-            print(f"Не удалось нормализовать номер {label}: {raw_value}")
+            lines.append(f"Не удалось нормализовать номер {label}: {raw_value}")
+
+    return lines
+
+
+def print_phone_normalization(ctx):
+    for line in format_phone_normalization(ctx):
+        print(line)
+
+
+def format_event_time(ctx):
+    event_count = len(ctx.get("event_datetimes", []))
+    lines = []
+
+    if event_count:
+        lines.append(f"События звонков найдены: {event_count}")
+
+    if len(ctx.get("event_datetimes", [])) > 1:
+        lines.append("Найдено несколько времен события:")
+        for event_datetime in ctx["event_datetimes"]:
+            lines.append(f"- {event_datetime:%Y-%m-%d %H:%M:%S}")
+    elif ctx.get("event_time"):
+        lines.append(f"Найдено время события: {ctx['event_time']:%Y-%m-%d %H:%M:%S}")
+    else:
+        lines.append("Дата/время не найдены — выполняю поиск без привязки ко времени")
+
+    return lines
 
 
 def print_event_time(ctx):
-    event_count = len(ctx.get("event_datetimes", []))
-
-    if event_count:
-        print(f"События звонков найдены: {event_count}")
-
-    if len(ctx.get("event_datetimes", [])) > 1:
-        print("Найдено несколько времен события:")
-        for event_datetime in ctx["event_datetimes"]:
-            print(f"- {event_datetime:%Y-%m-%d %H:%M:%S}")
-    elif ctx.get("event_time"):
-        print(f"Найдено время события: {ctx['event_time']:%Y-%m-%d %H:%M:%S}")
-    else:
-        print("Дата/время не найдены — выполняю поиск без привязки ко времени")
+    for line in format_event_time(ctx):
+        print(line)
 
 
-def print_opensearch_periods(selected_modules):
+def format_opensearch_periods(selected_modules):
     periods = []
 
     for name in selected_modules:
@@ -110,8 +138,116 @@ def print_opensearch_periods(selected_modules):
         if period and period not in periods:
             periods.append(period)
 
+    lines = []
     for date_from, date_to in periods:
-        print(f"OpenSearch: период поиска с {date_from} по {date_to}")
+        lines.append(f"OpenSearch: период поиска с {date_from} по {date_to}")
+
+    return lines
+
+
+def print_opensearch_periods(selected_modules):
+    for line in format_opensearch_periods(selected_modules):
+        print(line)
+
+
+def format_parsed_context(ctx):
+    lines = ["--- Parsed context ---"]
+
+    for k, v in ctx.items():
+        if k in ("phone_fields", "normalized_phones"):
+            continue
+        lines.append(f"{k}: {v}")
+
+    lines.extend(format_event_time(ctx))
+    lines.extend(format_opensearch_periods(ctx.get("selected_modules", [])))
+    lines.extend(format_phone_normalization(ctx))
+
+    if ctx.get("msisdn_raw") and not ctx.get("msisdn"):
+        lines.append("Поиск по msisdn пропущен")
+
+    if ctx.get("msisdn"):
+        lines.append(f"msisdn_hash: {hash_phone(ctx['msisdn'])}")
+
+    lines.append("----------------------")
+    return lines
+
+
+def format_history_matches(matches):
+    lines = ["--- History matches ---"]
+
+    if not matches:
+        lines.append("No matches")
+    else:
+        for number, paths in matches.items():
+            lines.append(f"{number}:")
+            for path in paths:
+                lines.append(f"  - {path}")
+
+    lines.append("-----------------------")
+    return lines
+
+
+def run_ticket(text, input_file="<text>", open_arg=DEFAULT_OPEN, window=DEFAULT_WINDOW, save_history=True):
+    ctx = parser.parse(text)
+    ctx["tz"] = resolve_timezone(ctx.get("region"))
+    ctx["window"] = window
+    selected = resolve_modules(open_arg)
+    ctx["selected_modules"] = selected
+
+    history_matches = history.find_matches(ctx)
+    lines = format_parsed_context(ctx)
+    lines.append("")
+    lines.extend(format_history_matches(history_matches))
+    lines.append("")
+
+    links_by_module = {}
+    errors = []
+
+    for name in selected:
+        mod = MODULES[name]
+
+        try:
+            links = mod.build(ctx)
+        except Exception as e:
+            message = f"[ERROR] Module failed: {name}: {e}"
+            errors.append(message)
+            lines.append(message)
+            continue
+
+        if links:
+            links_by_module[name] = links
+
+    if not links_by_module:
+        lines.append("No URLs generated")
+        return RunResult(ctx, selected, history_matches, links_by_module, lines, errors)
+
+    for name, links in links_by_module.items():
+        lines.append(f"[{name}]")
+        for url in links:
+            lines.append(url)
+
+    history_path = None
+    if save_history:
+        history_path = history.write_history(
+            ctx=ctx,
+            input_file=input_file,
+            raw_ticket=text,
+            selected_modules=list(links_by_module.keys()),
+            links_by_module=links_by_module,
+        )
+        lines.append(f"\nHistory saved: {history_path.as_posix()}")
+
+    return RunResult(ctx, selected, history_matches, links_by_module, lines, errors, history_path)
+
+
+def open_links(links_by_module):
+    for name, links in links_by_module.items():
+        for url in links:
+            if getattr(MODULES[name], "OPEN_IN_CHROME", False):
+                from core.utils import open_url_chrome
+                open_url_chrome(url)
+            else:
+                open_url(url)
 
 
 def main():
@@ -133,76 +269,19 @@ def main():
     except FileNotFoundError:
         ap.error(f"ticket file not found: {args.file}")
 
-    ctx = parser.parse(text)
-    ctx["tz"] = resolve_timezone(ctx.get("region"))
-    ctx["window"] = args.window
-    selected = resolve_modules(args.open)
-
-    print("\n--- Parsed context ---")
-    for k, v in ctx.items():
-        if k in ("phone_fields", "normalized_phones"):
-            continue
-        print(f"{k}: {v}")
-
-    print_event_time(ctx)
-    print_opensearch_periods(selected)
-
-    print_phone_normalization(ctx)
-
-    if ctx.get("msisdn_raw") and not ctx.get("msisdn"):
-        print("Поиск по msisdn пропущен")
-
-    if ctx.get("msisdn"):
-        print(f"msisdn_hash: {hash_phone(ctx['msisdn'])}")
-
-    print("----------------------\n")
-
-    history.print_matches(history.find_matches(ctx))
-    print()
-
-    links_by_module = {}
-
-    for name in selected:
-        mod = MODULES[name]
-
-        try:
-            links = mod.build(ctx)
-        except Exception as e:
-            print(f"[ERROR] Module failed: {name}: {e}")
-            continue
-
-        if links:
-            links_by_module[name] = links
-
-    if not links_by_module:
-        print("No URLs generated")
-        return
-
-    for name, links in links_by_module.items():
-        print(f"[{name}]")
-        for url in links:
-            print(url)
-
-    if not args.dry_run and not args.no_history:
-        path = history.write_history(
-            ctx=ctx,
-            input_file=args.file,
-            raw_ticket=text,
-            selected_modules=list(links_by_module.keys()),
-            links_by_module=links_by_module,
-        )
-        print(f"\nHistory saved: {path.as_posix()}")
+    result = run_ticket(
+        text,
+        input_file=args.file,
+        open_arg=args.open,
+        window=args.window,
+        save_history=not args.dry_run and not args.no_history,
+    )
+    print("\n" + "\n".join(result.lines))
 
     if args.dry_run:
         return
 
-    for name, links in links_by_module.items():
-        for url in links:
-            if getattr(MODULES[name], "OPEN_IN_CHROME", False):
-                from core.utils import open_url_chrome
-                open_url_chrome(url)
-            else:
-                open_url(url)
+    open_links(result.links_by_module)
 
 
 if __name__ == "__main__":
