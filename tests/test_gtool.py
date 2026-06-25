@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import gtool
 import pytest
 from core import parser
-from gtool import format_event_time, format_opensearch_periods, format_phone_normalization
+from gtool import format_event_time, format_opensearch_periods, format_parsed_context, format_phone_normalization
 
 
 def test_format_phone_b_normalization():
@@ -46,6 +46,30 @@ def test_resolve_modules_rejects_unknown_module():
         match="Unknown module: bad. Available: zapis, bff, myconnect, myconnect_call",
     ):
         gtool.resolve_modules("bad")
+
+
+def test_format_parsed_context_omits_technical_duplicates():
+    ctx = parser.parse("""Номер клиента (msisdn): +7 (999) 123-45-67
+Номер принимающего звонок (Б): 83912777454
+Дата и время проблемного звонка: 04.05.2026 10-49 11-01
+""")
+    ctx["tz"] = "Europe/Moscow"
+    ctx["window"] = 120
+    ctx["selected_modules"] = ["zapis", "bff"]
+
+    output = "\n".join(format_parsed_context(ctx))
+
+    assert "Номер клиента: 79991234567" in output
+    assert "Номер Б: 73912777454" in output
+    assert "Timezone: Europe/Moscow" in output
+    assert "Window: 120" in output
+    assert "selected_modules: zapis, bff" in output
+    assert "msisdn_hash:" in output
+    assert "event_datetimes:" not in output
+    assert "number_b:" not in output
+    assert "callee:" not in output
+    assert "phone_fields:" not in output
+    assert "normalized_phones:" not in output
 
 
 def test_cli_main_prints_generated_links(monkeypatch, tmp_path, capsys):

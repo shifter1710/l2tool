@@ -49,3 +49,12 @@ def test_does_not_duplicate_same_phone_in_grafana_params():
     assert ctx["phone_a"] is None
     assert params["var-phone"] == ["79144880859"]
     assert params["var-second_phone"] == [""]
+
+
+def test_uses_context_timezone_in_grafana_url():
+    ctx = parser.parse("Номер клиента (msisdn): 79990000000")
+    ctx["tz"] = "Asia/Omsk"
+
+    url = find_call_in_logs.build(ctx)[0]
+
+    assert "timezone=Asia%2FOmsk" in url

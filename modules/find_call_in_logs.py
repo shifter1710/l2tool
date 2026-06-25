@@ -24,7 +24,7 @@ def build_one(ctx, event_time=None):
 
     params = {
         "orgId": "263",
-        "timezone": "Europe/Moscow",
+        "timezone": ctx.get("tz", "Europe/Moscow"),
 
         "var-phone": phone,
         "var-second_phone": second_phone,
