@@ -1,8 +1,14 @@
 from urllib.parse import urlencode, quote_plus
 
+from core.config import grafana_env, grafana_env_cluster, grafana_find_call_dashboard, grafana_org_id
 from core.time_windows import event_datetimes, utc_window
 
-BASE = "https://grafana.example.local/d/example-dashboard/find-call-in-logs"
+
+def phone_without_country_code(phone):
+    if len(phone) == 11 and phone.startswith("7"):
+        return phone[1:]
+
+    return phone
 
 
 def select_phones(ctx):
@@ -10,7 +16,11 @@ def select_phones(ctx):
 
     for field in ("phone_a", "msisdn", "phone_b"):
         phone = ctx.get(field)
-        if phone and phone not in phones:
+        if not phone:
+            continue
+
+        phone = phone_without_country_code(phone)
+        if phone not in phones:
             phones.append(phone)
 
     return (
@@ -23,7 +33,7 @@ def build_one(ctx, event_time=None):
     phone, second_phone = select_phones(ctx)
 
     params = {
-        "orgId": "263",
+        "orgId": grafana_org_id(),
         "timezone": ctx.get("tz", "Europe/Moscow"),
 
         "var-phone": phone,
@@ -35,14 +45,14 @@ def build_one(ctx, event_time=None):
         "var-transcription_id": "",
         "var-workflow_id": "",
 
-        "var-env": "prod",
-        "var-env_cluster": "prod",
+        "var-env": grafana_env(),
+        "var-env_cluster": grafana_env_cluster(),
     }
 
     if event_time:
         params["from"], params["to"] = utc_window(ctx, event_time)
 
-    return f"{BASE}?{urlencode(params, quote_via=quote_plus)}"
+    return f"{grafana_find_call_dashboard()}?{urlencode(params, quote_via=quote_plus)}"
 
 
 def build(ctx):

@@ -4,7 +4,7 @@ from core.products import resolve_product_modules
 
 
 def test_recording_resolves_zapis_and_bff():
-    assert resolve_product_modules("recording") == ["zapis", "bff"]
+    assert resolve_product_modules("recording") == ["zapis", "sip_stack", "bff"]
 
 
 def test_secretary_resolves_bff():

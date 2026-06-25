@@ -1,0 +1,16 @@
+[defaults]
+env = "example"
+
+[grafana]
+find_call_dashboard = "https://grafana.example.local/d/example-dashboard/find-call-in-logs"
+org_id = "000"
+env = "example"
+env_cluster = "example"
+
+[opensearch]
+base_url = "https://dashboards.example.local/app/data-explorer/discover"
+
+[opensearch.index_patterns]
+bff = "bff-example"
+myconnect = "myconnect-example"
+sip_stack = "sip-stack-example"

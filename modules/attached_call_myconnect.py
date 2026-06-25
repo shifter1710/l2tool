@@ -1,6 +1,7 @@
 from urllib.parse import quote_plus
 
-BASE = "https://dashboards.example.local/app/data-explorer/discover"
+from core.config import opensearch_base_url, opensearch_index_pattern
+
 OPEN_IN_CHROME = True
 SEARCH_PERIOD = ("now-2M", "now")
 
@@ -39,11 +40,12 @@ def build_one(ctx, time_from, time_to):
         return None
 
     query = quote_plus(build_query(msisdn, phone_a, phone_b))
+    index_pattern = opensearch_index_pattern("myconnect")
 
     url = (
-        f"{BASE}#"
+        f"{opensearch_base_url()}#"
         f"?_a=(discover:(columns:!(rawData,message,params),isDirty:!f,sort:!()),"
-        f"metadata:(indexPattern:myconnect-example,view:discover))"
+        f"metadata:(indexPattern:{index_pattern},view:discover))"
         f"&_g=(filters:!(),refreshInterval:(pause:!t,value:0),time:(from:{time_from},to:{time_to}))"
         f"&_q=(filters:!(),query:(language:kuery,query:'{query}'))"
     )

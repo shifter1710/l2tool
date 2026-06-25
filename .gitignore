@@ -12,3 +12,5 @@ __pycache__/
 # local env
 .env
 .venv/
+config.toml
+config.yaml
