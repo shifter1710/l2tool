@@ -43,7 +43,7 @@ def test_resolve_modules_accepts_known_modules():
 def test_resolve_modules_rejects_unknown_module():
     with pytest.raises(
         ValueError,
-        match="Unknown module: bad. Available: zapis, bff, myconnect, myconnect_call",
+        match="Unknown module: bad. Available: zapis, sip_stack, bff, myconnect, myconnect_call",
     ):
         gtool.resolve_modules("bad")
 
@@ -86,3 +86,100 @@ def test_cli_main_prints_generated_links(monkeypatch, tmp_path, capsys):
     gtool.main()
 
     assert "https://example.test/logs" in capsys.readouterr().out
+
+
+def test_cli_product_and_open_together_error(monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["gtool.py", "--product", "recording", "--open", "zapis"])
+
+    with pytest.raises(SystemExit):
+        gtool.main()
+
+    assert "Use either --product or --open, not both" in capsys.readouterr().err
+
+
+def test_cli_product_bff_is_not_allowed(monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["gtool.py", "--product", "bff"])
+
+    with pytest.raises(SystemExit):
+        gtool.main()
+
+    assert "invalid choice: 'bff'" in capsys.readouterr().err
+
+
+def test_cli_menu_selection_uses_recording(monkeypatch, tmp_path, capsys):
+    ticket_path = tmp_path / "ticket.txt"
+    ticket_path.write_text("Номер клиента (msisdn): +7 (999) 123-45-67", encoding="utf-8")
+    selected_open_args = []
+
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda prompt: "1")
+    monkeypatch.setattr("sys.argv", ["gtool.py", "--file", str(ticket_path)])
+    monkeypatch.setattr(
+        gtool,
+        "run_ticket",
+        lambda text, open_arg, window: selected_open_args.append(open_arg)
+        or SimpleNamespace(lines=["generated"], links_by_module={}),
+    )
+
+    gtool.main()
+
+    assert "1. Запись" in capsys.readouterr().out
+    assert selected_open_args == ["zapis,sip_stack,bff"]
+
+
+def test_cli_product_skips_input(monkeypatch, tmp_path):
+    ticket_path = tmp_path / "ticket.txt"
+    ticket_path.write_text("Номер клиента (msisdn): +7 (999) 123-45-67", encoding="utf-8")
+    selected_open_args = []
+
+    monkeypatch.setattr("builtins.input", lambda prompt: pytest.fail("input should not be called"))
+    monkeypatch.setattr("sys.argv", ["gtool.py", "--file", str(ticket_path), "--product", "recording"])
+    monkeypatch.setattr(
+        gtool,
+        "run_ticket",
+        lambda text, open_arg, window: selected_open_args.append(open_arg)
+        or SimpleNamespace(lines=["generated"], links_by_module={}),
+    )
+
+    gtool.main()
+
+    assert selected_open_args == ["zapis,sip_stack,bff"]
+
+
+def test_cli_open_skips_input(monkeypatch, tmp_path):
+    ticket_path = tmp_path / "ticket.txt"
+    ticket_path.write_text("Номер клиента (msisdn): +7 (999) 123-45-67", encoding="utf-8")
+    selected_open_args = []
+
+    monkeypatch.setattr("builtins.input", lambda prompt: pytest.fail("input should not be called"))
+    monkeypatch.setattr("sys.argv", ["gtool.py", "--file", str(ticket_path), "--open", "bff"])
+    monkeypatch.setattr(
+        gtool,
+        "run_ticket",
+        lambda text, open_arg, window: selected_open_args.append(open_arg)
+        or SimpleNamespace(lines=["generated"], links_by_module={}),
+    )
+
+    gtool.main()
+
+    assert selected_open_args == ["bff"]
+
+
+def test_cli_non_interactive_stdin_uses_default_open(monkeypatch, tmp_path):
+    ticket_path = tmp_path / "ticket.txt"
+    ticket_path.write_text("Номер клиента (msisdn): +7 (999) 123-45-67", encoding="utf-8")
+    selected_open_args = []
+
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    monkeypatch.setattr("builtins.input", lambda prompt: pytest.fail("input should not be called"))
+    monkeypatch.setattr("sys.argv", ["gtool.py", "--file", str(ticket_path)])
+    monkeypatch.setattr(
+        gtool,
+        "run_ticket",
+        lambda text, open_arg, window: selected_open_args.append(open_arg)
+        or SimpleNamespace(lines=["generated"], links_by_module={}),
+    )
+
+    gtool.main()
+
+    assert selected_open_args == [gtool.DEFAULT_OPEN]

@@ -47,8 +47,17 @@ def test_does_not_duplicate_same_phone_in_grafana_params():
 
     assert ctx["phone_a_raw"] == "любой"
     assert ctx["phone_a"] is None
-    assert params["var-phone"] == ["79144880859"]
+    assert params["var-phone"] == ["9144880859"]
     assert params["var-second_phone"] == [""]
+
+
+def test_grafana_phone_a_uses_number_without_country_code():
+    ctx = {"phone_a": "79999999999"}
+
+    url = find_call_in_logs.build(ctx)[0]
+    params = parse_qs(urlparse(url).query)
+
+    assert params["var-phone"] == ["9999999999"]
 
 
 def test_uses_context_timezone_in_grafana_url():

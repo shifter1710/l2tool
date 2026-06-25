@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 
 import argparse
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from core import parser
 from core.parser import is_empty_phone_value
+from core.products import available_products, product_title, resolve_product_modules
 from core.timezones import resolve_timezone
 from core.utils import hash_phone
 
@@ -13,6 +15,7 @@ import modules.attached_call_myconnect as attached_call_myconnect
 import modules.bff_logs_opensearch as bff_logs_opensearch
 import modules.find_call_in_logs as find_call_in_logs
 import modules.profile_not_found_myconnect as profile_not_found_myconnect
+import modules.sip_stack_opensearch as sip_stack_opensearch
 
 DEFAULT_FILE = "tickets/current.txt"
 DEFAULT_OPEN = "zapis,bff,myconnect,myconnect_call"
@@ -20,10 +23,20 @@ DEFAULT_WINDOW = 120
 
 MODULES = {
     "zapis": find_call_in_logs,
+    "sip_stack": sip_stack_opensearch,
     "bff": bff_logs_opensearch,
     "myconnect": profile_not_found_myconnect,
     "myconnect_call": attached_call_myconnect,
 }
+
+MODULE_TITLES = {
+    "zapis": "Grafana / find-call-in-logs",
+    "sip_stack": "SIP stack / OpenSearch",
+    "bff": "BFF / OpenSearch",
+    "myconnect": "MyConnect / OpenSearch",
+    "myconnect_call": "MyConnect call / OpenSearch",
+}
+
 
 @dataclass
 class RunResult:
@@ -169,6 +182,42 @@ def build_links(ctx, selected_modules):
     return links_by_module, errors
 
 
+def format_links(links_by_module):
+    lines = []
+
+    for name, links in links_by_module.items():
+        lines.append(f"[{name}]")
+        lines.extend(links)
+
+    return lines
+
+
+def prompt_product():
+    products = available_products()
+    print("Выберите продукт:")
+    for index, product_key in enumerate(products, start=1):
+        print(f"{index}. {product_title(product_key)}")
+
+    try:
+        choice = int(input("Введите номер: ").strip())
+    except ValueError:
+        raise ValueError("Некорректный номер продукта")
+
+    if not 1 <= choice <= len(products):
+        raise ValueError("Некорректный номер продукта")
+
+    return products[choice - 1]
+
+
+def product_open_arg(product_key):
+    modules = resolve_product_modules(product_key)
+    if not modules:
+        print(f"Для продукта {product_title(product_key)} пока нет настроенных модулей")
+        return None
+
+    return ",".join(modules)
+
+
 def run_ticket(
     text,
     open_arg=DEFAULT_OPEN,
@@ -189,10 +238,7 @@ def run_ticket(
         lines.append("No URLs generated")
         return RunResult(ctx, selected, links_by_module, lines, errors)
 
-    for name, links in links_by_module.items():
-        lines.append(f"[{name}]")
-        for url in links:
-            lines.append(url)
+    lines.extend(format_links(links_by_module))
 
     return RunResult(ctx, selected, links_by_module, lines, errors)
 
@@ -202,12 +248,30 @@ def main():
     ap.add_argument("--file", default=DEFAULT_FILE, help="Path to ticket text file")
     ap.add_argument(
         "--open",
-        default=DEFAULT_OPEN,
-        help="Modules: zapis,bff,myconnect,myconnect_call or all",
+        default=None,
+        help="Modules: zapis,sip_stack,bff,myconnect,myconnect_call or all",
     )
+    ap.add_argument("--product", choices=available_products(), help="Product profile")
     ap.add_argument("--window", type=int, default=DEFAULT_WINDOW, help="Window in minutes for Grafana")
 
     args = ap.parse_args()
+
+    if args.product and args.open:
+        ap.error("Use either --product or --open, not both")
+
+    product_key = args.product
+    if not product_key and not args.open and sys.stdin.isatty():
+        try:
+            product_key = prompt_product()
+        except ValueError as error:
+            print(str(error))
+            return
+
+    open_arg = args.open or DEFAULT_OPEN
+    if product_key:
+        open_arg = product_open_arg(product_key)
+        if open_arg is None:
+            return
 
     try:
         text = read_file(args.file)
@@ -217,7 +281,7 @@ def main():
     try:
         result = run_ticket(
             text,
-            open_arg=args.open,
+            open_arg=open_arg,
             window=args.window,
         )
     except ValueError as error:
