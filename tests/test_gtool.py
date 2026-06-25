@@ -1,3 +1,6 @@
+from types import SimpleNamespace
+
+import gtool
 from core import parser
 from gtool import print_event_time, print_opensearch_periods, print_phone_normalization
 
@@ -38,3 +41,19 @@ def test_print_opensearch_periods(capsys):
         "OpenSearch: период поиска с now-1M по now\n"
         "OpenSearch: период поиска с now-2M по now\n"
     )
+
+
+def test_cli_main_prints_generated_links(monkeypatch, tmp_path, capsys):
+    ticket_path = tmp_path / "ticket.txt"
+    ticket_path.write_text("Номер клиента (msisdn): +7 (999) 123-45-67", encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setitem(gtool.MODULES, "dummy", SimpleNamespace(build=lambda ctx: ["https://example.test/logs"]))
+    monkeypatch.setattr(
+        "sys.argv",
+        ["gtool.py", "--file", str(ticket_path), "--open", "dummy"],
+    )
+
+    gtool.main()
+
+    assert "https://example.test/logs" in capsys.readouterr().out
