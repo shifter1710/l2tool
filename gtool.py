@@ -4,11 +4,10 @@ import argparse
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from core import history
 from core import parser
 from core.parser import is_empty_phone_value
 from core.timezones import resolve_timezone
-from core.utils import open_url, hash_phone
+from core.utils import hash_phone
 
 import modules.attached_call_myconnect as attached_call_myconnect
 import modules.bff_logs_opensearch as bff_logs_opensearch
@@ -41,11 +40,9 @@ ALIASES = {
 class RunResult:
     ctx: dict
     selected_modules: list[str]
-    history_matches: dict
     links_by_module: dict[str, list[str]]
     lines: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
-    history_path: Path | None = None
 
 
 def read_file(path: str) -> str:
@@ -172,32 +169,18 @@ def format_parsed_context(ctx):
     return lines
 
 
-def format_history_matches(matches):
-    lines = ["--- History matches ---"]
-
-    if not matches:
-        lines.append("No matches")
-    else:
-        for number, paths in matches.items():
-            lines.append(f"{number}:")
-            for path in paths:
-                lines.append(f"  - {path}")
-
-    lines.append("-----------------------")
-    return lines
-
-
-def run_ticket(text, input_file="<text>", open_arg=DEFAULT_OPEN, window=DEFAULT_WINDOW, save_history=True):
+def run_ticket(
+    text,
+    open_arg=DEFAULT_OPEN,
+    window=DEFAULT_WINDOW,
+):
     ctx = parser.parse(text)
     ctx["tz"] = resolve_timezone(ctx.get("region"))
     ctx["window"] = window
     selected = resolve_modules(open_arg)
     ctx["selected_modules"] = selected
 
-    history_matches = history.find_matches(ctx)
     lines = format_parsed_context(ctx)
-    lines.append("")
-    lines.extend(format_history_matches(history_matches))
     lines.append("")
 
     links_by_module = {}
@@ -219,35 +202,14 @@ def run_ticket(text, input_file="<text>", open_arg=DEFAULT_OPEN, window=DEFAULT_
 
     if not links_by_module:
         lines.append("No URLs generated")
-        return RunResult(ctx, selected, history_matches, links_by_module, lines, errors)
+        return RunResult(ctx, selected, links_by_module, lines, errors)
 
     for name, links in links_by_module.items():
         lines.append(f"[{name}]")
         for url in links:
             lines.append(url)
 
-    history_path = None
-    if save_history:
-        history_path = history.write_history(
-            ctx=ctx,
-            input_file=input_file,
-            raw_ticket=text,
-            selected_modules=list(links_by_module.keys()),
-            links_by_module=links_by_module,
-        )
-        lines.append(f"\nHistory saved: {history_path.as_posix()}")
-
-    return RunResult(ctx, selected, history_matches, links_by_module, lines, errors, history_path)
-
-
-def open_links(links_by_module):
-    for name, links in links_by_module.items():
-        for url in links:
-            if getattr(MODULES[name], "OPEN_IN_CHROME", False):
-                from core.utils import open_url_chrome
-                open_url_chrome(url)
-            else:
-                open_url(url)
+    return RunResult(ctx, selected, links_by_module, lines, errors)
 
 
 def main():
@@ -259,8 +221,6 @@ def main():
         help="Modules: zapis,bff,myconnect,myconnect_call or all",
     )
     ap.add_argument("--window", type=int, default=DEFAULT_WINDOW, help="Window in minutes for Grafana")
-    ap.add_argument("--no-history", action="store_true", help="Do not save a new history YAML")
-    ap.add_argument("--dry-run", action="store_true", help="Print context, history matches, and links only")
 
     args = ap.parse_args()
 
@@ -271,17 +231,10 @@ def main():
 
     result = run_ticket(
         text,
-        input_file=args.file,
         open_arg=args.open,
         window=args.window,
-        save_history=not args.dry_run and not args.no_history,
     )
     print("\n" + "\n".join(result.lines))
-
-    if args.dry_run:
-        return
-
-    open_links(result.links_by_module)
 
 
 if __name__ == "__main__":
