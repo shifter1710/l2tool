@@ -37,7 +37,3 @@ python3 gtool.py --window 60
 - `bff` - search BFF logs in OpenSearch.
 - `myconnect` - search `profile not found` cases in MyConnect.
 - `myconnect_call` - search MyConnect logs for an attached/problem call using `master:<msisdn>` and SIP participant.
-
-Legacy aliases are still accepted: `grafana`, `logs`, `find_call_in_logs`,
-`bff_logs_opensearch`, `profile_not_found_myconnect`, `attached`, and
-`attached_call_myconnect`.

@@ -25,17 +25,6 @@ MODULES = {
     "myconnect_call": attached_call_myconnect,
 }
 
-ALIASES = {
-    "grafana": "zapis",
-    "find_call_in_logs": "zapis",
-    "logs": "bff",
-    "bff_logs_opensearch": "bff",
-    "profile_not_found_myconnect": "myconnect",
-    "attached": "myconnect_call",
-    "attached_call_myconnect": "myconnect_call",
-}
-
-
 @dataclass
 class RunResult:
     ctx: dict
@@ -52,18 +41,17 @@ def read_file(path: str) -> str:
 def resolve_modules(open_arg: str):
     selected = list(MODULES.keys()) if open_arg == "all" else open_arg.split(",")
     resolved = []
+    available = ", ".join(MODULES)
 
     for raw_name in selected:
         raw_name = raw_name.strip()
         if not raw_name:
             continue
 
-        name = ALIASES.get(raw_name, raw_name)
-        if name not in MODULES:
-            print(f"[WARN] Unknown module: {raw_name}")
-            continue
+        if raw_name not in MODULES:
+            raise ValueError(f"Unknown module: {raw_name}. Available: {available}")
 
-        resolved.append(name)
+        resolved.append(raw_name)
 
     return resolved
 
@@ -98,11 +86,6 @@ def format_phone_normalization(ctx):
     return lines
 
 
-def print_phone_normalization(ctx):
-    for line in format_phone_normalization(ctx):
-        print(line)
-
-
 def format_event_time(ctx):
     event_count = len(ctx.get("event_datetimes", []))
     lines = []
@@ -122,11 +105,6 @@ def format_event_time(ctx):
     return lines
 
 
-def print_event_time(ctx):
-    for line in format_event_time(ctx):
-        print(line)
-
-
 def format_opensearch_periods(selected_modules):
     periods = []
 
@@ -140,11 +118,6 @@ def format_opensearch_periods(selected_modules):
         lines.append(f"OpenSearch: период поиска с {date_from} по {date_to}")
 
     return lines
-
-
-def print_opensearch_periods(selected_modules):
-    for line in format_opensearch_periods(selected_modules):
-        print(line)
 
 
 def format_parsed_context(ctx):
@@ -229,11 +202,15 @@ def main():
     except FileNotFoundError:
         ap.error(f"ticket file not found: {args.file}")
 
-    result = run_ticket(
-        text,
-        open_arg=args.open,
-        window=args.window,
-    )
+    try:
+        result = run_ticket(
+            text,
+            open_arg=args.open,
+            window=args.window,
+        )
+    except ValueError as error:
+        ap.error(str(error))
+
     print("\n" + "\n".join(result.lines))
 
 
