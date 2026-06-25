@@ -123,12 +123,20 @@ def format_opensearch_periods(selected_modules):
 def format_parsed_context(ctx):
     lines = ["--- Parsed context ---"]
 
-    for k, v in ctx.items():
-        if k in ("phone_fields", "normalized_phones"):
-            continue
-        lines.append(f"{k}: {v}")
+    phone_fields = ctx.get("phone_fields", {})
+    number_lines = [
+        ("Номер клиента", "msisdn"),
+        ("Номер А", "phone_a"),
+        ("Номер Б", "phone_b"),
+    ]
+    for label, field_name in number_lines:
+        value = ctx.get(field_name) or phone_fields.get(field_name) or "не найден"
+        lines.append(f"{label}: {value}")
 
     lines.extend(format_event_time(ctx))
+    lines.append(f"Timezone: {ctx.get('tz')}")
+    lines.append(f"Window: {ctx.get('window')}")
+    lines.append(f"selected_modules: {', '.join(ctx.get('selected_modules', []))}")
     lines.extend(format_opensearch_periods(ctx.get("selected_modules", [])))
     lines.extend(format_phone_normalization(ctx))
 
@@ -140,6 +148,25 @@ def format_parsed_context(ctx):
 
     lines.append("----------------------")
     return lines
+
+
+def build_links(ctx, selected_modules):
+    links_by_module = {}
+    errors = []
+
+    for name in selected_modules:
+        mod = MODULES[name]
+
+        try:
+            links = mod.build(ctx)
+        except Exception as e:
+            errors.append(f"[ERROR] Module failed: {name}: {e}")
+            continue
+
+        if links:
+            links_by_module[name] = links
+
+    return links_by_module, errors
 
 
 def run_ticket(
@@ -155,23 +182,8 @@ def run_ticket(
 
     lines = format_parsed_context(ctx)
     lines.append("")
-
-    links_by_module = {}
-    errors = []
-
-    for name in selected:
-        mod = MODULES[name]
-
-        try:
-            links = mod.build(ctx)
-        except Exception as e:
-            message = f"[ERROR] Module failed: {name}: {e}"
-            errors.append(message)
-            lines.append(message)
-            continue
-
-        if links:
-            links_by_module[name] = links
+    links_by_module, errors = build_links(ctx, selected)
+    lines.extend(errors)
 
     if not links_by_module:
         lines.append("No URLs generated")
