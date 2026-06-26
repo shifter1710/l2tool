@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 import gtool
 import pytest
 from core import parser
-from gtool import format_event_time, format_opensearch_periods, format_parsed_context, format_phone_normalization
+from gtool import format_event_time, format_links, format_opensearch_periods, format_parsed_context, format_phone_normalization
 
 
 def test_format_phone_b_normalization():
@@ -65,6 +65,15 @@ def test_format_opensearch_periods():
     assert format_opensearch_periods(["zapis", "bff", "myconnect", "myconnect_call"]) == [
         "OpenSearch: период поиска с now-1M по now",
         "OpenSearch: период поиска с now-2M по now",
+    ]
+
+
+def test_format_links_uses_human_readable_titles():
+    assert format_links({"zapis": ["https://example.test/a"], "bff": ["https://example.test/b"]}) == [
+        "[Grafana / find-call-in-logs]",
+        "https://example.test/a",
+        "[BFF / OpenSearch]",
+        "https://example.test/b",
     ]
 
 

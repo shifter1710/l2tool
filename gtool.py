@@ -21,7 +21,7 @@ import modules.profile_not_found_myconnect as profile_not_found_myconnect
 import modules.sip_stack_opensearch as sip_stack_opensearch
 
 DEFAULT_FILE = "tickets/current.txt"
-DEFAULT_OPEN = "zapis,bff,myconnect,myconnect_call"
+DEFAULT_OPEN = "zapis,sip_stack,bff,myconnect,myconnect_call"
 DEFAULT_WINDOW = 120
 LOKI_RETENTION_DAYS = 5
 
@@ -220,7 +220,7 @@ def format_links(links_by_module):
     lines = []
 
     for name, links in links_by_module.items():
-        lines.append(f"[{name}]")
+        lines.append(f"[{MODULE_TITLES.get(name, name)}]")
         lines.extend(links)
 
     return lines

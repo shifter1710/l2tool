@@ -35,11 +35,12 @@ DATETIME_FIELDS = (
 )
 
 
-def _issue(field, reason, line, message):
+def _issue(field, reason, line_number, line_text, message):
     return {
         "field": field,
         "reason": reason,
-        "line": line,
+        "line_number": line_number,
+        "line_text": line_text,
         "message": message,
     }
 
@@ -49,9 +50,9 @@ def _find_field_line(text, patterns):
         for pattern in patterns:
             match = re.search(pattern, line, re.IGNORECASE)
             if match:
-                return match.group(1).strip(), line_number
+                return match.group(1).strip(), line_number, line
 
-    return None, 0
+    return None, 0, ""
 
 
 def collect_parse_issues(text, ctx) -> list[dict]:
@@ -63,18 +64,19 @@ def collect_parse_issues(text, ctx) -> list[dict]:
             continue
 
         if ctx.get(field) is None:
-            _, line_number = _find_field_line(text, patterns)
+            _, line_number, line_text = _find_field_line(text, patterns)
             issues.append(
                 _issue(
                     field=field,
                     reason="phone_normalization_failed",
-                    line=line_number,
+                    line_number=line_number,
+                    line_text=line_text,
                     message=f"{title} не распознан: {raw_value}",
                 )
             )
 
     for field, reason, title, patterns, parser_fn in DATETIME_FIELDS:
-        raw_value, line_number = _find_field_line(text, patterns)
+        raw_value, line_number, line_text = _find_field_line(text, patterns)
         if not raw_value or is_empty_phone_value(raw_value):
             continue
 
@@ -83,7 +85,8 @@ def collect_parse_issues(text, ctx) -> list[dict]:
                 _issue(
                     field=field,
                     reason=reason,
-                    line=line_number,
+                    line_number=line_number,
+                    line_text=line_text,
                     message=f"{title} не распознано: {raw_value}",
                 )
             )

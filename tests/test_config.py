@@ -33,11 +33,7 @@ def test_config_reads_local_config(monkeypatch, tmp_path):
 
 
 def test_config_missing_local_file_raises_helpful_error(monkeypatch, tmp_path):
-    example_path = tmp_path / "config.example.toml"
-    example_path.write_text('[defaults]\nenv = "example"\n', encoding="utf-8")
-
-    monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "config.toml")
-    monkeypatch.setattr(config, "EXAMPLE_CONFIG_PATH", example_path)
+    monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "missing-config.toml")
 
     try:
         config.load_config()
