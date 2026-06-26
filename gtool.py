@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 
 import argparse
+from datetime import datetime
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from core import parser
 from core.parser import is_empty_phone_value
@@ -21,6 +23,7 @@ import modules.sip_stack_opensearch as sip_stack_opensearch
 DEFAULT_FILE = "tickets/current.txt"
 DEFAULT_OPEN = "zapis,bff,myconnect,myconnect_call"
 DEFAULT_WINDOW = 120
+LOKI_RETENTION_DAYS = 5
 
 MODULES = {
     "zapis": find_call_in_logs,
@@ -138,6 +141,31 @@ def format_opensearch_periods(selected_modules):
     return lines
 
 
+def format_loki_retention_warning(ctx, now=None):
+    event_date = ctx.get("event_date")
+    event_time = ctx.get("event_time")
+
+    if not event_date and not event_time:
+        return []
+
+    tz = ZoneInfo(ctx.get("tz", "Europe/Moscow"))
+    current = now or datetime.now(tz)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=tz)
+    else:
+        current = current.astimezone(tz)
+
+    if event_time:
+        event_date = event_time.date()
+
+    if event_date and (current.date() - event_date).days > LOKI_RETENTION_DAYS:
+        return [
+            "[WARN] Loki хранит логи только 5 дней. По Grafana/Loki данные могут быть уже недоступны."
+        ]
+
+    return []
+
+
 def format_parsed_context(ctx):
     lines = ["--- Parsed context ---"]
 
@@ -152,6 +180,7 @@ def format_parsed_context(ctx):
         lines.append(f"{label}: {value}")
 
     lines.extend(format_event_time(ctx))
+    lines.extend(format_loki_retention_warning(ctx))
     lines.append(f"Timezone: {ctx.get('tz')}")
     lines.append(f"Window: {ctx.get('window')}")
     lines.append(f"selected_modules: {', '.join(ctx.get('selected_modules', []))}")
