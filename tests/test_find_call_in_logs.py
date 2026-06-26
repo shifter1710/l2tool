@@ -73,6 +73,16 @@ def test_grafana_phone_a_uses_number_without_country_code():
     assert params["var-phone"] == ["9999999999"]
 
 
+def test_grafana_msisdn_deduplicates_after_country_code_strip():
+    ctx = {"phone_a": "79999999999", "msisdn": "9999999999"}
+
+    url = find_call_in_logs.build(ctx)[0]
+    params = parse_qs(urlparse(url).query, keep_blank_values=True)
+
+    assert params["var-phone"] == ["9999999999"]
+    assert params["var-second_phone"] == [""]
+
+
 def test_uses_context_timezone_in_grafana_url():
     ctx = parser.parse("Номер клиента (msisdn): 79990000000")
     ctx["tz"] = "Asia/Omsk"
