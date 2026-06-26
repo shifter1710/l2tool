@@ -2,7 +2,6 @@ from urllib.parse import quote_plus
 
 from core.config import opensearch_base_url, opensearch_index_pattern
 
-OPEN_IN_CHROME = True
 SEARCH_PERIOD = ("now-2M", "now")
 
 

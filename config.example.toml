@@ -2,7 +2,7 @@
 env = "example"
 
 [grafana]
-find_call_dashboard = "https://grafana.example.local/d/example-dashboard/find-call-in-logs"
+find_call_dashboard = "https://grafana.example.local/d/example/find-call-in-logs"
 org_id = "000"
 env = "example"
 env_cluster = "example"

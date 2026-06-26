@@ -15,7 +15,8 @@ def test_bad_phone_creates_issue_and_warning(monkeypatch, tmp_path):
         {
             "field": "msisdn",
             "reason": "phone_normalization_failed",
-            "line": 1,
+            "line_number": 1,
+            "line_text": "Номер клиента (msisdn): 74951234567",
             "message": "Номер клиента не распознан: 74951234567",
         }
     ]
@@ -52,7 +53,8 @@ def test_bad_datetime_creates_issue():
         {
             "field": "event_datetime",
             "reason": "datetime_parse_failed",
-            "line": 1,
+            "line_number": 1,
+            "line_text": "Дата и время проблемного звонка: 32.03.2026 12:00",
             "message": "Дата и время проблемного звонка не распознано: 32.03.2026 12:00",
         }
     ]
