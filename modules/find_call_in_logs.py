@@ -5,7 +5,12 @@ from core.time_windows import event_datetimes, utc_day_window, utc_window
 
 
 def phone_without_country_code(phone):
-    if len(phone) == 11 and phone.startswith("7"):
+    if (
+        isinstance(phone, str)
+        and len(phone) == 11
+        and phone.startswith("7")
+        and phone.isdigit()
+    ):
         return phone[1:]
 
     return phone
