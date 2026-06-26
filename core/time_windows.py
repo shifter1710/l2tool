@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 
@@ -21,3 +21,15 @@ def utc_window(ctx, event_time):
     window = timedelta(minutes=ctx.get("window", 60))
 
     return fmt_utc(utc - window), fmt_utc(utc + window)
+
+
+def utc_day_window(ctx):
+    event_date = ctx.get("event_date")
+    if not event_date:
+        return None
+
+    tz = ZoneInfo(ctx["tz"])
+    start = datetime.combine(event_date, time.min, tzinfo=tz).astimezone(ZoneInfo("UTC"))
+    end = datetime.combine(event_date + timedelta(days=1), time.min, tzinfo=tz).astimezone(ZoneInfo("UTC"))
+
+    return fmt_utc(start), fmt_utc(end)
