@@ -1,4 +1,6 @@
 from types import SimpleNamespace
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import gtool
 import pytest
@@ -35,6 +37,28 @@ def test_format_date_only_event_time():
     assert format_event_time(ctx) == [
         "Найдена только дата события: 2026-05-04, поиск за весь день",
     ]
+
+
+def test_format_loki_retention_warning_for_old_date():
+    ctx = parser.parse("Дата проблемного звонка: 04.05.2026")
+    ctx["tz"] = "Europe/Moscow"
+
+    assert gtool.format_loki_retention_warning(
+        ctx,
+        now=datetime(2026, 5, 10, 12, 0, tzinfo=ZoneInfo("Europe/Moscow")),
+    ) == [
+        "[WARN] Loki хранит логи только 5 дней. По Grafana/Loki данные могут быть уже недоступны."
+    ]
+
+
+def test_format_loki_retention_warning_for_recent_date():
+    ctx = parser.parse("Дата проблемного звонка: 04.05.2026")
+    ctx["tz"] = "Europe/Moscow"
+
+    assert gtool.format_loki_retention_warning(
+        ctx,
+        now=datetime(2026, 5, 8, 12, 0, tzinfo=ZoneInfo("Europe/Moscow")),
+    ) == []
 
 
 def test_format_opensearch_periods():
