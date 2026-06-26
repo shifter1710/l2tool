@@ -19,6 +19,19 @@ def test_problem_call_datetime_builds_absolute_link_window():
     assert "now-1h" not in url
 
 
+def test_problem_call_date_only_builds_full_day_window():
+    ctx = parser.parse("""Номер клиента (msisdn): 79990000000
+Дата проблемного звонка: 04.05.2026
+""")
+    ctx["tz"] = "Europe/Moscow"
+
+    url = find_call_in_logs.build(ctx)[0]
+    params = parse_qs(urlparse(url).query)
+
+    assert params["from"] == ["2026-05-03T21:00:00.000Z"]
+    assert params["to"] == ["2026-05-04T21:00:00.000Z"]
+
+
 def test_multiple_problem_call_datetimes_build_multiple_absolute_links():
     ctx = parser.parse("Дата и время проблемного звонка: 04.05.2026  10-49    11-01")
     ctx["tz"] = "Europe/Moscow"

@@ -29,6 +29,14 @@ def test_format_multiple_event_times():
     ]
 
 
+def test_format_date_only_event_time():
+    ctx = parser.parse("Дата проблемного звонка: 04.05.2026")
+
+    assert format_event_time(ctx) == [
+        "Найдена только дата события: 2026-05-04, поиск за весь день",
+    ]
+
+
 def test_format_opensearch_periods():
     assert format_opensearch_periods(["zapis", "bff", "myconnect", "myconnect_call"]) == [
         "OpenSearch: период поиска с now-1M по now",

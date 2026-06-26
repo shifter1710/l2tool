@@ -1,7 +1,7 @@
 from urllib.parse import urlencode, quote_plus
 
 from core.config import grafana_env, grafana_env_cluster, grafana_find_call_dashboard, grafana_org_id
-from core.time_windows import event_datetimes, utc_window
+from core.time_windows import event_datetimes, utc_day_window, utc_window
 
 
 def phone_without_country_code(phone):
@@ -51,6 +51,10 @@ def build_one(ctx, event_time=None):
 
     if event_time:
         params["from"], params["to"] = utc_window(ctx, event_time)
+    elif ctx.get("event_date") and not ctx.get("event_time"):
+        day_window = utc_day_window(ctx)
+        if day_window:
+            params["from"], params["to"] = day_window
 
     return f"{grafana_find_call_dashboard()}?{urlencode(params, quote_via=quote_plus)}"
 

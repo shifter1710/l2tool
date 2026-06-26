@@ -7,6 +7,7 @@ from pathlib import Path
 
 from core import parser
 from core.parser import is_empty_phone_value
+from core.parser_diagnostics import collect_parse_issues, write_parse_issues
 from core.products import available_products, product_title, resolve_product_modules
 from core.timezones import resolve_timezone
 from core.utils import hash_phone
@@ -112,6 +113,10 @@ def format_event_time(ctx):
             lines.append(f"- {event_datetime:%Y-%m-%d %H:%M:%S}")
     elif ctx.get("event_time"):
         lines.append(f"Найдено время события: {ctx['event_time']:%Y-%m-%d %H:%M:%S}")
+    elif ctx.get("event_date"):
+        lines.append(
+            f"Найдена только дата события: {ctx['event_date']:%Y-%m-%d}, поиск за весь день"
+        )
     else:
         lines.append("Дата/время не найдены — выполняю поиск без привязки ко времени")
 
@@ -229,8 +234,16 @@ def run_ticket(
     selected = resolve_modules(open_arg)
     ctx["selected_modules"] = selected
 
+    issues = collect_parse_issues(text, ctx)
     lines = format_parsed_context(ctx)
     lines.append("")
+
+    for issue in issues:
+        lines.append(f"[WARN] Проблема парсинга: {issue['message']}")
+
+    if issues:
+        write_parse_issues(issues)
+
     links_by_module, errors = build_links(ctx, selected)
     lines.extend(errors)
 
