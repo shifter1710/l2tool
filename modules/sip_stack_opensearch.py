@@ -18,7 +18,7 @@ def build_one(ctx, time_from, time_to):
     if not msisdn:
         return None
 
-    query = quote_plus(msisdn_query(msisdn))
+    query = quote_plus(f"'{msisdn_query(msisdn)}'")
 
     url = (
         f"{opensearch_base_url()}#"
