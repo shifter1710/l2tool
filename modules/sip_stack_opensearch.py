@@ -22,7 +22,7 @@ def build_one(ctx, time_from, time_to):
 
     url = (
         f"{opensearch_base_url()}#"
-        f"?_a=(discover:(columns:!(),isDirty:!f,sort:!()),"
+        f"?_a=(discover:(columns:!(message),isDirty:!f,sort:!()),"
         f"metadata:(indexPattern:{opensearch_index_pattern('sip_stack')},view:discover))"
         f"&_g=(filters:!(),refreshInterval:(pause:!t,value:0),"
         f"time:(from:{time_from},to:{time_to}))"
