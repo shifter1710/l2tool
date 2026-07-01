@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from core import parser
 
 
@@ -135,6 +137,32 @@ def test_parse_datetime_variants():
 
     for raw in cases:
         assert parser.parse_datetime_value(raw) is not None
+
+
+def test_parse_event_datetimes_without_year_uses_current_year():
+    result = parser.parse_event_datetimes("01.07 10:08")
+
+    assert result == [datetime(datetime.now().year, 7, 1, 10, 8)]
+
+
+def test_parse_problem_call_datetime_without_year_variants():
+    current_year = datetime.now().year
+    cases = [
+        "01.07 10:08",
+        "01.07, 10:08",
+        "01.07 в 10:08",
+        "01.07 10-08",
+        "01.07 10.08",
+    ]
+
+    for raw in cases:
+        ctx = parser.parse(f"Дата и время проблемного звонка: {raw}")
+
+        assert str(ctx["event_date"]) == f"{current_year}-07-01"
+        assert str(ctx["event_time"]) == f"{current_year}-07-01 10:08:00"
+        assert [str(value) for value in ctx["event_datetimes"]] == [
+            f"{current_year}-07-01 10:08:00"
+        ]
 
 
 def test_parse_multiple_times_after_problem_call_date():
