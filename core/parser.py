@@ -42,12 +42,18 @@ def parse_event_datetimes(value: str | None):
     if not value:
         return []
 
-    date_match = re.search(r"\d{2}\.\d{2}\.\d{4}", value)
+    date_match = re.search(
+        r"(?<!\d)(?P<day>\d{2})\.(?P<month>\d{2})(?:\.(?P<year>\d{4}))?(?!\d)",
+        value,
+    )
     if not date_match:
         return []
 
+    year = date_match.group("year") or str(datetime.now().year)
+    date_value = f"{date_match.group('day')}.{date_match.group('month')}.{year}"
+
     try:
-        event_date = datetime.strptime(date_match.group(0), "%d.%m.%Y").date()
+        event_date = datetime.strptime(date_value, "%d.%m.%Y").date()
     except ValueError:
         return []
 

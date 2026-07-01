@@ -58,3 +58,9 @@ def test_bad_datetime_creates_issue():
             "message": "Дата и время проблемного звонка не распознано: 32.03.2026 12:00",
         }
     ]
+
+
+def test_datetime_without_year_does_not_create_issue():
+    text = "Дата и время проблемного звонка: 01.07 10:08"
+
+    assert collect_parse_issues(text, parser.parse(text)) == []
