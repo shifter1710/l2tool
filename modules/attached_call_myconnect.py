@@ -35,7 +35,6 @@ def build_one(ctx, time_from, time_to):
     phone_b = ctx.get("phone_b")
 
     if not msisdn:
-        print("[WARN] attached_call_myconnect: msisdn not found, skip")
         return None
 
     query = quote_plus(build_query(msisdn, phone_a, phone_b))

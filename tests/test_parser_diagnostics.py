@@ -6,7 +6,7 @@ from core.parser_diagnostics import collect_parse_issues, write_parse_issues
 
 
 def test_bad_phone_creates_issue_and_warning(monkeypatch, tmp_path):
-    text = "Номер клиента (msisdn): 74951234567"
+    text = "Номер клиента (msisdn): 14951234567"
 
     ctx = parser.parse(text)
     issues = collect_parse_issues(text, ctx)
@@ -16,8 +16,8 @@ def test_bad_phone_creates_issue_and_warning(monkeypatch, tmp_path):
             "field": "msisdn",
             "reason": "phone_normalization_failed",
             "line_number": 1,
-            "line_text": "Номер клиента (msisdn): 74951234567",
-            "message": "Номер клиента не распознан: 74951234567",
+            "line_text": "Номер клиента (msisdn): 14951234567",
+            "message": "Номер клиента не распознан: 14951234567",
         }
     ]
 
