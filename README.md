@@ -20,7 +20,7 @@ Default behavior:
 
 - reads `tickets/current.txt`
 - asks which product profile to use in an interactive terminal
-- uses `zapis,bff,myconnect,myconnect_call` when stdin is not interactive
+- uses `zapis,sip_stack,bff,myconnect,myconnect_call` when stdin is not interactive
 - uses a 120 minute Grafana window
 - prints generated links to stdout
 

@@ -10,7 +10,6 @@ def build_one(ctx, time_from, time_to):
     phone = ctx.get("msisdn") or ctx.get("phone_a") or ctx.get("phone_b")
 
     if not phone:
-        print("[WARN] bff_logs_opensearch: phone not found, skip")
         return None
 
     query_value = hash_phone(phone)

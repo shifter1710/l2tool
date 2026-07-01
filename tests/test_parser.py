@@ -9,15 +9,22 @@ def test_normalize_phone_formats():
         "8 (999) 123-45-67": "79991234567",
         "+7 (999) 123-45-67": "79991234567",
         "999 123-45-67": "79991234567",
+        "84232253015": "74232253015",
+        "4232253015": "74232253015",
+        "74951234567": "74951234567",
     }
 
     for raw, expected in cases.items():
         assert parser.normalize_phone(raw) == expected
 
 
-def test_normalize_phone_invalid_formats():
+def test_normalize_phone_invalid_formats(capsys):
     assert parser.normalize_phone("12345") is None
-    assert parser.normalize_phone("74951234567") is None
+    assert parser.normalize_phone("14951234567") is None
+
+    warnings = capsys.readouterr().err
+    assert "[WARN] Не удалось нормализовать номер: 12345" in warnings
+    assert "[WARN] Не удалось нормализовать номер: 14951234567" in warnings
 
 
 def test_empty_phone_values_are_not_normalized():
@@ -27,12 +34,12 @@ def test_empty_phone_values_are_not_normalized():
 
 def test_parse_normalizes_all_phone_fields():
     ctx = parser.parse("""Номер клиента (msisdn): +7 (999) 123-45-67
-Номер звонящего (А): 8 (999) 765-43-21
+Номер звонящего (А): 8 (423) 225-30-15
 Номер принимающего звонок (Б): 999 111-22-33
 """)
 
     assert ctx["msisdn"] == "79991234567"
-    assert ctx["phone_a"] == "79997654321"
+    assert ctx["phone_a"] == "74232253015"
     assert ctx["phone_b"] == "79991112233"
 
 

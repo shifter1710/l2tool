@@ -10,7 +10,6 @@ def build_one(ctx, time_from, time_to):
     msisdn = ctx.get("msisdn")
 
     if not msisdn:
-        print("[WARN] profile_not_found_myconnect: msisdn not found, skip")
         return None
 
     query = quote_plus(msisdn)

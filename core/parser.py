@@ -1,4 +1,5 @@
 import re
+import sys
 from datetime import datetime
 
 EMPTY_PHONE_VALUES = {"", "-", "любой", "нет", "не указан", "неизвестно"}
@@ -25,17 +26,15 @@ def normalize_phone(value: str | None, allow_landline: bool = False):
 
     digits = re.sub(r"\D", "", value)
 
-    if len(digits) == 10 and digits.startswith("9"):
+    if len(digits) == 10:
         digits = "7" + digits
     elif len(digits) == 11 and digits.startswith("8"):
         digits = "7" + digits[1:]
 
-    if len(digits) == 11 and digits.startswith("79"):
+    if len(digits) == 11 and digits.startswith("7"):
         return digits
 
-    if allow_landline and len(digits) == 11 and digits.startswith("7"):
-        return digits
-
+    print(f"[WARN] Не удалось нормализовать номер: {value}", file=sys.stderr)
     return None
 
 
