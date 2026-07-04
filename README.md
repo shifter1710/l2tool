@@ -44,6 +44,23 @@ Expert mode:
 python3 gtool.py --open zapis,bff
 ```
 
+## Case JSON export
+
+Use `--export-case` to save the parsed ticket context and generated links to a
+structured JSON file for later handoff to `l2-local-ai`:
+
+```bash
+python3 gtool.py --file tickets/current.txt --product recording --export-case cases/current.json
+```
+
+The export contains normalized identifiers, event date/time, selected modules,
+and generated links. It does not include the original ticket text, raw phone
+fields, absolute local paths, config contents, tokens, cookies, or environment
+variables.
+
+Case JSON files can contain customer numbers and internal links. The `cases/`
+directory is ignored by Git.
+
 ## Config
 
 Default config values are stored in `config.example.toml`. Before running the
