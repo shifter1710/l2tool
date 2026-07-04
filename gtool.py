@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from core.case_export import build_case_dict, write_case_json
 from core import parser
 from core.parser import is_empty_phone_value
 from core.parser_diagnostics import collect_parse_issues, write_parse_issues
@@ -295,6 +296,7 @@ def main():
     )
     ap.add_argument("--product", choices=available_products(), help="Product profile")
     ap.add_argument("--window", type=int, default=DEFAULT_WINDOW, help="Window in minutes for Grafana")
+    ap.add_argument("--export-case", help="Path to write parsed case JSON")
 
     args = ap.parse_args()
 
@@ -330,6 +332,17 @@ def main():
         ap.error(str(error))
 
     print("\n" + "\n".join(result.lines))
+
+    if args.export_case:
+        case_data = build_case_dict(
+            result.ctx,
+            result.selected_modules,
+            result.links_by_module,
+            product=args.product,
+            file_name=Path(args.file).name,
+        )
+        output_path = write_case_json(args.export_case, case_data)
+        print(f"Case JSON saved to: {output_path}")
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@ examples/*.txt
 !examples/*.example.txt
 tickets/
 history/
+cases/
 *.ticket.txt
 
 # python
