@@ -338,7 +338,7 @@ def main():
             result.ctx,
             result.selected_modules,
             result.links_by_module,
-            product=args.product,
+            product=product_key,
             file_name=Path(args.file).name,
         )
         output_path = write_case_json(args.export_case, case_data)
