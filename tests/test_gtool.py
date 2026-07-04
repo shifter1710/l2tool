@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 from datetime import datetime
+import json
 from zoneinfo import ZoneInfo
 
 import gtool
@@ -224,3 +225,179 @@ def test_cli_non_interactive_stdin_uses_default_open(monkeypatch, tmp_path):
     gtool.main()
 
     assert selected_open_args == [gtool.DEFAULT_OPEN]
+
+
+def test_cli_product_exports_case_json(monkeypatch, tmp_path, capsys):
+    ticket_path = tmp_path / "tickets" / "current.txt"
+    ticket_path.parent.mkdir()
+    ticket_path.write_text("Номер клиента (msisdn): +7 (999) 123-45-67", encoding="utf-8")
+    export_path = tmp_path / "cases" / "current.json"
+    ctx = {
+        "msisdn": "79991234567",
+        "phone_a": None,
+        "phone_b": None,
+        "event_date": datetime(2026, 5, 4, 10, 49).date(),
+        "event_time": datetime(2026, 5, 4, 10, 49),
+        "event_datetimes": [datetime(2026, 5, 4, 10, 49)],
+        "tz": "Europe/Moscow",
+        "window": 120,
+        "region": None,
+    }
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "gtool.py",
+            "--file",
+            str(ticket_path),
+            "--product",
+            "recording",
+            "--export-case",
+            str(export_path),
+        ],
+    )
+    monkeypatch.setattr(
+        gtool,
+        "run_ticket",
+        lambda text, open_arg, window: SimpleNamespace(
+            ctx=ctx,
+            selected_modules=["zapis", "sip_stack", "bff"],
+            links_by_module={"zapis": ["https://example.test"]},
+            lines=["generated"],
+        ),
+    )
+
+    gtool.main()
+
+    data = json.loads(export_path.read_text(encoding="utf-8"))
+    assert data["product"] == "recording"
+    assert data["source"]["file_name"] == "current.txt"
+    assert data["event"]["time"] == "2026-05-04T10:49:00+03:00"
+    assert "Case JSON saved to: " + str(export_path) in capsys.readouterr().out
+
+
+def test_cli_interactive_product_exports_selected_product(monkeypatch, tmp_path):
+    ticket_path = tmp_path / "ticket.txt"
+    ticket_path.write_text("Номер клиента (msisdn): +7 (999) 123-45-67", encoding="utf-8")
+    export_path = tmp_path / "cases" / "current.json"
+    selected_open_args = []
+
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda prompt: "1")
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "gtool.py",
+            "--file",
+            str(ticket_path),
+            "--export-case",
+            str(export_path),
+        ],
+    )
+    monkeypatch.setattr(
+        gtool,
+        "run_ticket",
+        lambda text, open_arg, window: selected_open_args.append(open_arg)
+        or SimpleNamespace(
+            ctx={"tz": "Europe/Moscow", "window": 120, "event_datetimes": []},
+            selected_modules=["zapis", "sip_stack", "bff"],
+            links_by_module={},
+            lines=["generated"],
+        ),
+    )
+
+    gtool.main()
+
+    data = json.loads(export_path.read_text(encoding="utf-8"))
+    assert data["product"] == "recording"
+    assert selected_open_args == ["zapis,sip_stack,bff"]
+
+
+def test_cli_open_exports_case_json_with_null_product(monkeypatch, tmp_path):
+    ticket_path = tmp_path / "ticket.txt"
+    ticket_path.write_text("Номер клиента (msisdn): +7 (999) 123-45-67", encoding="utf-8")
+    export_path = tmp_path / "cases" / "current.json"
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "gtool.py",
+            "--file",
+            str(ticket_path),
+            "--open",
+            "bff",
+            "--export-case",
+            str(export_path),
+        ],
+    )
+    monkeypatch.setattr(
+        gtool,
+        "run_ticket",
+        lambda text, open_arg, window: SimpleNamespace(
+            ctx={"tz": "Europe/Moscow", "window": 120, "event_datetimes": []},
+            selected_modules=["bff"],
+            links_by_module={},
+            lines=["generated"],
+        ),
+    )
+
+    gtool.main()
+
+    data = json.loads(export_path.read_text(encoding="utf-8"))
+    assert data["product"] is None
+    assert data["search"]["selected_modules"] == ["bff"]
+
+
+def test_cli_non_interactive_default_export_has_null_product(monkeypatch, tmp_path):
+    ticket_path = tmp_path / "ticket.txt"
+    ticket_path.write_text("Номер клиента (msisdn): +7 (999) 123-45-67", encoding="utf-8")
+    export_path = tmp_path / "cases" / "current.json"
+    selected_open_args = []
+
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    monkeypatch.setattr("builtins.input", lambda prompt: pytest.fail("input should not be called"))
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "gtool.py",
+            "--file",
+            str(ticket_path),
+            "--export-case",
+            str(export_path),
+        ],
+    )
+    monkeypatch.setattr(
+        gtool,
+        "run_ticket",
+        lambda text, open_arg, window: selected_open_args.append(open_arg)
+        or SimpleNamespace(
+            ctx={"tz": "Europe/Moscow", "window": 120, "event_datetimes": []},
+            selected_modules=["zapis", "sip_stack", "bff", "myconnect", "myconnect_call"],
+            links_by_module={},
+            lines=["generated"],
+        ),
+    )
+
+    gtool.main()
+
+    data = json.loads(export_path.read_text(encoding="utf-8"))
+    assert data["product"] is None
+    assert selected_open_args == [gtool.DEFAULT_OPEN]
+
+
+def test_cli_without_export_case_does_not_create_json(monkeypatch, tmp_path):
+    ticket_path = tmp_path / "ticket.txt"
+    ticket_path.write_text("Номер клиента (msisdn): +7 (999) 123-45-67", encoding="utf-8")
+    export_path = tmp_path / "cases" / "current.json"
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("sys.argv", ["gtool.py", "--file", str(ticket_path), "--open", "bff"])
+    monkeypatch.setattr(
+        gtool,
+        "run_ticket",
+        lambda text, open_arg, window: SimpleNamespace(lines=["generated"], links_by_module={}),
+    )
+
+    gtool.main()
+
+    assert not export_path.exists()
