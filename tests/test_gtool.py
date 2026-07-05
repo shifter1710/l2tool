@@ -85,9 +85,16 @@ def test_resolve_modules_accepts_known_modules():
 def test_resolve_modules_rejects_unknown_module():
     with pytest.raises(
         ValueError,
-        match="Unknown module: bad. Available: zapis, sip_stack, bff, myconnect, myconnect_call",
+        match=(
+            "Unknown module: bad. Available: "
+            "zapis, sip_stack, bff, myconnect, myconnect_call"
+        ),
     ):
         gtool.resolve_modules("bad")
+
+
+def test_default_open_matches_issue_workflow():
+    assert gtool.DEFAULT_OPEN == "zapis,bff,myconnect,myconnect_call"
 
 
 def test_format_parsed_context_omits_technical_duplicates():
@@ -120,14 +127,32 @@ def test_cli_main_prints_generated_links(monkeypatch, tmp_path, capsys):
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setitem(gtool.MODULES, "dummy", SimpleNamespace(build=lambda ctx: ["https://example.test/logs"]))
+    monkeypatch.setattr(gtool, "open_links", lambda links: None)
     monkeypatch.setattr(
         "sys.argv",
-        ["gtool.py", "--file", str(ticket_path), "--open", "dummy"],
+        [
+            "gtool.py",
+            "--file",
+            str(ticket_path),
+            "--open",
+            "dummy",
+            "--no-history",
+        ],
     )
 
     gtool.main()
 
     assert "https://example.test/logs" in capsys.readouterr().out
+
+
+def test_cli_missing_default_ticket_reports_error(monkeypatch, tmp_path, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("sys.argv", ["gtool.py"])
+
+    with pytest.raises(SystemExit):
+        gtool.main()
+
+    assert "ticket file not found: tickets/current.txt" in capsys.readouterr().err
 
 
 def test_cli_product_and_open_together_error(monkeypatch, capsys):
@@ -148,25 +173,25 @@ def test_cli_product_bff_is_not_allowed(monkeypatch, capsys):
     assert "invalid choice: 'bff'" in capsys.readouterr().err
 
 
-def test_cli_menu_selection_uses_recording(monkeypatch, tmp_path, capsys):
+def test_cli_plain_run_uses_default_open_without_menu(monkeypatch, tmp_path):
     ticket_path = tmp_path / "ticket.txt"
     ticket_path.write_text("Номер клиента (msisdn): +7 (999) 123-45-67", encoding="utf-8")
     selected_open_args = []
 
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
-    monkeypatch.setattr("builtins.input", lambda prompt: "1")
+    monkeypatch.setattr("builtins.input", lambda prompt: pytest.fail("input should not be called"))
     monkeypatch.setattr("sys.argv", ["gtool.py", "--file", str(ticket_path)])
+    monkeypatch.setattr(gtool, "open_links", lambda links: None)
     monkeypatch.setattr(
         gtool,
         "run_ticket",
-        lambda text, open_arg, window: selected_open_args.append(open_arg)
+        lambda text, open_arg, window, **kwargs: selected_open_args.append(open_arg)
         or SimpleNamespace(lines=["generated"], links_by_module={}),
     )
 
     gtool.main()
 
-    assert "1. Запись" in capsys.readouterr().out
-    assert selected_open_args == ["zapis,sip_stack,bff"]
+    assert selected_open_args == [gtool.DEFAULT_OPEN]
 
 
 def test_cli_product_skips_input(monkeypatch, tmp_path):
@@ -176,10 +201,11 @@ def test_cli_product_skips_input(monkeypatch, tmp_path):
 
     monkeypatch.setattr("builtins.input", lambda prompt: pytest.fail("input should not be called"))
     monkeypatch.setattr("sys.argv", ["gtool.py", "--file", str(ticket_path), "--product", "recording"])
+    monkeypatch.setattr(gtool, "open_links", lambda links: None)
     monkeypatch.setattr(
         gtool,
         "run_ticket",
-        lambda text, open_arg, window: selected_open_args.append(open_arg)
+        lambda text, open_arg, window, **kwargs: selected_open_args.append(open_arg)
         or SimpleNamespace(lines=["generated"], links_by_module={}),
     )
 
@@ -195,10 +221,11 @@ def test_cli_open_skips_input(monkeypatch, tmp_path):
 
     monkeypatch.setattr("builtins.input", lambda prompt: pytest.fail("input should not be called"))
     monkeypatch.setattr("sys.argv", ["gtool.py", "--file", str(ticket_path), "--open", "bff"])
+    monkeypatch.setattr(gtool, "open_links", lambda links: None)
     monkeypatch.setattr(
         gtool,
         "run_ticket",
-        lambda text, open_arg, window: selected_open_args.append(open_arg)
+        lambda text, open_arg, window, **kwargs: selected_open_args.append(open_arg)
         or SimpleNamespace(lines=["generated"], links_by_module={}),
     )
 
@@ -215,10 +242,11 @@ def test_cli_non_interactive_stdin_uses_default_open(monkeypatch, tmp_path):
     monkeypatch.setattr("sys.stdin.isatty", lambda: False)
     monkeypatch.setattr("builtins.input", lambda prompt: pytest.fail("input should not be called"))
     monkeypatch.setattr("sys.argv", ["gtool.py", "--file", str(ticket_path)])
+    monkeypatch.setattr(gtool, "open_links", lambda links: None)
     monkeypatch.setattr(
         gtool,
         "run_ticket",
-        lambda text, open_arg, window: selected_open_args.append(open_arg)
+        lambda text, open_arg, window, **kwargs: selected_open_args.append(open_arg)
         or SimpleNamespace(lines=["generated"], links_by_module={}),
     )
 
@@ -259,7 +287,7 @@ def test_cli_product_exports_case_json(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(
         gtool,
         "run_ticket",
-        lambda text, open_arg, window: SimpleNamespace(
+        lambda text, open_arg, window, **kwargs: SimpleNamespace(
             ctx=ctx,
             selected_modules=["zapis", "sip_stack", "bff"],
             links_by_module={"zapis": ["https://example.test"]},
@@ -297,7 +325,7 @@ def test_cli_interactive_product_exports_selected_product(monkeypatch, tmp_path)
     monkeypatch.setattr(
         gtool,
         "run_ticket",
-        lambda text, open_arg, window: selected_open_args.append(open_arg)
+        lambda text, open_arg, window, **kwargs: selected_open_args.append(open_arg)
         or SimpleNamespace(
             ctx={"tz": "Europe/Moscow", "window": 120, "event_datetimes": []},
             selected_modules=["zapis", "sip_stack", "bff"],
@@ -333,7 +361,7 @@ def test_cli_open_exports_case_json_with_null_product(monkeypatch, tmp_path):
     monkeypatch.setattr(
         gtool,
         "run_ticket",
-        lambda text, open_arg, window: SimpleNamespace(
+        lambda text, open_arg, window, **kwargs: SimpleNamespace(
             ctx={"tz": "Europe/Moscow", "window": 120, "event_datetimes": []},
             selected_modules=["bff"],
             links_by_module={},
@@ -369,7 +397,7 @@ def test_cli_non_interactive_default_export_has_null_product(monkeypatch, tmp_pa
     monkeypatch.setattr(
         gtool,
         "run_ticket",
-        lambda text, open_arg, window: selected_open_args.append(open_arg)
+        lambda text, open_arg, window, **kwargs: selected_open_args.append(open_arg)
         or SimpleNamespace(
             ctx={"tz": "Europe/Moscow", "window": 120, "event_datetimes": []},
             selected_modules=["zapis", "sip_stack", "bff", "myconnect", "myconnect_call"],
@@ -395,7 +423,9 @@ def test_cli_without_export_case_does_not_create_json(monkeypatch, tmp_path):
     monkeypatch.setattr(
         gtool,
         "run_ticket",
-        lambda text, open_arg, window: SimpleNamespace(lines=["generated"], links_by_module={}),
+        lambda text, open_arg, window, **kwargs: SimpleNamespace(
+            lines=["generated"], links_by_module={}
+        ),
     )
 
     gtool.main()
