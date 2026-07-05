@@ -19,29 +19,21 @@ python3 gtool.py
 Default behavior:
 
 - reads `tickets/current.txt`
-- asks which product profile to use in an interactive terminal
-- uses `zapis,sip_stack,bff,myconnect,myconnect_call` when stdin is not interactive
+- opens `zapis,bff,myconnect,myconnect_call`
 - uses a 120 minute Grafana window
+- prints prior local history matches
 - prints generated links to stdout
+- opens generated links in the browser
+- saves a local YAML archive under `history/`
 
 Useful overrides:
 
 ```bash
 python3 gtool.py --file tickets/other.txt
-python3 gtool.py --product recording
-python3 gtool.py --window 60
-```
-
-Fast mode without the menu:
-
-```bash
-python3 gtool.py --product recording
-```
-
-Expert mode:
-
-```bash
 python3 gtool.py --open zapis,bff
+python3 gtool.py --window 60
+python3 gtool.py --no-history
+python3 gtool.py --dry-run
 ```
 
 ## Case JSON export
@@ -60,6 +52,15 @@ variables.
 
 Case JSON files can contain customer numbers and internal links. The `cases/`
 directory is ignored by Git.
+
+Product profile mode:
+
+```bash
+python3 gtool.py --product recording
+```
+
+`--dry-run` parses the ticket, prints history matches and generated links, but
+does not save history and does not open browser links.
 
 ## Config
 

@@ -5,9 +5,11 @@ from datetime import datetime
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+import webbrowser
 from zoneinfo import ZoneInfo
 
 from core.case_export import build_case_dict, write_case_json
+from core import history
 from core import parser
 from core.parser import is_empty_phone_value
 from core.parser_diagnostics import collect_parse_issues, write_parse_issues
@@ -22,7 +24,7 @@ import modules.profile_not_found_myconnect as profile_not_found_myconnect
 import modules.sip_stack_opensearch as sip_stack_opensearch
 
 DEFAULT_FILE = "tickets/current.txt"
-DEFAULT_OPEN = "zapis,sip_stack,bff,myconnect,myconnect_call"
+DEFAULT_OPEN = "zapis,bff,myconnect,myconnect_call"
 DEFAULT_WINDOW = 120
 LOKI_RETENTION_DAYS = 5
 
@@ -227,6 +229,12 @@ def format_links(links_by_module):
     return lines
 
 
+def open_links(links_by_module):
+    for links in links_by_module.values():
+        for link in links:
+            webbrowser.open(link)
+
+
 def prompt_product():
     products = available_products()
     print("Выберите продукт:")
@@ -257,6 +265,10 @@ def run_ticket(
     text,
     open_arg=DEFAULT_OPEN,
     window=DEFAULT_WINDOW,
+    input_file=DEFAULT_FILE,
+    save_history=False,
+    history_root=history.HISTORY_ROOT,
+    write_diagnostics=True,
 ):
     ctx = parser.parse(text)
     ctx["tz"] = resolve_timezone(ctx.get("region"))
@@ -271,17 +283,37 @@ def run_ticket(
     for issue in issues:
         lines.append(f"[WARN] Проблема парсинга: {issue['message']}")
 
-    if issues:
+    if issues and write_diagnostics:
         write_parse_issues(issues)
+
+    matches = history.find_matches(ctx, history_root=history_root)
+    lines.extend(history.format_matches(matches))
+    lines.append("")
 
     links_by_module, errors = build_links(ctx, selected)
     lines.extend(errors)
 
+    saved_history_path = None
+    if save_history:
+        saved_history_path = history.save_ticket_history(
+            ctx=ctx,
+            input_file=input_file,
+            raw_ticket=text,
+            links_by_module=links_by_module,
+            history_root=history_root,
+        )
+
     if not links_by_module:
         lines.append("No URLs generated")
+        if saved_history_path:
+            lines.append(f"History saved: {saved_history_path.as_posix()}")
         return RunResult(ctx, selected, links_by_module, lines, errors)
 
     lines.extend(format_links(links_by_module))
+
+    if saved_history_path:
+        lines.append("")
+        lines.append(f"History saved: {saved_history_path.as_posix()}")
 
     return RunResult(ctx, selected, links_by_module, lines, errors)
 
@@ -297,6 +329,12 @@ def main():
     ap.add_argument("--product", choices=available_products(), help="Product profile")
     ap.add_argument("--window", type=int, default=DEFAULT_WINDOW, help="Window in minutes for Grafana")
     ap.add_argument("--export-case", help="Path to write parsed case JSON")
+    ap.add_argument("--no-history", action="store_true", help="Do not save a history archive")
+    ap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Parse, match history and print links without saving history or opening browser links",
+    )
 
     args = ap.parse_args()
 
@@ -304,7 +342,7 @@ def main():
         ap.error("Use either --product or --open, not both")
 
     product_key = args.product
-    if not product_key and not args.open and sys.stdin.isatty():
+    if args.export_case and not product_key and not args.open and sys.stdin.isatty():
         try:
             product_key = prompt_product()
         except ValueError as error:
@@ -327,6 +365,9 @@ def main():
             text,
             open_arg=open_arg,
             window=args.window,
+            input_file=args.file,
+            save_history=not args.no_history and not args.dry_run,
+            write_diagnostics=not args.dry_run,
         )
     except ValueError as error:
         ap.error(str(error))
@@ -343,6 +384,9 @@ def main():
         )
         output_path = write_case_json(args.export_case, case_data)
         print(f"Case JSON saved to: {output_path}")
+
+    if not args.dry_run:
+        open_links(result.links_by_module)
 
 
 if __name__ == "__main__":
