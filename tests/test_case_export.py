@@ -1,7 +1,7 @@
 import json
 from datetime import date, datetime
 
-from core.case_export import build_case_dict, write_case_json
+from core.case_export import build_case_dict, parsed_sidecar_path, write_case_json
 
 
 def test_build_case_dict_exports_structured_context_without_raw_values():
@@ -38,7 +38,10 @@ def test_build_case_dict_exports_structured_context_without_raw_values():
         "identifiers": {
             "msisdn": "79991234567",
             "phone_a": "74232253015",
+            "phone_a_values": [],
             "phone_b": "73912777454",
+            "phone_b_values": [],
+            "call_uuid": "",
         },
         "event": {
             "timezone": "Europe/Moscow",
@@ -48,7 +51,13 @@ def test_build_case_dict_exports_structured_context_without_raw_values():
                 "2026-05-04T10:49:00+03:00",
                 "2026-05-04T11:01:00+03:00",
             ],
+            "time_range": [],
             "window_minutes": 120,
+        },
+        "interpretation": {
+            "problem_scope": None,
+            "event_date_source": None,
+            "phone_a_partial": False,
         },
         "location": {
             "region": "Москва",
@@ -63,6 +72,7 @@ def test_build_case_dict_exports_structured_context_without_raw_values():
         "source": {
             "tool": "l2tool",
             "file_name": "current.txt",
+            "submitted_at_msk": None,
         },
     }
 
@@ -104,3 +114,9 @@ def test_write_case_json_creates_parent_and_writes_utf8_pretty_json(tmp_path):
     assert "  " in raw
     assert "Москва" in raw
     assert json.loads(raw) == data
+
+
+def test_parsed_sidecar_path_is_next_to_input():
+    assert parsed_sidecar_path("tickets/current.txt").as_posix() == (
+        "tickets/current.parsed.json"
+    )

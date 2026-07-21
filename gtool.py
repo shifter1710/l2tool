@@ -8,7 +8,7 @@ from pathlib import Path
 import webbrowser
 from zoneinfo import ZoneInfo
 
-from core.case_export import build_case_dict, write_case_json
+from core.case_export import build_case_dict, parsed_sidecar_path, write_case_json
 from core import history
 from core import parser
 from core.parser import is_empty_phone_value
@@ -389,14 +389,17 @@ def main():
 
     print("\n" + "\n".join(result.lines))
 
+    case_data = build_case_dict(
+        result.ctx,
+        result.selected_modules,
+        result.links_by_module,
+        product=product_key,
+        file_name=Path(args.file).name,
+    )
+    sidecar_path = write_case_json(parsed_sidecar_path(args.file), case_data)
+    print(f"Parsed case saved to: {sidecar_path}")
+
     if args.export_case:
-        case_data = build_case_dict(
-            result.ctx,
-            result.selected_modules,
-            result.links_by_module,
-            product=product_key,
-            file_name=Path(args.file).name,
-        )
         output_path = write_case_json(args.export_case, case_data)
         print(f"Case JSON saved to: {output_path}")
 
