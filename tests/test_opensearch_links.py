@@ -31,3 +31,17 @@ def test_opensearch_links_stay_single_and_wide_with_multiple_event_times():
     assert len(attached_urls) == 1
     assert "time:(from:now-2M,to:now)" in attached_urls[0]
     assert "2026-05-04T" not in attached_urls[0]
+
+
+def test_myconnect_call_builds_link_per_participant():
+    ctx = parser.parse(
+        """Номер клиента (msisdn): 79990000000
+Номер принимающего звонок (Б): 79173442804, 79087803930
+"""
+    )
+
+    urls = attached_call_myconnect.build(ctx)
+
+    assert len(urls) == 2
+    assert "sip%3A%2B79173442804" in urls[0]
+    assert "sip%3A%2B79087803930" in urls[1]

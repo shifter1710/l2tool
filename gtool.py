@@ -110,11 +110,15 @@ def format_event_time(ctx):
     event_count = len(ctx.get("event_datetimes", []))
     lines = []
 
+    if ctx.get("problem_scope") == "general":
+        lines.append("Похоже на общую проблему: поиск за предыдущий день с 08:00 до 20:00")
+
     if ctx.get("event_time_range"):
         start, end = ctx["event_time_range"]
-        return [
+        lines.append(
             f"Найден диапазон времени события: {start:%Y-%m-%d %H:%M:%S} - {end:%Y-%m-%d %H:%M:%S}"
-        ]
+        )
+        return lines
 
     if event_count:
         lines.append(f"События звонков найдены: {event_count}")
@@ -185,8 +189,13 @@ def format_parsed_context(ctx):
         ("Номер Б", "phone_b"),
     ]
     for label, field_name in number_lines:
-        value = ctx.get(field_name) or phone_fields.get(field_name) or "не найден"
+        values = ctx.get(f"{field_name}_values") or []
+        value = ", ".join(values) if values else ctx.get(field_name)
+        value = value or phone_fields.get(field_name) or "не найден"
         lines.append(f"{label}: {value}")
+
+    if ctx.get("phone_a_partial"):
+        lines.append("Номер А распознан частично: используется известный префикс")
 
     lines.extend(format_event_time(ctx))
     lines.extend(format_loki_retention_warning(ctx))

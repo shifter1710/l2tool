@@ -63,6 +63,38 @@ def test_explicit_hour_range_builds_one_exact_window():
     assert params["to"] == ["2026-05-19T13:00:00.000Z"]
 
 
+def test_multiple_participants_build_separate_links_with_client():
+    ctx = parser.parse(
+        """Номер клиента (msisdn): 79990000000
+Номер звонящего (А): 89189846065, 89028914449
+Дата и время проблемного звонка: 14.07.2026 12:00
+"""
+    )
+    ctx["tz"] = "Europe/Moscow"
+    ctx["window"] = 60
+
+    params = [parse_qs(urlparse(url).query) for url in find_call_in_logs.build(ctx)]
+
+    assert len(params) == 2
+    assert [item["var-phone"] for item in params] == [["9189846065"], ["9028914449"]]
+    assert [item["var-second_phone"] for item in params] == [["9990000000"], ["9990000000"]]
+
+
+def test_partial_phone_is_second_search_number():
+    ctx = parser.parse(
+        """Номер клиента (msisdn): 79990000000
+Номер звонящего (А): +7916.. в разделе звонки не отображается информация
+Дата и время проблемного звонка: 14.07.2026 12:00
+"""
+    )
+    ctx["tz"] = "Europe/Moscow"
+
+    params = parse_qs(urlparse(find_call_in_logs.build(ctx)[0]).query)
+
+    assert params["var-phone"] == ["9990000000"]
+    assert params["var-second_phone"] == ["916"]
+
+
 def test_does_not_duplicate_same_phone_in_grafana_params():
     ctx = parser.parse("""Номер клиента (msisdn): 79144880859
 Номер звонящего (А): любой
