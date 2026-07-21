@@ -2,7 +2,24 @@ import re
 import sys
 from datetime import datetime
 
-EMPTY_PHONE_VALUES = {"", "-", "любой", "нет", "не указан", "неизвестно"}
+EMPTY_PHONE_VALUES = {
+    "",
+    "-",
+    "все",
+    "все звонки",
+    "все номера",
+    "любой",
+    "любой номер",
+    "не знает",
+    "не указал",
+    "не указан",
+    "неизвестно",
+    "нет",
+}
+EMPTY_PHONE_PREFIXES = (
+    "все звонки",
+    "все номера не запис",
+)
 
 
 def find_field(text: str, patterns: list[str]):
@@ -17,7 +34,8 @@ def is_empty_phone_value(value: str | None):
     if value is None:
         return True
 
-    return value.strip().lower() in EMPTY_PHONE_VALUES
+    normalized = value.strip().lower()
+    return normalized in EMPTY_PHONE_VALUES or normalized.startswith(EMPTY_PHONE_PREFIXES)
 
 
 def normalize_phone(value: str | None, allow_landline: bool = False):

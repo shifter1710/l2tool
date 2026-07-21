@@ -80,7 +80,11 @@ def collect_parse_issues(text, ctx) -> list[dict]:
         if not raw_value or is_empty_phone_value(raw_value):
             continue
 
-        if parser_fn(raw_value) is None:
+        parsed_value = parser_fn(raw_value)
+        if field == "event_datetime":
+            parsed_value = ctx.get("event_time") or ctx.get("event_date")
+
+        if parsed_value is None:
             issues.append(
                 _issue(
                     field=field,

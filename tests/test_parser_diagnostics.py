@@ -64,3 +64,17 @@ def test_datetime_without_year_does_not_create_issue():
     text = "Дата и время проблемного звонка: 01.07 10:08"
 
     assert collect_parse_issues(text, parser.parse(text)) == []
+
+
+def test_date_without_time_does_not_create_datetime_issue():
+    text = "Дата и время проблемного звонка: 31.03.2026"
+
+    assert collect_parse_issues(text, parser.parse(text)) == []
+
+
+def test_common_unspecified_phone_values_do_not_create_issues():
+    text = """Номер звонящего (А): все номера не записываются
+Номер принимающего звонок (Б): не знает
+"""
+
+    assert collect_parse_issues(text, parser.parse(text)) == []
