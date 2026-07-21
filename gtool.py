@@ -101,7 +101,7 @@ def format_phone_normalization(ctx):
         elif is_empty_phone_value(raw_value):
             lines.append(f"{label} не задан: {raw_value}")
         else:
-            lines.append(f"Не удалось нормализовать номер {label}: {raw_value}")
+            lines.append(f"[WARN] Не удалось нормализовать номер {label}: {raw_value}")
 
     return lines
 
@@ -111,7 +111,9 @@ def format_event_time(ctx):
     lines = []
 
     if ctx.get("problem_scope") == "general":
-        lines.append("Похоже на общую проблему: поиск за предыдущий день с 08:00 до 20:00")
+        lines.append(
+            "[WARN] Похоже на общую проблему: поиск за предыдущий день с 08:00 до 20:00"
+        )
 
     if ctx.get("event_time_range"):
         start, end = ctx["event_time_range"]
@@ -134,7 +136,7 @@ def format_event_time(ctx):
             f"Найдена только дата события: {ctx['event_date']:%Y-%m-%d}, поиск с 08:00 до 20:00"
         )
     else:
-        lines.append("Дата/время не найдены — выполняю поиск без привязки ко времени")
+        lines.append("[WARN] Дата/время не найдены — выполняю поиск без привязки ко времени")
 
     return lines
 
@@ -195,10 +197,9 @@ def format_parsed_context(ctx):
         lines.append(f"{label}: {value}")
 
     if ctx.get("phone_a_partial"):
-        lines.append("Номер А распознан частично: используется известный префикс")
+        lines.append("[WARN] Номер А распознан частично: используется известный префикс")
 
     lines.extend(format_event_time(ctx))
-    lines.extend(format_loki_retention_warning(ctx))
     lines.append(f"Timezone: {ctx.get('tz')}")
     lines.append(f"Window: {ctx.get('window')}")
     lines.append(f"selected_modules: {', '.join(ctx.get('selected_modules', []))}")
@@ -206,13 +207,31 @@ def format_parsed_context(ctx):
     lines.extend(format_phone_normalization(ctx))
 
     if ctx.get("msisdn_raw") and not ctx.get("msisdn"):
-        lines.append("Поиск по msisdn пропущен")
+        lines.append("[WARN] Поиск по msisdn пропущен")
 
     if ctx.get("msisdn"):
         lines.append(f"msisdn_hash: {hash_phone(ctx['msisdn'])}")
 
     lines.append("----------------------")
     return lines
+
+
+def partition_warnings(lines):
+    regular = []
+    warnings = []
+    for line in lines:
+        if line.startswith(("[WARN]", "[ERROR]")):
+            warnings.append(line)
+        else:
+            regular.append(line)
+    return regular, warnings
+
+
+def format_warnings(warnings):
+    if not warnings:
+        return []
+
+    return ["--- Warnings and errors ---", *warnings, "---------------------------"]
 
 
 def build_links(ctx, selected_modules):
@@ -292,11 +311,12 @@ def run_ticket(
     ctx["selected_modules"] = selected
 
     issues = collect_parse_issues(text, ctx)
-    lines = format_parsed_context(ctx)
+    lines, warnings = partition_warnings(format_parsed_context(ctx))
+    warnings.extend(format_loki_retention_warning(ctx))
     lines.append("")
 
     for issue in issues:
-        lines.append(f"[WARN] Проблема парсинга: {issue['message']}")
+        warnings.append(f"[WARN] Проблема парсинга: {issue['message']}")
 
     if issues and write_diagnostics:
         write_parse_issues(issues)
@@ -306,7 +326,7 @@ def run_ticket(
     lines.append("")
 
     links_by_module, errors = build_links(ctx, selected)
-    lines.extend(errors)
+    warnings.extend(errors)
 
     saved_history_path = None
     if save_history:
@@ -319,11 +339,17 @@ def run_ticket(
         )
 
     if not links_by_module:
+        lines.extend(format_warnings(warnings))
+        if warnings:
+            lines.append("")
         lines.append("No URLs generated")
         if saved_history_path:
             lines.append(f"History saved: {saved_history_path.as_posix()}")
         return RunResult(ctx, selected, links_by_module, lines, errors)
 
+    lines.extend(format_warnings(warnings))
+    if warnings:
+        lines.append("")
     lines.extend(format_links(links_by_module))
 
     if saved_history_path:
