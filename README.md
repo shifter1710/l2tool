@@ -2,6 +2,35 @@
 
 L2 ticket helper CLI.
 
+## Requirements
+
+- Python 3.10 or newer (CI runs on Python 3.12)
+- access to the Grafana and OpenSearch instances configured for your environment
+
+Install the runtime dependency:
+
+```bash
+python3 -m pip install -r requirements.txt
+```
+
+## Setup
+
+Create the local configuration from the supplied template:
+
+```bash
+cp config.example.toml config.toml
+```
+
+Replace every example URL, environment name, organization ID, and index pattern
+in `config.toml` with values for your environment. The local file is ignored by
+git and must not be committed.
+
+Create the local ticket directory, which is also ignored by git:
+
+```bash
+mkdir -p tickets
+```
+
 ## Default workflow
 
 Paste the current ticket into:
@@ -59,19 +88,44 @@ Product profile mode:
 python3 gtool.py --product recording
 ```
 
+Available product profiles:
+
+| Profile | Product | Modules |
+| --- | --- | --- |
+| `recording` | Запись | `zapis`, `sip_stack`, `bff` |
+| `secretary` | Секретарь | `bff` |
+| `calls` | Звонки | `myconnect`, `myconnect_call` |
+| `noise` | Шумоподавление | not configured yet |
+| `assistant` | Ассистент в звонке | not configured yet |
+
+Use either `--product` or `--open`; the options cannot be combined. Pass
+`--open all` to run every configured module.
+
 `--dry-run` parses the ticket, prints history matches and generated links, but
-does not save history and does not open browser links.
+does not save history, write parser diagnostics, or open browser links.
 
-## Config
-
-Default config values are stored in `config.example.toml`. Before running the
-tool, copy it to `config.toml` and fill real values in the local file:
+To verify the setup without using a real ticket or opening a browser:
 
 ```bash
-cp config.example.toml config.toml
+python3 gtool.py --file examples/ticket.example.txt --dry-run
 ```
 
-`config.toml` is ignored by git and is not committed.
+## Local data and privacy
+
+Ticket data can contain phone numbers and other sensitive information. The tool
+stores the following data locally:
+
+- `tickets/` contains ticket text supplied by the user.
+- `history/` contains YAML archives with the original ticket text, parsed
+  fields, generated links, and phone numbers. The primary phone number is also
+  included in each archive filename.
+- `history/index.json` indexes archive paths by phone number.
+- `parser_issues/parser_issues.jsonl` records unparsed source lines when parser
+  diagnostics are produced.
+
+These paths are ignored by git. `--no-history` prevents creation of a history
+archive but does not disable parser diagnostics. Use `--dry-run` when neither
+history nor parser diagnostics should be written.
 
 ## Modules
 
@@ -79,4 +133,14 @@ cp config.example.toml config.toml
 - `sip_stack` - search SIP stack logs in OpenSearch by client `msisdn`.
 - `bff` - search BFF logs in OpenSearch.
 - `myconnect` - search `profile not found` cases in MyConnect.
-- `myconnect_call` - search MyConnect logs for an attached/problem call using `master:<msisdn>` and SIP participant.
+- `myconnect_call` - search MyConnect logs for an attached/problem call using
+  `master:<msisdn>` and the SIP participant.
+
+## Development
+
+Install the test dependency and run the test suite:
+
+```bash
+python3 -m pip install pytest
+python3 -m pytest -q
+```
