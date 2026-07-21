@@ -187,3 +187,62 @@ def test_parse_multiple_times_after_problem_call_date():
         "2026-05-04 11:01:00",
     ]
     assert str(ctx["event_time"]) == "2026-05-04 10:49:00"
+
+
+def test_parse_comma_date_and_time_separators():
+    cases = {
+        "02,07,2026 10:16": ["2026-07-02 10:16:00"],
+        "28.06.2026 15,24": ["2026-06-28 15:24:00"],
+        "02,07,2026 10,16": ["2026-07-02 10:16:00"],
+    }
+
+    for raw, expected in cases.items():
+        ctx = parser.parse(f"Дата и время проблемного звонка: {raw}")
+
+        assert [str(value) for value in ctx["event_datetimes"]] == expected
+
+
+def test_parse_two_digit_year_and_hour_range():
+    ctx = parser.parse(
+        "Дата и время проблемного звонка: 19.05.26, примерно днем, с 12 до 16"
+    )
+
+    assert str(ctx["event_date"]) == "2026-05-19"
+    assert tuple(str(value) for value in ctx["event_time_range"]) == (
+        "2026-05-19 12:00:00",
+        "2026-05-19 16:00:00",
+    )
+    assert ctx["event_datetimes"] == []
+
+
+def test_parse_times_before_shared_date():
+    ctx = parser.parse(
+        "Дата и время проблемного звонка: 16.37 и 16.13 и 16.04 01.07.2026"
+    )
+
+    assert [str(value) for value in ctx["event_datetimes"]] == [
+        "2026-07-01 16:37:00",
+        "2026-07-01 16:13:00",
+        "2026-07-01 16:04:00",
+    ]
+
+
+def test_parse_time_before_date():
+    ctx = parser.parse("Дата и время проблемного звонка: 19:43 05.07.2026")
+
+    assert str(ctx["event_time"]) == "2026-07-05 19:43:00"
+
+
+def test_parse_prefixed_date_without_time():
+    ctx = parser.parse("Дата и время проблемного звонка: С 14.06.2026")
+
+    assert str(ctx["event_date"]) == "2026-06-14"
+    assert ctx["event_time"] is None
+
+
+def test_date_range_remains_unparsed():
+    ctx = parser.parse("Дата и время проблемного звонка: 23.06.-30.06.")
+
+    assert ctx["event_date"] is None
+    assert ctx["event_time"] is None
+    assert ctx["event_datetimes"] == []

@@ -1,7 +1,7 @@
 from urllib.parse import urlencode, quote_plus
 
 from core.config import grafana_env, grafana_env_cluster, grafana_find_call_dashboard, grafana_org_id
-from core.time_windows import event_datetimes, utc_day_window, utc_window
+from core.time_windows import event_datetimes, utc_day_window, utc_range, utc_window
 
 
 def phone_without_country_code(phone):
@@ -54,7 +54,9 @@ def build_one(ctx, event_time=None):
         "var-env_cluster": grafana_env_cluster(),
     }
 
-    if event_time:
+    if ctx.get("event_time_range"):
+        params["from"], params["to"] = utc_range(ctx, ctx["event_time_range"])
+    elif event_time:
         params["from"], params["to"] = utc_window(ctx, event_time)
     elif ctx.get("event_date") and not ctx.get("event_time"):
         day_window = utc_day_window(ctx)
@@ -65,6 +67,9 @@ def build_one(ctx, event_time=None):
 
 
 def build(ctx):
+    if ctx.get("event_time_range"):
+        return [build_one(ctx)]
+
     values = event_datetimes(ctx)
 
     if values:

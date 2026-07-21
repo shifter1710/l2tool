@@ -110,6 +110,12 @@ def format_event_time(ctx):
     event_count = len(ctx.get("event_datetimes", []))
     lines = []
 
+    if ctx.get("event_time_range"):
+        start, end = ctx["event_time_range"]
+        return [
+            f"Найден диапазон времени события: {start:%Y-%m-%d %H:%M:%S} - {end:%Y-%m-%d %H:%M:%S}"
+        ]
+
     if event_count:
         lines.append(f"События звонков найдены: {event_count}")
 
@@ -121,7 +127,7 @@ def format_event_time(ctx):
         lines.append(f"Найдено время события: {ctx['event_time']:%Y-%m-%d %H:%M:%S}")
     elif ctx.get("event_date"):
         lines.append(
-            f"Найдена только дата события: {ctx['event_date']:%Y-%m-%d}, поиск за весь день"
+            f"Найдена только дата события: {ctx['event_date']:%Y-%m-%d}, поиск с 08:00 до 20:00"
         )
     else:
         lines.append("Дата/время не найдены — выполняю поиск без привязки ко времени")

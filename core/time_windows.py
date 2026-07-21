@@ -29,7 +29,15 @@ def utc_day_window(ctx):
         return None
 
     tz = ZoneInfo(ctx["tz"])
-    start = datetime.combine(event_date, time.min, tzinfo=tz).astimezone(ZoneInfo("UTC"))
-    end = datetime.combine(event_date + timedelta(days=1), time.min, tzinfo=tz).astimezone(ZoneInfo("UTC"))
+    start = datetime.combine(event_date, time(hour=8), tzinfo=tz).astimezone(ZoneInfo("UTC"))
+    end = datetime.combine(event_date, time(hour=20), tzinfo=tz).astimezone(ZoneInfo("UTC"))
 
     return fmt_utc(start), fmt_utc(end)
+
+
+def utc_range(ctx, event_time_range):
+    tz = ZoneInfo(ctx["tz"])
+    start, end = event_time_range
+    start_utc = start.replace(tzinfo=tz).astimezone(ZoneInfo("UTC"))
+    end_utc = end.replace(tzinfo=tz).astimezone(ZoneInfo("UTC"))
+    return fmt_utc(start_utc), fmt_utc(end_utc)

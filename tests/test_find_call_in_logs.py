@@ -19,7 +19,7 @@ def test_problem_call_datetime_builds_absolute_link_window():
     assert "now-1h" not in url
 
 
-def test_problem_call_date_only_builds_full_day_window():
+def test_problem_call_date_only_builds_working_day_window():
     ctx = parser.parse("""Номер клиента (msisdn): 79990000000
 Дата проблемного звонка: 04.05.2026
 """)
@@ -28,8 +28,8 @@ def test_problem_call_date_only_builds_full_day_window():
     url = find_call_in_logs.build(ctx)[0]
     params = parse_qs(urlparse(url).query)
 
-    assert params["from"] == ["2026-05-03T21:00:00.000Z"]
-    assert params["to"] == ["2026-05-04T21:00:00.000Z"]
+    assert params["from"] == ["2026-05-04T05:00:00.000Z"]
+    assert params["to"] == ["2026-05-04T17:00:00.000Z"]
 
 
 def test_multiple_problem_call_datetimes_build_multiple_absolute_links():
@@ -47,6 +47,20 @@ def test_multiple_problem_call_datetimes_build_multiple_absolute_links():
     assert second_params["from"] == ["2026-05-04T07:01:00.000Z"]
     assert second_params["to"] == ["2026-05-04T09:01:00.000Z"]
     assert all("now-1h" not in url for url in urls)
+
+
+def test_explicit_hour_range_builds_one_exact_window():
+    ctx = parser.parse(
+        "Дата и время проблемного звонка: 19.05.26, примерно днем, с 12 до 16"
+    )
+    ctx["tz"] = "Europe/Moscow"
+
+    urls = find_call_in_logs.build(ctx)
+    params = parse_qs(urlparse(urls[0]).query)
+
+    assert len(urls) == 1
+    assert params["from"] == ["2026-05-19T09:00:00.000Z"]
+    assert params["to"] == ["2026-05-19T13:00:00.000Z"]
 
 
 def test_does_not_duplicate_same_phone_in_grafana_params():
