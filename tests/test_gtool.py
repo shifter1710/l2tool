@@ -121,6 +121,34 @@ def test_format_parsed_context_omits_technical_duplicates():
     assert "normalized_phones:" not in output
 
 
+def test_warnings_are_grouped_after_history_before_links(monkeypatch, tmp_path):
+    monkeypatch.setitem(
+        gtool.MODULES,
+        "dummy",
+        SimpleNamespace(build=lambda ctx: ["https://example.test/logs"]),
+    )
+    result = gtool.run_ticket(
+        """Номер клиента (msisdn): 79991234567
+Дата и время проблемного звонка: 04.05.2026 10:49
+""",
+        open_arg="dummy",
+        history_root=tmp_path / "history",
+        write_diagnostics=False,
+    )
+
+    parsed_end = result.lines.index("----------------------")
+    history_end = result.lines.index("-----------------------")
+    warning_header = result.lines.index("--- Warnings and errors ---")
+    warning = next(
+        index
+        for index, line in enumerate(result.lines)
+        if line.startswith("[WARN] Loki хранит логи")
+    )
+    links_header = result.lines.index("[dummy]")
+
+    assert parsed_end < history_end < warning_header < warning < links_header
+
+
 def test_cli_main_prints_generated_links(monkeypatch, tmp_path, capsys):
     ticket_path = tmp_path / "ticket.txt"
     ticket_path.write_text("Номер клиента (msisdn): +7 (999) 123-45-67", encoding="utf-8")
