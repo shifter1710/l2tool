@@ -36,7 +36,10 @@ def build_case_dict(
         "identifiers": {
             "msisdn": ctx.get("msisdn"),
             "phone_a": ctx.get("phone_a"),
+            "phone_a_values": list(ctx.get("phone_a_values") or []),
             "phone_b": ctx.get("phone_b"),
+            "phone_b_values": list(ctx.get("phone_b_values") or []),
+            "call_uuid": "",
         },
         "event": {
             "timezone": timezone_name,
@@ -46,7 +49,16 @@ def build_case_dict(
                 iso_value(value, timezone_name)
                 for value in ctx.get("event_datetimes", [])
             ],
+            "time_range": [
+                iso_value(value, timezone_name)
+                for value in (ctx.get("event_time_range") or [])
+            ],
             "window_minutes": ctx.get("window"),
+        },
+        "interpretation": {
+            "problem_scope": ctx.get("problem_scope"),
+            "event_date_source": ctx.get("event_date_source"),
+            "phone_a_partial": bool(ctx.get("phone_a_partial")),
         },
         "location": {
             "region": ctx.get("region"),
@@ -61,6 +73,7 @@ def build_case_dict(
         "source": {
             "tool": "l2tool",
             "file_name": file_name,
+            "submitted_at_msk": iso_value(ctx.get("submitted_at"), "Europe/Moscow"),
         },
     }
 
@@ -73,3 +86,8 @@ def write_case_json(path: str | Path, case_data: dict):
         encoding="utf-8",
     )
     return output_path
+
+
+def parsed_sidecar_path(input_path: str | Path):
+    input_path = Path(input_path)
+    return input_path.with_name(f"{input_path.stem}.parsed.json")

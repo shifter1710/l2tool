@@ -186,7 +186,7 @@ def test_cli_plain_run_uses_default_open_without_menu(monkeypatch, tmp_path):
         gtool,
         "run_ticket",
         lambda text, open_arg, window, **kwargs: selected_open_args.append(open_arg)
-        or SimpleNamespace(lines=["generated"], links_by_module={}),
+        or SimpleNamespace(ctx={}, selected_modules=[], lines=["generated"], links_by_module={}),
     )
 
     gtool.main()
@@ -206,7 +206,7 @@ def test_cli_product_skips_input(monkeypatch, tmp_path):
         gtool,
         "run_ticket",
         lambda text, open_arg, window, **kwargs: selected_open_args.append(open_arg)
-        or SimpleNamespace(lines=["generated"], links_by_module={}),
+        or SimpleNamespace(ctx={}, selected_modules=[], lines=["generated"], links_by_module={}),
     )
 
     gtool.main()
@@ -226,7 +226,7 @@ def test_cli_open_skips_input(monkeypatch, tmp_path):
         gtool,
         "run_ticket",
         lambda text, open_arg, window, **kwargs: selected_open_args.append(open_arg)
-        or SimpleNamespace(lines=["generated"], links_by_module={}),
+        or SimpleNamespace(ctx={}, selected_modules=[], lines=["generated"], links_by_module={}),
     )
 
     gtool.main()
@@ -247,7 +247,7 @@ def test_cli_non_interactive_stdin_uses_default_open(monkeypatch, tmp_path):
         gtool,
         "run_ticket",
         lambda text, open_arg, window, **kwargs: selected_open_args.append(open_arg)
-        or SimpleNamespace(lines=["generated"], links_by_module={}),
+        or SimpleNamespace(ctx={}, selected_modules=[], lines=["generated"], links_by_module={}),
     )
 
     gtool.main()
@@ -427,10 +427,13 @@ def test_cli_without_export_case_does_not_create_json(monkeypatch, tmp_path):
         gtool,
         "run_ticket",
         lambda text, open_arg, window, **kwargs: SimpleNamespace(
-            lines=["generated"], links_by_module={}
+            ctx={}, selected_modules=[], lines=["generated"], links_by_module={}
         ),
     )
 
     gtool.main()
 
     assert not export_path.exists()
+    sidecar_path = ticket_path.with_name("ticket.parsed.json")
+    assert sidecar_path.exists()
+    assert json.loads(sidecar_path.read_text(encoding="utf-8"))["identifiers"]["call_uuid"] == ""

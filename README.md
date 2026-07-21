@@ -54,6 +54,8 @@ Default behavior:
 - prints generated links to stdout
 - opens generated links in the browser
 - saves a local YAML archive under `history/`
+- overwrites `tickets/current.parsed.json` with normalized values, generated
+  links, and an empty `call_uuid` field for subsequent investigation
 
 Useful overrides:
 
@@ -81,6 +83,11 @@ variables.
 
 Case JSON files can contain customer numbers and internal links. The `cases/`
 directory is ignored by Git.
+
+Every successful run also writes the same structure automatically next to the
+input ticket. For `tickets/current.txt`, the sidecar path is
+`tickets/current.parsed.json`. The original ticket remains unchanged. Sidecar
+files match `*.parsed.json` and are ignored by Git.
 
 Product profile mode:
 
@@ -116,6 +123,8 @@ Ticket data can contain phone numbers and other sensitive information. The tool
 stores the following data locally:
 
 - `tickets/` contains ticket text supplied by the user.
+- `*.parsed.json` sidecars contain normalized identifiers, generated links, and
+  a blank `call_uuid` field. Each run overwrites the sidecar for its input file.
 - `history/` contains YAML archives with the original ticket text, parsed
   fields, generated links, and phone numbers. The primary phone number is also
   included in each archive filename.
