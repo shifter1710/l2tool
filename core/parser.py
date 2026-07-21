@@ -21,6 +21,23 @@ EMPTY_PHONE_PREFIXES = (
     "все номера не запис",
 )
 
+DATE_PATTERN = re.compile(
+    r"(?<!\d)(?P<day>\d{1,2})(?P<separator>[.,/])(?P<month>\d{1,2})"
+    r"(?:\2(?P<year>\d{2}|\d{4}))?(?!\d)"
+)
+DATE_RANGE_PATTERN = re.compile(
+    r"(?<!\d)\d{1,2}[.,/]\d{1,2}\.?\s*-\s*\d{1,2}[.,/]\d{1,2}(?!\d)"
+)
+TIME_PATTERN = re.compile(
+    r"(?<!\d)(?P<hour>[01]?\d|2[0-3])[-:.,;/](?P<minute>[0-5]\d)"
+    r"(?:[-:.,;/](?P<second>[0-5]\d))?(?!\d)"
+)
+HOUR_RANGE_PATTERN = re.compile(
+    r"\bс\s+(?P<start>[01]?\d|2[0-3])(?:[:.,](?P<start_minute>[0-5]\d))?"
+    r"\s+до\s+(?P<end>[01]?\d|2[0-3])(?:[:.,](?P<end_minute>[0-5]\d))?\b",
+    re.IGNORECASE,
+)
+
 
 def find_field(text: str, patterns: list[str]):
     for p in patterns:
@@ -56,31 +73,62 @@ def normalize_phone(value: str | None, allow_landline: bool = False):
     return None
 
 
+def _event_date_match(value: str | None):
+    if not value or DATE_RANGE_PATTERN.search(value):
+        return None, None
+
+    matches = list(DATE_PATTERN.finditer(value))
+    matches.sort(key=lambda match: match.group("year") is None)
+
+    for match in matches:
+        raw_year = match.group("year")
+        year = datetime.now().year if raw_year is None else int(raw_year)
+        if raw_year and len(raw_year) == 2:
+            year += 2000
+
+        try:
+            event_date = datetime(year, int(match.group("month")), int(match.group("day"))).date()
+        except ValueError:
+            continue
+
+        return match, event_date
+
+    return None, None
+
+
+def parse_event_time_range(value: str | None):
+    date_match, event_date = _event_date_match(value)
+    if not date_match or not event_date:
+        return None
+
+    range_match = HOUR_RANGE_PATTERN.search(value)
+    if not range_match:
+        return None
+
+    start = datetime.combine(
+        event_date,
+        datetime.strptime(
+            f"{range_match.group('start')}:{range_match.group('start_minute') or '00'}",
+            "%H:%M",
+        ).time(),
+    )
+    end = datetime.combine(
+        event_date,
+        datetime.strptime(
+            f"{range_match.group('end')}:{range_match.group('end_minute') or '00'}",
+            "%H:%M",
+        ).time(),
+    )
+    return (start, end) if start < end else None
+
+
 def parse_event_datetimes(value: str | None):
-    if not value:
+    date_match, event_date = _event_date_match(value)
+    if not date_match or not event_date or parse_event_time_range(value):
         return []
 
-    date_match = re.search(
-        r"(?<!\d)(?P<day>\d{2})\.(?P<month>\d{2})(?:\.(?P<year>\d{4}))?(?!\d)",
-        value,
-    )
-    if not date_match:
-        return []
-
-    year = date_match.group("year") or str(datetime.now().year)
-    date_value = f"{date_match.group('day')}.{date_match.group('month')}.{year}"
-
-    try:
-        event_date = datetime.strptime(date_value, "%d.%m.%Y").date()
-    except ValueError:
-        return []
-
-    remainder = value[date_match.end():]
-    time_matches = re.finditer(
-        r"(?<!\d)(?P<hour>[01]?\d|2[0-3])[:.-](?P<minute>[0-5]\d)"
-        r"(?:[:.-](?P<second>[0-5]\d))?(?!\d)",
-        remainder,
-    )
+    without_date = value[:date_match.start()] + " " + value[date_match.end():]
+    time_matches = TIME_PATTERN.finditer(without_date)
 
     return [
         datetime.combine(
@@ -127,17 +175,8 @@ def parse_datetime_value(value: str):
 
 
 def parse_date_value(value: str | None):
-    if not value:
-        return None
-
-    value = value.strip()
-    if not re.fullmatch(r"\d{2}\.\d{2}\.\d{4}", value):
-        return None
-
-    try:
-        return datetime.strptime(value, "%d.%m.%Y").date()
-    except ValueError:
-        return None
+    _match, event_date = _event_date_match(value)
+    return event_date
 
 
 def parse_time_value(value: str | None):
@@ -218,17 +257,21 @@ def parse(text: str):
 
     event_date = parse_date_value(date_raw) or parse_date_value(datetime_raw)
     event_clock = parse_time_value(time_raw)
+    event_time_range = parse_event_time_range(datetime_raw)
     event_datetimes = parse_event_datetimes(datetime_raw)
-    event_datetime = event_datetimes[0] if event_datetimes else combine_event_datetime(
-        datetime_raw,
-        event_date,
-        event_clock,
-    )
+    if event_time_range:
+        event_datetime = event_time_range[0]
+    else:
+        event_datetime = event_datetimes[0] if event_datetimes else combine_event_datetime(
+            datetime_raw,
+            event_date,
+            event_clock,
+        )
 
     if event_datetime and not event_date:
         event_date = event_datetime.date()
 
-    if not event_datetimes and event_datetime:
+    if not event_time_range and not event_datetimes and event_datetime:
         event_datetimes = [event_datetime]
 
     phone_fields = {
@@ -257,6 +300,7 @@ def parse(text: str):
         "event_date": event_date,
         "event_clock": event_clock,
         "event_time": event_datetime,
+        "event_time_range": event_time_range,
         "event_datetimes": event_datetimes,
         "region": region,
     }
