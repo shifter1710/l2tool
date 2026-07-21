@@ -348,7 +348,7 @@ def main():
     ap.add_argument(
         "--dry-run",
         action="store_true",
-        help="Parse, match history and print links without saving history or opening browser links",
+        help="Parse, match history and print links without saving history or diagnostics",
     )
 
     args = ap.parse_args()
@@ -357,7 +357,7 @@ def main():
         ap.error("Use either --product or --open, not both")
 
     product_key = args.product
-    if args.export_case and not product_key and not args.open and sys.stdin.isatty():
+    if not product_key and not args.open and sys.stdin.isatty():
         try:
             product_key = prompt_product()
         except ValueError as error:
@@ -402,10 +402,6 @@ def main():
     if args.export_case:
         output_path = write_case_json(args.export_case, case_data)
         print(f"Case JSON saved to: {output_path}")
-
-    if not args.dry_run:
-        open_links(result.links_by_module)
-
 
 if __name__ == "__main__":
     main()
