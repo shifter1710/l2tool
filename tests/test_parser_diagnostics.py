@@ -78,3 +78,19 @@ def test_common_unspecified_phone_values_do_not_create_issues():
 """
 
     assert collect_parse_issues(text, parser.parse(text)) == []
+
+
+def test_time_only_with_submission_date_does_not_create_issue():
+    text = """Дата и время проблемного звонка: 13:25
+Дата отправки: 20.07.2026 16:55:24
+"""
+
+    assert collect_parse_issues(text, parser.parse(text)) == []
+
+
+def test_general_problem_date_range_does_not_create_issue():
+    text = """Дата и время проблемного звонка: 23.06.-30.06.
+Дата отправки: 20.07.2026 16:55:24
+"""
+
+    assert collect_parse_issues(text, parser.parse(text)) == []

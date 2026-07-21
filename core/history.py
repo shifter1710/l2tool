@@ -12,8 +12,10 @@ INDEX_NAME = "index.json"
 
 def ticket_numbers(ctx):
     numbers = []
-    for field in ("msisdn", "phone_a", "phone_b"):
-        value = ctx.get(field)
+    values = [ctx.get("msisdn")]
+    values.extend(ctx.get("phone_a_values") or [ctx.get("phone_a")])
+    values.extend(ctx.get("phone_b_values") or [ctx.get("phone_b")])
+    for value in values:
         if value and value not in numbers:
             numbers.append(value)
     return numbers

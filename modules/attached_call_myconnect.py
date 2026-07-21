@@ -52,6 +52,22 @@ def build_one(ctx, time_from, time_to):
 
 
 def build(ctx):
+    msisdn = ctx.get("msisdn")
+    participants = []
+    for field in ("phone_a_values", "phone_b_values"):
+        for phone in ctx.get(field) or []:
+            if phone and phone != msisdn and phone not in participants:
+                participants.append(phone)
+
+    if len(participants) > 1:
+        return [
+            build_one(
+                {**ctx, "phone_a": participant, "phone_b": None},
+                *SEARCH_PERIOD,
+            )
+            for participant in participants
+        ]
+
     url = build_one(ctx, *SEARCH_PERIOD)
 
     return [url] if url else []

@@ -34,8 +34,26 @@ def select_phones(ctx):
     )
 
 
-def build_one(ctx, event_time=None):
-    phone, second_phone = select_phones(ctx)
+def phone_pairs(ctx):
+    client = phone_without_country_code(ctx.get("msisdn"))
+    participants = []
+    for field in ("phone_a_values", "phone_b_values"):
+        for phone in ctx.get(field) or []:
+            normalized = phone_without_country_code(phone)
+            if normalized and normalized != client and normalized not in participants:
+                participants.append(normalized)
+
+    if len(participants) > 1:
+        return [(participant, client or "") for participant in participants]
+
+    if participants and ctx.get("phone_a_partial") and client:
+        return [(client, participants[0])]
+
+    return [select_phones(ctx)]
+
+
+def build_one(ctx, event_time=None, phones=None):
+    phone, second_phone = phones or select_phones(ctx)
 
     params = {
         "orgId": grafana_org_id(),
@@ -67,12 +85,18 @@ def build_one(ctx, event_time=None):
 
 
 def build(ctx):
+    pairs = phone_pairs(ctx)
+
     if ctx.get("event_time_range"):
-        return [build_one(ctx)]
+        return [build_one(ctx, phones=phones) for phones in pairs]
 
     values = event_datetimes(ctx)
 
     if values:
-        return [build_one(ctx, event_time) for event_time in values]
+        return [
+            build_one(ctx, event_time, phones=phones)
+            for phones in pairs
+            for event_time in values
+        ]
 
-    return [build_one(ctx)]
+    return [build_one(ctx, phones=phones) for phones in pairs]

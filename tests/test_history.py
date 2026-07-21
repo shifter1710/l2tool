@@ -18,6 +18,24 @@ def dummy_module(urls=None, calls=None):
     return SimpleNamespace(build=build)
 
 
+def test_ticket_numbers_includes_all_participants():
+    ctx = {
+        "msisdn": "79990000000",
+        "phone_a": "79111111111",
+        "phone_a_values": ["79111111111", "79222222222"],
+        "phone_b": "79333333333",
+        "phone_b_values": ["79333333333", "79444444444"],
+    }
+
+    assert history.ticket_numbers(ctx) == [
+        "79990000000",
+        "79111111111",
+        "79222222222",
+        "79333333333",
+        "79444444444",
+    ]
+
+
 def test_run_ticket_prints_history_matches_without_saving(monkeypatch, tmp_path):
     ticket = "Номер клиента (msisdn): +7 (999) 123-45-67"
     history_dir = tmp_path / "history"

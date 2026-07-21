@@ -240,9 +240,93 @@ def test_parse_prefixed_date_without_time():
     assert ctx["event_time"] is None
 
 
-def test_date_range_remains_unparsed():
-    ctx = parser.parse("Дата и время проблемного звонка: 23.06.-30.06.")
+def test_date_range_is_general_problem_for_previous_day():
+    ctx = parser.parse(
+        """Дата и время проблемного звонка: 23.06.-30.06.
+Дата отправки: 20.07.2026 16:55:24
+"""
+    )
+
+    assert str(ctx["event_date"]) == "2026-07-19"
+    assert ctx["event_time"] is None
+    assert ctx["event_datetimes"] == []
+    assert ctx["problem_scope"] == "general"
+    assert ctx["event_date_source"] == "fallback_yesterday"
+
+
+def test_general_problem_phrases_use_day_before_submission():
+    for raw in ("Любые звонки в июне", "все время", "Вчера."):
+        ctx = parser.parse(
+            f"""Дата и время проблемного звонка: {raw}
+Дата отправки: 20.07.2026 16:55:24
+"""
+        )
+
+        assert str(ctx["event_date"]) == "2026-07-19"
+        assert ctx["problem_scope"] == "general"
+
+
+def test_time_only_uses_submission_date_when_earlier():
+    for raw in ("11:03:25", "13:25", "14:14"):
+        ctx = parser.parse(
+            f"""Дата и время проблемного звонка: {raw}
+Дата отправки: 20.07.2026 16:55:24
+"""
+        )
+
+        assert str(ctx["event_date"]) == "2026-07-20"
+        assert str(ctx["event_time"]).startswith(f"2026-07-20 {raw}")
+        assert ctx["event_date_source"] == "ticket_submitted_at"
+
+
+def test_time_only_later_than_submission_stays_unresolved():
+    ctx = parser.parse(
+        """Дата и время проблемного звонка: 18:00
+Дата отправки: 20.07.2026 16:55:24
+"""
+    )
 
     assert ctx["event_date"] is None
     assert ctx["event_time"] is None
-    assert ctx["event_datetimes"] == []
+
+
+def test_parse_russian_month_and_compact_date():
+    russian = parser.parse("Дата и время проблемного звонка: 14 июля 2026 20:12")
+    compact = parser.parse("Дата и время проблемного звонка: 17072026")
+
+    assert str(russian["event_time"]) == "2026-07-14 20:12:00"
+    assert str(compact["event_date"]) == "2026-07-17"
+    assert compact["event_time"] is None
+
+
+def test_parse_multiple_phone_values_and_short_number():
+    ctx = parser.parse(
+        """Номер звонящего (А): 89189846065, 89028914449
+Номер принимающего звонок (Б): 79370019995 79240424268
+"""
+    )
+    short = parser.parse("Номер звонящего (А): 3301870")
+
+    assert ctx["phone_a_values"] == ["79189846065", "79028914449"]
+    assert ctx["phone_b_values"] == ["79370019995", "79240424268"]
+    assert short["phone_a"] == "3301870"
+    assert short["phone_a_values"] == ["3301870"]
+
+
+def test_parse_partial_phone_prefix():
+    ctx = parser.parse(
+        "Номер звонящего (А): +7916.. в разделе звонки не отображается информация"
+    )
+
+    assert ctx["phone_a"] == "916"
+    assert ctx["phone_a_values"] == ["916"]
+    assert ctx["phone_a_partial"] is True
+
+
+def test_parse_phone_comment_datetime():
+    ctx = parser.parse(
+        "Номер принимающего звонок (Б): 9394928585 11,06,2026 10/25 3 мин разговор."
+    )
+
+    assert ctx["phone_b"] == "79394928585"
+    assert str(ctx["event_time"]) == "2026-06-11 10:25:00"

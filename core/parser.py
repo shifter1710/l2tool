@@ -1,6 +1,6 @@
 import re
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 
 EMPTY_PHONE_VALUES = {
     "",
@@ -35,6 +35,32 @@ TIME_PATTERN = re.compile(
 HOUR_RANGE_PATTERN = re.compile(
     r"\bс\s+(?P<start>[01]?\d|2[0-3])(?:[:.,](?P<start_minute>[0-5]\d))?"
     r"\s+до\s+(?P<end>[01]?\d|2[0-3])(?:[:.,](?P<end_minute>[0-5]\d))?\b",
+    re.IGNORECASE,
+)
+RUSSIAN_MONTHS = {
+    "января": 1,
+    "февраля": 2,
+    "марта": 3,
+    "апреля": 4,
+    "мая": 5,
+    "июня": 6,
+    "июля": 7,
+    "августа": 8,
+    "сентября": 9,
+    "октября": 10,
+    "ноября": 11,
+    "декабря": 12,
+}
+RUSSIAN_DATE_PATTERN = re.compile(
+    r"(?<!\d)(?P<day>\d{1,2})\s+(?P<month>" + "|".join(RUSSIAN_MONTHS) + r")"
+    r"\s+(?P<year>\d{4})(?!\d)",
+    re.IGNORECASE,
+)
+COMPACT_DATE_PATTERN = re.compile(
+    r"(?<!\d)(?P<day>\d{2})(?P<month>\d{2})(?P<year>\d{4})(?!\d)"
+)
+GENERAL_PROBLEM_PATTERN = re.compile(
+    r"все\s+время|любые\s+звонки|\bвчера\b",
     re.IGNORECASE,
 )
 
@@ -73,6 +99,30 @@ def normalize_phone(value: str | None, allow_landline: bool = False):
     return None
 
 
+def extract_phone_values(value: str | None, allow_short: bool = False):
+    if is_empty_phone_value(value):
+        return []
+
+    candidates = re.findall(r"(?<!\d)(?:[78]\d{10}|\d{10}|\d{7})(?!\d)", value)
+    values = []
+    for candidate in candidates:
+        normalized = normalize_phone(candidate)
+        if normalized is None and allow_short and len(candidate) == 7:
+            normalized = candidate
+        if normalized and normalized not in values:
+            values.append(normalized)
+
+    return values
+
+
+def extract_partial_phone(value: str | None):
+    if not value:
+        return None
+
+    match = re.search(r"\+?7(?P<prefix>\d{3})\.{2,}", value)
+    return match.group("prefix") if match else None
+
+
 def _event_date_match(value: str | None):
     if not value or DATE_RANGE_PATTERN.search(value):
         return None, None
@@ -91,7 +141,33 @@ def _event_date_match(value: str | None):
         except ValueError:
             continue
 
-        return match, event_date
+        return (match.start(), match.end()), event_date
+
+    russian_match = RUSSIAN_DATE_PATTERN.search(value)
+    if russian_match:
+        try:
+            event_date = datetime(
+                int(russian_match.group("year")),
+                RUSSIAN_MONTHS[russian_match.group("month").lower()],
+                int(russian_match.group("day")),
+            ).date()
+        except ValueError:
+            pass
+        else:
+            return (russian_match.start(), russian_match.end()), event_date
+
+    compact_match = COMPACT_DATE_PATTERN.search(value)
+    if compact_match:
+        try:
+            event_date = datetime(
+                int(compact_match.group("year")),
+                int(compact_match.group("month")),
+                int(compact_match.group("day")),
+            ).date()
+        except ValueError:
+            pass
+        else:
+            return (compact_match.start(), compact_match.end()), event_date
 
     return None, None
 
@@ -127,7 +203,7 @@ def parse_event_datetimes(value: str | None):
     if not date_match or not event_date or parse_event_time_range(value):
         return []
 
-    without_date = value[:date_match.start()] + " " + value[date_match.end():]
+    without_date = value[:date_match[0]] + " " + value[date_match[1]:]
     time_matches = TIME_PATTERN.finditer(without_date)
 
     return [
@@ -207,7 +283,7 @@ def combine_event_datetime(raw_value, event_date, event_clock):
     return None
 
 
-def parse(text: str):
+def parse(text: str, now: datetime | None = None):
     phone_a_raw = find_field(text, [
         r"Номер звонящего\s*\(А\)\s*[:：]\s*(.+)",
         r"Номер звонящего\s*[:：]\s*(.+)",
@@ -255,10 +331,42 @@ def parse(text: str):
         r"Регион\s*[:：]\s*(.+)",
     ])
 
+    submitted_raw = find_field(text, [
+        r"Дата отправки\s*[:：]\s*(.+)",
+        r"Дата создания\s*[:：]\s*(.+)",
+    ])
+    submitted_at = parse_datetime_value(submitted_raw) if submitted_raw else None
+
+    phone_a_values = extract_phone_values(phone_a_raw, allow_short=True)
+    phone_b_values = extract_phone_values(phone_b_raw, allow_short=True)
+    partial_phone_a = extract_partial_phone(phone_a_raw)
+    if partial_phone_a and not phone_a_values:
+        phone_a_values = [partial_phone_a]
+
     event_date = parse_date_value(date_raw) or parse_date_value(datetime_raw)
     event_clock = parse_time_value(time_raw)
     event_time_range = parse_event_time_range(datetime_raw)
     event_datetimes = parse_event_datetimes(datetime_raw)
+    embedded_datetime_raw = " ".join(value for value in (phone_a_raw, phone_b_raw) if value)
+    if not event_date and not event_datetimes:
+        event_date = parse_date_value(embedded_datetime_raw)
+        event_datetimes = parse_event_datetimes(embedded_datetime_raw)
+
+    general_problem = bool(
+        datetime_raw
+        and (DATE_RANGE_PATTERN.search(datetime_raw) or GENERAL_PROBLEM_PATTERN.search(datetime_raw))
+    )
+    event_date_source = "explicit" if event_date else None
+    if general_problem:
+        reference = submitted_at or now or datetime.now()
+        event_date = reference.date() - timedelta(days=1)
+        event_date_source = "fallback_yesterday"
+
+    time_only = parse_time_value(datetime_raw)
+    if not event_date and time_only and submitted_at and time_only <= submitted_at.time():
+        event_date = submitted_at.date()
+        event_datetimes = [datetime.combine(event_date, time_only)]
+        event_date_source = "ticket_submitted_at"
     if event_time_range:
         event_datetime = event_time_range[0]
     else:
@@ -280,14 +388,18 @@ def parse(text: str):
         "phone_b": phone_b_raw,
     }
     normalized_phones = {
-        field: normalize_phone(raw_value, allow_landline=(field == "phone_b"))
-        for field, raw_value in phone_fields.items()
+        "msisdn": normalize_phone(msisdn_raw),
+        "phone_a": phone_a_values[0] if phone_a_values else normalize_phone(phone_a_raw),
+        "phone_b": phone_b_values[0] if phone_b_values else normalize_phone(phone_b_raw),
     }
 
     return {
         "phone_a": normalized_phones["phone_a"],
+        "phone_a_values": phone_a_values,
+        "phone_a_partial": bool(partial_phone_a),
         "phone_a_raw": phone_a_raw,
         "phone_b": normalized_phones["phone_b"],
+        "phone_b_values": phone_b_values,
         "phone_b_raw": phone_b_raw,
         "number_b": normalized_phones["phone_b"],
         "number_b_raw": phone_b_raw,
@@ -302,5 +414,8 @@ def parse(text: str):
         "event_time": event_datetime,
         "event_time_range": event_time_range,
         "event_datetimes": event_datetimes,
+        "submitted_at": submitted_at,
+        "problem_scope": "general" if general_problem else None,
+        "event_date_source": event_date_source,
         "region": region,
     }
