@@ -30,7 +30,21 @@ def test_normalize_phone_invalid_formats(capsys):
 
 
 def test_empty_phone_values_are_not_normalized():
-    for raw in ("любой", "нет", "не указан", "неизвестно", "-", ""):
+    for raw in (
+        "любой",
+        "любой номер",
+        "все",
+        "все звонки",
+        "все номера",
+        "все номера не записались",
+        "не знает",
+        "не указал",
+        "нет",
+        "не указан",
+        "неизвестно",
+        "-",
+        "",
+    ):
         assert parser.normalize_phone(raw) is None
 
 

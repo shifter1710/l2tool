@@ -16,4 +16,5 @@ __pycache__/
 config.toml
 config.yaml
 parser_issues/
+parser_issues.jsonl
 .codex/
