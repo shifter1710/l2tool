@@ -1,6 +1,9 @@
 import re
 import sys
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+from core.timezones import resolve_timezone
 
 EMPTY_PHONE_VALUES = {
     "",
@@ -333,6 +336,7 @@ def parse(text: str, now: datetime | None = None):
 
     submitted_raw = find_field(text, [
         r"Дата отправки\s*[:：]\s*(.+)",
+        r"Дата создания ЕИ\s*[:：]\s*(.+)",
         r"Дата создания\s*[:：]\s*(.+)",
     ])
     submitted_at = parse_datetime_value(submitted_raw) if submitted_raw else None
@@ -363,8 +367,13 @@ def parse(text: str, now: datetime | None = None):
         event_date_source = "fallback_yesterday"
 
     time_only = parse_time_value(datetime_raw)
-    if not event_date and time_only and submitted_at and time_only <= submitted_at.time():
-        event_date = submitted_at.date()
+    submitted_local = None
+    if submitted_at:
+        submitted_msk = submitted_at.replace(tzinfo=ZoneInfo("Europe/Moscow"))
+        submitted_local = submitted_msk.astimezone(ZoneInfo(resolve_timezone(region)))
+
+    if not event_date and time_only and submitted_local and time_only <= submitted_local.time():
+        event_date = submitted_local.date()
         event_datetimes = [datetime.combine(event_date, time_only)]
         event_date_source = "ticket_submitted_at"
     if event_time_range:

@@ -88,6 +88,15 @@ def test_time_only_with_submission_date_does_not_create_issue():
     assert collect_parse_issues(text, parser.parse(text)) == []
 
 
+def test_time_only_with_ei_creation_date_does_not_create_issue():
+    text = """Дата и время проблемного звонка: 18:00
+Дата создания ЕИ: 20.07.2026 16:55:24
+Местонахождение абонента: Красноярский край
+"""
+
+    assert collect_parse_issues(text, parser.parse(text)) == []
+
+
 def test_general_problem_date_range_does_not_create_issue():
     text = """Дата и время проблемного звонка: 23.06.-30.06.
 Дата отправки: 20.07.2026 16:55:24

@@ -279,6 +279,19 @@ def test_time_only_uses_submission_date_when_earlier():
         assert ctx["event_date_source"] == "ticket_submitted_at"
 
 
+def test_time_only_uses_moscow_creation_time_converted_to_region():
+    ctx = parser.parse(
+        """Дата и время проблемного звонка: 18:00
+Дата создания ЕИ: 20.07.2026 16:55:24
+Местонахождение абонента: Красноярский край
+"""
+    )
+
+    assert str(ctx["event_date"]) == "2026-07-20"
+    assert str(ctx["event_time"]) == "2026-07-20 18:00:00"
+    assert ctx["event_date_source"] == "ticket_submitted_at"
+
+
 def test_time_only_later_than_submission_stays_unresolved():
     ctx = parser.parse(
         """Дата и время проблемного звонка: 18:00
