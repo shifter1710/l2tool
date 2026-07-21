@@ -48,11 +48,10 @@ python3 gtool.py
 Default behavior:
 
 - reads `tickets/current.txt`
-- opens `zapis,bff,myconnect,myconnect_call`
+- prompts for a product and selects its configured modules
 - uses a 120 minute Grafana window
 - prints prior local history matches
-- prints generated links to stdout
-- opens generated links in the browser
+- prints generated links without opening a browser
 - saves a local YAML archive under `history/`
 - overwrites `tickets/current.parsed.json` with normalized values, generated
   links, and an empty `call_uuid` field for subsequent investigation
@@ -106,15 +105,17 @@ Available product profiles:
 | `assistant` | Ассистент в звонке | not configured yet |
 
 Use either `--product` or `--open`; the options cannot be combined. Pass
-`--open all` to run every configured module.
+`--open all` to run every configured module. When neither option is supplied in
+an interactive terminal, the tool displays the product menu. Non-interactive
+runs use `zapis,bff,myconnect,myconnect_call` by default.
 
 `--dry-run` parses the ticket, prints history matches and generated links, but
-does not save history, write parser diagnostics, or open browser links.
+does not save history or write parser diagnostics.
 
-To verify the setup without using a real ticket or opening a browser:
+To verify the setup without using a real ticket:
 
 ```bash
-python3 gtool.py --file examples/ticket.example.txt --dry-run
+python3 gtool.py --file examples/ticket.example.txt --product recording --dry-run
 ```
 
 ## Local data and privacy

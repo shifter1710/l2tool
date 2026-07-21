@@ -166,7 +166,7 @@ def test_run_ticket_saves_history_yaml_and_updates_index(monkeypatch, tmp_path):
     assert not list(history_dir.rglob("*.tmp"))
 
 
-def test_cli_no_history_does_not_save_but_opens_links(monkeypatch, tmp_path, capsys):
+def test_cli_no_history_does_not_save_or_open_links(monkeypatch, tmp_path, capsys):
     ticket_path = tmp_path / "ticket.txt"
     ticket_path.write_text("Номер клиента (msisdn): +7 (999) 123-45-67", encoding="utf-8")
     opened = []
@@ -186,10 +186,10 @@ def test_cli_no_history_does_not_save_but_opens_links(monkeypatch, tmp_path, cap
     assert "No matches" in output
     assert "History saved:" not in output
     assert not (tmp_path / "history").exists()
-    assert opened == [{"dummy": ["https://example.test/logs"]}]
+    assert opened == []
 
 
-def test_cli_normal_run_saves_history_and_opens_links(monkeypatch, tmp_path, capsys):
+def test_cli_normal_run_saves_history_without_opening_links(monkeypatch, tmp_path, capsys):
     ticket_path = tmp_path / "ticket.txt"
     ticket_path.write_text(
         "\n".join(
@@ -228,7 +228,7 @@ def test_cli_normal_run_saves_history_and_opens_links(monkeypatch, tmp_path, cap
     assert "History saved:" in output
     assert archive_path.exists()
     assert (tmp_path / "history" / "index.json").exists()
-    assert opened == [{"dummy": ["https://example.test/logs"]}]
+    assert opened == []
 
 
 def test_cli_dry_run_does_not_save_or_open(monkeypatch, tmp_path, capsys):

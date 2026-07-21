@@ -173,13 +173,13 @@ def test_cli_product_bff_is_not_allowed(monkeypatch, capsys):
     assert "invalid choice: 'bff'" in capsys.readouterr().err
 
 
-def test_cli_plain_run_uses_default_open_without_menu(monkeypatch, tmp_path):
+def test_cli_plain_run_prompts_for_product(monkeypatch, tmp_path):
     ticket_path = tmp_path / "ticket.txt"
     ticket_path.write_text("Номер клиента (msisdn): +7 (999) 123-45-67", encoding="utf-8")
     selected_open_args = []
 
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
-    monkeypatch.setattr("builtins.input", lambda prompt: pytest.fail("input should not be called"))
+    monkeypatch.setattr("builtins.input", lambda prompt: "1")
     monkeypatch.setattr("sys.argv", ["gtool.py", "--file", str(ticket_path)])
     monkeypatch.setattr(gtool, "open_links", lambda links: None)
     monkeypatch.setattr(
@@ -191,7 +191,7 @@ def test_cli_plain_run_uses_default_open_without_menu(monkeypatch, tmp_path):
 
     gtool.main()
 
-    assert selected_open_args == [gtool.DEFAULT_OPEN]
+    assert selected_open_args == ["zapis,sip_stack,bff"]
 
 
 def test_cli_product_skips_input(monkeypatch, tmp_path):
@@ -260,7 +260,6 @@ def test_cli_product_exports_case_json(monkeypatch, tmp_path, capsys):
     ticket_path.parent.mkdir()
     ticket_path.write_text("Номер клиента (msisdn): +7 (999) 123-45-67", encoding="utf-8")
     export_path = tmp_path / "cases" / "current.json"
-    opened_links = []
     ctx = {
         "msisdn": "79991234567",
         "phone_a": None,
@@ -295,7 +294,6 @@ def test_cli_product_exports_case_json(monkeypatch, tmp_path, capsys):
             lines=["generated"],
         ),
     )
-    monkeypatch.setattr(gtool, "open_links", opened_links.append)
 
     gtool.main()
 
@@ -303,7 +301,6 @@ def test_cli_product_exports_case_json(monkeypatch, tmp_path, capsys):
     assert data["product"] == "recording"
     assert data["source"]["file_name"] == "current.txt"
     assert data["event"]["time"] == "2026-05-04T10:49:00+03:00"
-    assert opened_links == [{"zapis": ["https://example.test"]}]
     assert "Case JSON saved to: " + str(export_path) in capsys.readouterr().out
 
 
