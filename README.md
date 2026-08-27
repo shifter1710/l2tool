@@ -1,28 +1,28 @@
 # l2tool
 
-L2 ticket helper CLI.
+CLI-инструмент для работы с заявками L2.
 
-## Requirements
+## Требования
 
-- Python 3.10 or newer (CI runs on Python 3.12)
-- access to the Grafana and OpenSearch instances configured for your environment
+- Python 3.10 или новее (CI запускается на Python 3.12)
+- доступ к экземплярам Grafana и OpenSearch, настроенным для вашего окружения
 
-Install the runtime dependency:
+Установите зависимость для запуска:
 
 ```bash
 python3 -m pip install -r requirements.txt
 ```
 
-## Setup
+## Настройка
 
-Create the local configuration from the supplied template:
+Создайте локальный файл конфигурации по шаблону:
 
 ```bash
 cp config.example.toml config.toml
 ```
 
-For each service, open the required Grafana dashboard or OpenSearch Discover
-view and copy its URL into the matching section:
+Для каждого сервиса откройте нужный дашборд Grafana или представление
+OpenSearch Discover и скопируйте его URL в соответствующий раздел:
 
 ```toml
 [services.zapis]
@@ -32,51 +32,55 @@ url = "https://grafana.example.local/d/...?..."
 url = "https://dashboards.example.local/app/data-explorer/discover#?..."
 ```
 
-For Grafana, l2tool preserves static query parameters from the copied URL (for
-example `orgId`, environment and cluster) and replaces ticket-specific values.
-For OpenSearch, first select the required data view and then copy the Discover
-URL: l2tool extracts its `indexPattern` and replaces the query and time range.
-Set `opensearch.security_tenant` to the tenant used by the project; it is
-URL-encoded and inserted before the URL fragment. A service can override it
-with `services.<name>.security_tenant`.
+Для Grafana l2tool сохраняет статические параметры скопированного URL
+(например, `orgId`, окружение и кластер) и заменяет значения, относящиеся к
+заявке. Для OpenSearch сначала выберите нужное представление данных, затем
+скопируйте URL Discover: l2tool извлечёт `indexPattern` и заменит поисковый
+запрос и временной диапазон. Укажите tenant проекта в
+`opensearch.security_tenant`: он будет URL-кодирован и добавлен перед
+фрагментом URL. Значение можно переопределить для сервиса через
+`services.<name>.security_tenant`.
 
-The local `config.toml` is ignored by git and must not be committed. The legacy
-`[grafana]` and `[opensearch]` configuration layout remains supported.
+Локальный `config.toml` игнорируется Git и не должен попадать в коммит.
+Прежняя структура конфигурации `[grafana]` и `[opensearch]` по-прежнему
+поддерживается.
 
-Create the local ticket directory, which is also ignored by git:
+Создайте локальную директорию для заявок; она также игнорируется Git:
 
 ```bash
 mkdir -p tickets
 ```
 
-## Default workflow
+## Стандартный сценарий работы
 
-Paste the current ticket into:
+Вставьте текущую заявку в файл:
 
 ```text
 tickets/current.txt
 ```
 
-Then run:
+Затем запустите:
 
 ```bash
 python3 gtool.py
 ```
 
-Default behavior:
+Поведение по умолчанию:
 
-- reads `tickets/current.txt`
-- prompts for a product and selects its configured services
-- uses a 60 minute Grafana window
-- when only a call date is found, lets you keep the 08:00–20:00 interval or enter an exact date and time
-- reports parsing errors with the source line and requests only the missing or invalid fields before building links
-- prints prior local history matches
-- prints generated links without opening a browser
-- saves a local YAML archive under `history/`
-- overwrites `tickets/current.parsed.json` with normalized values, generated
-  links, and an empty `call_uuid` field for subsequent investigation
+- читает `tickets/current.txt`;
+- предлагает выбрать продукт и его настроенные сервисы;
+- использует для Grafana окно в 60 минут;
+- если найдена только дата звонка, позволяет оставить интервал 08:00–20:00
+  или ввести точные дату и время;
+- сообщает об ошибках парсинга вместе с исходной строкой и запрашивает только
+  отсутствующие или некорректные поля перед созданием ссылок;
+- выводит совпадения из локальной истории;
+- выводит сформированные ссылки, не открывая браузер;
+- сохраняет локальный YAML-архив в `history/`;
+- перезаписывает `tickets/current.parsed.json` нормализованными значениями,
+  ссылками и пустым полем `call_uuid` для дальнейшего расследования.
 
-Useful overrides:
+Полезные параметры:
 
 ```bash
 python3 gtool.py --file tickets/other.txt
@@ -86,94 +90,97 @@ python3 gtool.py --no-history
 python3 gtool.py --dry-run
 ```
 
-## Case JSON export
+## Экспорт заявки в JSON
 
-Use `--export-case` to save the parsed ticket context and generated links to a
-structured JSON file for later handoff to `l2-local-ai`:
+Используйте `--export-case`, чтобы сохранить разобранный контекст заявки и
+сформированные ссылки в структурированный JSON-файл для последующей передачи
+в `l2-local-ai`:
 
 ```bash
 python3 gtool.py --file tickets/current.txt --product recording --export-case cases/current.json
 ```
 
-The export contains normalized identifiers, event date/time, selected services,
-and generated links. It does not include the original ticket text, raw phone
-fields, absolute local paths, config contents, tokens, cookies, or environment
-variables.
+Экспорт содержит нормализованные идентификаторы, дату и время события,
+выбранные сервисы и сформированные ссылки. В него не попадают исходный текст
+заявки, необработанные телефонные поля, абсолютные локальные пути, содержимое
+конфигурации, токены, cookies и переменные окружения.
 
-Case JSON files can contain customer numbers and internal links. The `cases/`
-directory is ignored by Git.
+JSON-файлы заявок могут содержать номера клиентов и внутренние ссылки.
+Директория `cases/` игнорируется Git.
 
-Every successful run also writes the same structure automatically next to the
-input ticket. For `tickets/current.txt`, the sidecar path is
-`tickets/current.parsed.json`. The original ticket remains unchanged. Sidecar
-files match `*.parsed.json` and are ignored by Git.
+После каждого успешного запуска такая же структура автоматически записывается
+рядом с входным файлом. Для `tickets/current.txt` это
+`tickets/current.parsed.json`. Исходная заявка не меняется. Файлы с шаблоном
+`*.parsed.json` игнорируются Git.
 
-Product profile mode:
+Режим профиля продукта:
 
 ```bash
 python3 gtool.py --product recording
 ```
 
-Available product profiles:
+Доступные профили продуктов:
 
-| Profile | Product | Services |
+| Профиль | Продукт | Сервисы |
 | --- | --- | --- |
 | `recording` | Запись | `zapis`, `sip_stack`, `bff` |
 | `secretary` | Секретарь | `bff` |
 | `calls` | Звонки | `myconnect`, `myconnect_call` |
-| `noise` | Шумоподавление | not configured yet |
-| `assistant` | Ассистент в звонке | not configured yet |
+| `noise` | Шумоподавление | пока не настроено |
+| `assistant` | Ассистент в звонке | пока не настроено |
 
-Use either `--product` or `--open`; the options cannot be combined. Pass
-`--open all` to run every configured service. When neither option is supplied in
-an interactive terminal, the tool displays the product menu. Non-interactive
-runs use `zapis,bff,myconnect,myconnect_call` by default.
+Используйте либо `--product`, либо `--open`: эти параметры нельзя совмещать.
+Передайте `--open all`, чтобы запустить все настроенные сервисы. Если в
+интерактивном терминале не указан ни один из параметров, инструмент покажет
+меню выбора продукта. В неинтерактивном режиме по умолчанию используются
+`zapis,bff,myconnect,myconnect_call`.
 
-`--dry-run` parses the ticket, prints history matches and generated links, but
-does not save history or write parser diagnostics.
+`--dry-run` разбирает заявку и выводит совпадения в истории и сформированные
+ссылки, но не сохраняет историю и диагностические данные парсера.
 
-To verify the setup without using a real ticket:
+Чтобы проверить настройку без реальной заявки:
 
 ```bash
 python3 gtool.py --file examples/ticket.example.txt --product recording --dry-run
 ```
 
-## Local data and privacy
+## Локальные данные и конфиденциальность
 
-Ticket data can contain phone numbers and other sensitive information. The tool
-stores the following data locally:
+Данные заявки могут содержать номера телефонов и другую чувствительную
+информацию. Инструмент локально хранит:
 
-- `tickets/` contains ticket text supplied by the user.
-- `*.parsed.json` sidecars contain normalized identifiers, generated links, and
-  a blank `call_uuid` field. Each run overwrites the sidecar for its input file.
-- `history/` contains YAML archives with the original ticket text, parsed
-  fields, generated links, and phone numbers. The primary phone number is also
-  included in each archive filename.
-- `history/index.json` indexes archive paths by phone number.
-- `parser_issues/parser_issues.jsonl` records unparsed source lines when parser
-  diagnostics are produced.
+- `tickets/` — текст заявки, предоставленный пользователем;
+- файлы `*.parsed.json` рядом с заявкой — нормализованные идентификаторы,
+  сформированные ссылки и пустое поле `call_uuid`; при каждом запуске файл для
+  входной заявки перезаписывается;
+- `history/` — YAML-архивы с исходным текстом заявки, разобранными полями,
+  сформированными ссылками и номерами телефонов; основной номер также входит в
+  имя файла архива;
+- `history/index.json` — индекс путей к архивам по номеру телефона;
+- `parser_issues/parser_issues.jsonl` — неразобранные исходные строки при
+  создании диагностических данных парсера.
 
-These paths are ignored by git. `--no-history` prevents creation of a history
-archive but does not disable parser diagnostics. Use `--dry-run` when neither
-history nor parser diagnostics should be written.
+Эти пути игнорируются Git. `--no-history` предотвращает создание архива
+истории, но не отключает диагностику парсера. Используйте `--dry-run`, если не
+нужно записывать ни историю, ни диагностические данные парсера.
 
-## Services
+## Сервисы
 
-Service metadata is kept in `services/registry.py`. Platform-specific URL
-assembly is isolated in `services/grafana.py` and `services/opensearch.py`;
-ticket-specific queries remain in `modules/`. This keeps the CLI independent
-from individual service implementations.
+Метаданные сервисов находятся в `services/registry.py`. Сборка URL для каждой
+платформы изолирована в `services/grafana.py` и `services/opensearch.py`, а
+запросы, специфичные для заявок, остаются в `modules/`. Благодаря этому CLI не
+зависит от реализации отдельных сервисов.
 
-- `zapis` - search call logs in the Grafana dashboard `find-call-in-logs`.
-- `sip_stack` - search SIP stack logs in OpenSearch by client `msisdn`.
-- `bff` - search BFF logs in OpenSearch.
-- `myconnect` - search `profile not found` cases in MyConnect.
-- `myconnect_call` - search MyConnect logs for an attached/problem call using
-  `master:<msisdn>` and the SIP participant.
+- `zapis` — поиск логов звонков на дашборде Grafana `find-call-in-logs`;
+- `sip_stack` — поиск логов SIP stack в OpenSearch по клиентскому `msisdn`;
+- `bff` — поиск логов BFF в OpenSearch;
+- `myconnect` — поиск случаев `profile not found` в MyConnect;
+- `myconnect_call` — поиск логов MyConnect по присоединённому/проблемному
+  звонку с использованием `master:<msisdn>` и участника SIP.
 
-## Development
+## Разработка
 
-Install the test dependency and run the test suite:
+Установите зависимость для тестов и запустите набор тестов:
 
 ```bash
 python3 -m pip install pytest

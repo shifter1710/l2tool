@@ -1,15 +1,15 @@
-# Copy a configured dashboard URL from Grafana. Static parameters such as
-# orgId, environment and cluster are preserved; ticket values are replaced.
+# Скопируйте URL настроенного дашборда Grafana. Статические параметры,
+# например orgId, окружение и кластер, сохраняются; значения из заявки заменяются.
 [services.zapis]
 url = "https://grafana.example.local/d/example/find-call-in-logs?orgId=000&var-env=example&var-env_cluster=example"
 
-# Use the OpenSearch tenant configured for the project. A service-specific
-# security_tenant can override this value when necessary.
+# Укажите tenant OpenSearch, настроенный для проекта. При необходимости
+# значение security_tenant можно переопределить для отдельного сервиса.
 [opensearch]
 security_tenant = "example tenant"
 
-# Copy a Discover URL after selecting the required OpenSearch data view.
-# l2tool extracts indexPattern from each URL and replaces its query and time.
+# Скопируйте URL Discover после выбора нужного представления данных OpenSearch.
+# l2tool извлекает indexPattern из каждого URL и заменяет поисковый запрос и время.
 [services.sip_stack]
 url = "https://dashboards.example.local/app/data-explorer/discover#?_a=(metadata:(indexPattern:sip-stack-example,view:discover))"
 
