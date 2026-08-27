@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import json
 import sys
 import webbrowser
 from dataclasses import dataclass, field
@@ -340,6 +341,37 @@ def prompt_product():
     return products[choice - 1]
 
 
+def load_saved_case(path):
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def prompt_case_action(case_data):
+    source = case_data.get("source", {}).get("file_name", "заявки")
+    print(f"Найдена сохранённая обработка для {source}.")
+    print("1. Продолжить")
+    print("2. Начать новую обработку")
+    return input("Введите номер: ").strip() == "1"
+
+
+def prompt_recording_scenario(call_uuid):
+    print("Выберите сценарий записи:")
+    print("1. Не зашёл в петлю")
+    print("2. Не обработалась запись")
+    print("3. Обработалась, но нет в приложении (пока не настроено)")
+    choice = input("Введите номер: ").strip()
+    if choice == "1":
+        return "recording_mgw", call_uuid
+    if choice == "2":
+        return "recording_mgw,recording_vss_crs,recording_collector", call_uuid
+    if choice == "3":
+        print("Этот сценарий пока не настроен")
+        return None, call_uuid
+    raise ValueError("Некорректный номер сценария записи")
+
+
 def product_open_arg(product_key):
     modules = resolve_product_modules(product_key)
     if not modules:
@@ -358,6 +390,7 @@ def run_ticket(
     history_root=history.HISTORY_ROOT,
     write_diagnostics=True,
     parse_text=None,
+    call_uuid=None,
 ):
     source_text = parse_text if parse_text is not None else text
     ctx = parser.parse(source_text)
@@ -365,6 +398,7 @@ def run_ticket(
     ctx["window"] = window
     selected = resolve_modules(open_arg)
     ctx["selected_modules"] = selected
+    ctx["call_uuid"] = call_uuid
 
     issues = collect_parse_issues(source_text, ctx)
     lines, warnings = partition_warnings(format_parsed_context(ctx))
@@ -427,6 +461,7 @@ def main():
     ap.add_argument("--product", choices=available_products(), help="Product profile")
     ap.add_argument("--window", type=int, default=DEFAULT_WINDOW, help="Window in minutes for Grafana")
     ap.add_argument("--export-case", help="Path to write parsed case JSON")
+    ap.add_argument("--call-uuid", help="UUID записи для сценариев записи")
     ap.add_argument("--no-history", action="store_true", help="Do not save a history archive")
     ap.add_argument(
         "--dry-run",
@@ -440,7 +475,18 @@ def main():
         ap.error("Use either --product or --open, not both")
 
     product_key = args.product
-    if not product_key and not args.open and sys.stdin.isatty():
+    interactive = sys.stdin.isatty()
+    saved_case = None
+    continuing_saved_case = False
+    call_uuid = args.call_uuid
+    if not product_key and not args.open and interactive:
+        saved_case = load_saved_case(parsed_sidecar_path(args.file))
+        if saved_case and prompt_case_action(saved_case):
+            continuing_saved_case = True
+            product_key = saved_case.get("product")
+            call_uuid = call_uuid or saved_case.get("identifiers", {}).get("call_uuid")
+
+    if not product_key and not args.open and interactive:
         try:
             product_key = prompt_product()
         except ValueError as error:
@@ -452,6 +498,18 @@ def main():
         open_arg = product_open_arg(product_key)
         if open_arg is None:
             return
+
+    if interactive and product_key == "recording" and continuing_saved_case:
+        if not call_uuid:
+            call_uuid = input("Введите UUID записи: ").strip()
+        try:
+            recording_open_arg, call_uuid = prompt_recording_scenario(call_uuid)
+        except ValueError as error:
+            print(str(error))
+            return
+        if recording_open_arg is None:
+            return
+        open_arg = recording_open_arg
 
     try:
         text = read_file(args.file)
@@ -470,7 +528,6 @@ def main():
     preview_issues = collect_parse_issues(text, preview_ctx)
     parse_text = text
 
-    interactive = sys.stdin.isatty()
     if preview_issues and interactive:
         print("\n" + "\n".join(format_parsed_context(preview_ctx)))
         print("\n" + "\n".join(format_parse_errors(preview_issues)))
@@ -489,6 +546,7 @@ def main():
             save_history=not args.no_history and not args.dry_run,
             write_diagnostics=not args.dry_run,
             parse_text=parse_text,
+            call_uuid=call_uuid,
         )
     except ValueError as error:
         ap.error(str(error))

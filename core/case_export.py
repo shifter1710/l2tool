@@ -39,7 +39,7 @@ def build_case_dict(
             "phone_a_values": list(ctx.get("phone_a_values") or []),
             "phone_b": ctx.get("phone_b"),
             "phone_b_values": list(ctx.get("phone_b_values") or []),
-            "call_uuid": "",
+            "call_uuid": ctx.get("call_uuid") or "",
         },
         "event": {
             "timezone": timezone_name,

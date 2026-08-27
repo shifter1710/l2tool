@@ -13,6 +13,9 @@ def test_service_registry_separates_platforms_and_modules():
         "bff",
         "myconnect",
         "myconnect_call",
+        "recording_mgw",
+        "recording_vss_crs",
+        "recording_collector",
     ]
     assert SERVICES["zapis"].platform == "grafana"
     assert SERVICES["bff"].platform == "opensearch"

@@ -16,3 +16,14 @@ url = "https://dashboards.example.local/app/data-explorer/discover#?_a=(metadata
 
 [services.myconnect_call]
 url = "https://dashboards.example.local/app/data-explorer/discover#?_a=(metadata:(indexPattern:myconnect-example,view:discover))"
+
+# Вставьте полные ссылки Grafana Explore из вашего окружения. Эти значения
+# хранятся только в локальном config.toml и не должны попадать в Git.
+[services.recording_mgw]
+url = ""
+
+[services.recording_vss_crs]
+url = ""
+
+[services.recording_collector]
+url = ""
