@@ -3,6 +3,7 @@ import sys
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from core.ticket_fields import extract_ticket_fields
 from core.timezones import resolve_timezone
 
 EMPTY_PHONE_VALUES = {
@@ -69,10 +70,10 @@ GENERAL_PROBLEM_PATTERN = re.compile(
 
 
 def find_field(text: str, patterns: list[str]):
-    for p in patterns:
-        m = re.search(p, text, re.IGNORECASE | re.MULTILINE)
-        if m:
-            return m.group(1).strip()
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
+        if match:
+            return match.group(1).strip()
     return None
 
 
@@ -287,58 +288,27 @@ def combine_event_datetime(raw_value, event_date, event_clock):
 
 
 def parse(text: str, now: datetime | None = None):
-    phone_a_raw = find_field(text, [
-        r"Номер звонящего\s*\(А\)\s*[:：]\s*(.+)",
-        r"Номер звонящего\s*[:：]\s*(.+)",
-        r"Номер А\s*[:：]\s*(.+)",
-    ])
-
-    phone_b_raw = find_field(text, [
-        r"Номер принимающего звонок\s*\(Б\)\s*[:：]\s*(.+)",
-        r"Номер принимающего звонок\s*Б\s*[:：]\s*(.+)",
-        r"Номер принимающего\s*[:：]\s*(.+)",
-        r"Номер Б\s*[:：]\s*(.+)",
-        r"^\s*Б\s*[:：]\s*(.+)",
-        r"callee\s*[:：]\s*(.+)",
-        r"number_b\s*[:：]\s*(.+)",
-    ])
-
-    msisdn_raw = find_field(text, [
-        r"Номер клиента\s*\(msisdn\)\s*[:：]\s*(.+)",
-        r"msisdn\s*[:：]\s*(.+)",
-        r"Номер клиента\s*[:：]\s*(.+)",
-    ])
-
-    datetime_raw = find_field(text, [
-        r"Дата и время проблемного звонка\s*[:：]\s*(.+)",
-        r"Дата и время звонка\s*[:：]\s*(.+)",
-        r"Время события\s*[:：]\s*(.+)",
-    ])
-
-    date_raw = find_field(text, [
-        r"Дата проблемного звонка\s*[:：]\s*(.+)",
-        r"Дата звонка\s*[:：]\s*(.+)",
-        r"Дата события\s*[:：]\s*(.+)",
-        r"Дата\s*[:：]\s*(.+)",
-    ])
-
-    time_raw = find_field(text, [
-        r"Время проблемного звонка\s*[:：]\s*(.+)",
-        r"Время звонка\s*[:：]\s*(.+)",
-        r"Время\s*[:：]\s*(.+)",
-    ])
-
-    region = find_field(text, [
-        r"Местонахождение абонента\s*[:：]\s*(.+)",
-        r"Местонахождение\s*[:：]\s*(.+)",
-        r"Регион\s*[:：]\s*(.+)",
-    ])
-
-    submitted_raw = find_field(text, [
-        r"Дата отправки\s*[:：]\s*(.+)",
-        r"Дата создания ЕИ\s*[:：]\s*(.+)",
-        r"Дата создания\s*[:：]\s*(.+)",
-    ])
+    raw_fields = extract_ticket_fields(
+        text,
+        (
+            "phone_a",
+            "phone_b",
+            "msisdn",
+            "event_datetime",
+            "event_date",
+            "event_time",
+            "region",
+            "submitted_at",
+        ),
+    )
+    phone_a_raw = raw_fields["phone_a"]
+    phone_b_raw = raw_fields["phone_b"]
+    msisdn_raw = raw_fields["msisdn"]
+    datetime_raw = raw_fields["event_datetime"]
+    date_raw = raw_fields["event_date"]
+    time_raw = raw_fields["event_time"]
+    region = raw_fields["region"]
+    submitted_raw = raw_fields["submitted_at"]
     submitted_at = parse_datetime_value(submitted_raw) if submitted_raw else None
 
     phone_a_values = extract_phone_values(phone_a_raw, allow_short=True)

@@ -1,7 +1,5 @@
-from urllib.parse import quote_plus
-
-from core.config import opensearch_base_url, opensearch_index_pattern
 from core.utils import hash_phone
+from services.opensearch import build_discover_url
 
 SEARCH_PERIOD = ("now-1M", "now")
 
@@ -12,21 +10,24 @@ def build_one(ctx, time_from, time_to):
     if not phone:
         return None
 
-    query_value = hash_phone(phone)
-    query = quote_plus(f'"{query_value}"')
-
-    url = (
-        f"{opensearch_base_url()}#"
-        f"?_a=(discover:(columns:!(request_id,operation_id,auth.msisdn,auth.profile_id,"
-        f"request.offset_timestamp,response.total,response.calls,request.offset),"
-        f"isDirty:!t,sort:!()),"
-        f"metadata:(indexPattern:{opensearch_index_pattern('bff')},view:discover))"
-        f"&_g=(filters:!(),refreshInterval:(pause:!t,value:0),"
-        f"time:(from:{time_from},to:{time_to}))"
-        f"&_q=(filters:!(),query:(language:kuery,query:{query}))"
+    return build_discover_url(
+        "bff",
+        legacy_index_name="bff",
+        columns=(
+            "request_id",
+            "operation_id",
+            "auth.msisdn",
+            "auth.profile_id",
+            "request.offset_timestamp",
+            "response.total",
+            "response.calls",
+            "request.offset",
+        ),
+        query=f'"{hash_phone(phone)}"',
+        time_from=time_from,
+        time_to=time_to,
+        is_dirty=True,
     )
-
-    return url
 
 
 def build(ctx):

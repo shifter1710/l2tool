@@ -1,7 +1,12 @@
-from urllib.parse import urlencode, quote_plus
-
-from core.config import grafana_env, grafana_env_cluster, grafana_find_call_dashboard, grafana_org_id
+from core.config import (
+    grafana_env,
+    grafana_env_cluster,
+    grafana_find_call_dashboard,
+    grafana_org_id,
+    service_url,
+)
 from core.time_windows import event_datetimes, utc_day_window, utc_range, utc_window
+from services.grafana import merge_dashboard_params
 
 
 def phone_without_country_code(phone):
@@ -55,22 +60,30 @@ def phone_pairs(ctx):
 def build_one(ctx, event_time=None, phones=None):
     phone, second_phone = phones or select_phones(ctx)
 
-    params = {
-        "orgId": grafana_org_id(),
-        "timezone": ctx.get("tz", "Europe/Moscow"),
+    dashboard_url = service_url("zapis")
+    params = {}
+    if not dashboard_url:
+        dashboard_url = grafana_find_call_dashboard()
+        params.update(
+            {
+                "orgId": grafana_org_id(),
+                "var-env": grafana_env(),
+                "var-env_cluster": grafana_env_cluster(),
+            }
+        )
 
-        "var-phone": phone,
-        "var-second_phone": second_phone,
-
-        "var-call_id": "",
-        "var-nats_msg_id": "",
-        "var-record_id": "",
-        "var-transcription_id": "",
-        "var-workflow_id": "",
-
-        "var-env": grafana_env(),
-        "var-env_cluster": grafana_env_cluster(),
-    }
+    params.update(
+        {
+            "timezone": ctx.get("tz", "Europe/Moscow"),
+            "var-phone": phone,
+            "var-second_phone": second_phone,
+            "var-call_id": "",
+            "var-nats_msg_id": "",
+            "var-record_id": "",
+            "var-transcription_id": "",
+            "var-workflow_id": "",
+        }
+    )
 
     if ctx.get("event_time_range"):
         params["from"], params["to"] = utc_range(ctx, ctx["event_time_range"])
@@ -81,7 +94,7 @@ def build_one(ctx, event_time=None, phones=None):
         if day_window:
             params["from"], params["to"] = day_window
 
-    return f"{grafana_find_call_dashboard()}?{urlencode(params, quote_via=quote_plus)}"
+    return merge_dashboard_params(dashboard_url, params)
 
 
 def build(ctx):

@@ -1,48 +1,29 @@
 #!/usr/bin/env python3
 
 import argparse
-from datetime import datetime
 import sys
-from dataclasses import dataclass, field
-from pathlib import Path
 import webbrowser
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from core import history, parser
 from core.case_export import build_case_dict, parsed_sidecar_path, write_case_json
-from core import history
-from core import parser
 from core.parser import is_empty_phone_value
 from core.parser_diagnostics import collect_parse_issues, write_parse_issues
 from core.products import available_products, product_title, resolve_product_modules
 from core.timezones import resolve_timezone
 from core.utils import hash_phone
-
-import modules.attached_call_myconnect as attached_call_myconnect
-import modules.bff_logs_opensearch as bff_logs_opensearch
-import modules.find_call_in_logs as find_call_in_logs
-import modules.profile_not_found_myconnect as profile_not_found_myconnect
-import modules.sip_stack_opensearch as sip_stack_opensearch
+from services.registry import service_modules, service_titles
 
 DEFAULT_FILE = "tickets/current.txt"
 DEFAULT_OPEN = "zapis,bff,myconnect,myconnect_call"
 DEFAULT_WINDOW = 120
 LOKI_RETENTION_DAYS = 5
 
-MODULES = {
-    "zapis": find_call_in_logs,
-    "sip_stack": sip_stack_opensearch,
-    "bff": bff_logs_opensearch,
-    "myconnect": profile_not_found_myconnect,
-    "myconnect_call": attached_call_myconnect,
-}
-
-MODULE_TITLES = {
-    "zapis": "Grafana / find-call-in-logs",
-    "sip_stack": "SIP stack / OpenSearch",
-    "bff": "BFF / OpenSearch",
-    "myconnect": "MyConnect / OpenSearch",
-    "myconnect_call": "MyConnect call / OpenSearch",
-}
+MODULES = service_modules()
+MODULE_TITLES = service_titles()
 
 
 @dataclass
@@ -69,9 +50,10 @@ def resolve_modules(open_arg: str):
             continue
 
         if raw_name not in MODULES:
-            raise ValueError(f"Unknown module: {raw_name}. Available: {available}")
+            raise ValueError(f"Unknown service: {raw_name}. Available: {available}")
 
-        resolved.append(raw_name)
+        if raw_name not in resolved:
+            resolved.append(raw_name)
 
     return resolved
 
@@ -127,8 +109,10 @@ def format_event_time(ctx):
 
     if len(ctx.get("event_datetimes", [])) > 1:
         lines.append("Найдено несколько времен события:")
-        for event_datetime in ctx["event_datetimes"]:
-            lines.append(f"- {event_datetime:%Y-%m-%d %H:%M:%S}")
+        lines.extend(
+            f"- {event_datetime:%Y-%m-%d %H:%M:%S}"
+            for event_datetime in ctx["event_datetimes"]
+        )
     elif ctx.get("event_time"):
         lines.append(f"Найдено время события: {ctx['event_time']:%Y-%m-%d %H:%M:%S}")
     elif ctx.get("event_date"):
@@ -244,7 +228,7 @@ def build_links(ctx, selected_modules):
         try:
             links = mod.build(ctx)
         except Exception as e:
-            errors.append(f"[ERROR] Module failed: {name}: {e}")
+            errors.append(f"[ERROR] Service failed: {name}: {e}")
             continue
 
         if links:
@@ -277,8 +261,8 @@ def prompt_product():
 
     try:
         choice = int(input("Введите номер: ").strip())
-    except ValueError:
-        raise ValueError("Некорректный номер продукта")
+    except ValueError as error:
+        raise ValueError("Некорректный номер продукта") from error
 
     if not 1 <= choice <= len(products):
         raise ValueError("Некорректный номер продукта")
@@ -289,7 +273,7 @@ def prompt_product():
 def product_open_arg(product_key):
     modules = resolve_product_modules(product_key)
     if not modules:
-        print(f"Для продукта {product_title(product_key)} пока нет настроенных модулей")
+        print(f"Для продукта {product_title(product_key)} пока нет настроенных сервисов")
         return None
 
     return ",".join(modules)
@@ -365,7 +349,7 @@ def main():
     ap.add_argument(
         "--open",
         default=None,
-        help="Modules: zapis,sip_stack,bff,myconnect,myconnect_call or all",
+        help="Services: zapis,sip_stack,bff,myconnect,myconnect_call or all",
     )
     ap.add_argument("--product", choices=available_products(), help="Product profile")
     ap.add_argument("--window", type=int, default=DEFAULT_WINDOW, help="Window in minutes for Grafana")

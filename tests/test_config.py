@@ -32,6 +32,39 @@ def test_config_reads_local_config(monkeypatch, tmp_path):
     assert config.grafana_find_call_dashboard() == "https://local.test/grafana"
 
 
+def test_config_reads_service_url(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """[services.bff]
+url = "https://opensearch.test/discover#?_a=(metadata:(indexPattern:bff-id))"
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "CONFIG_PATH", config_path)
+
+    assert config.service_url("bff") == (
+        "https://opensearch.test/discover#?_a=(metadata:(indexPattern:bff-id))"
+    )
+    assert config.service_url("missing") is None
+
+
+def test_python_310_toml_fallback_keeps_opensearch_fragment(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """[services.bff]
+url = "https://opensearch.test/discover#?_a=(metadata:(indexPattern:bff-id))"
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "tomllib", None)
+
+    data = config.load_config(config_path)
+
+    assert data["services"]["bff"]["url"].endswith(
+        "#?_a=(metadata:(indexPattern:bff-id))"
+    )
+
+
 def test_config_missing_local_file_raises_helpful_error(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "missing-config.toml")
 

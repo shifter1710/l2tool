@@ -136,3 +136,13 @@ def test_uses_context_timezone_in_grafana_url():
     url = find_call_in_logs.build(ctx)[0]
 
     assert "timezone=Asia%2FOmsk" in url
+
+
+def test_copied_grafana_url_keeps_static_service_params():
+    url = find_call_in_logs.build({"msisdn": "79990000000"})[0]
+    params = parse_qs(urlparse(url).query, keep_blank_values=True)
+
+    assert params["orgId"] == ["000"]
+    assert params["var-env"] == ["example"]
+    assert params["var-env_cluster"] == ["example"]
+    assert params["var-phone"] == ["9990000000"]

@@ -1,16 +1,18 @@
-[defaults]
-env = "example"
+# Copy a configured dashboard URL from Grafana. Static parameters such as
+# orgId, environment and cluster are preserved; ticket values are replaced.
+[services.zapis]
+url = "https://grafana.example.local/d/example/find-call-in-logs?orgId=000&var-env=example&var-env_cluster=example"
 
-[grafana]
-find_call_dashboard = "https://grafana.example.local/d/example/find-call-in-logs"
-org_id = "000"
-env = "example"
-env_cluster = "example"
+# Copy a Discover URL after selecting the required OpenSearch data view.
+# l2tool extracts indexPattern from each URL and replaces its query and time.
+[services.sip_stack]
+url = "https://dashboards.example.local/app/data-explorer/discover#?_a=(metadata:(indexPattern:sip-stack-example,view:discover))"
 
-[opensearch]
-base_url = "https://dashboards.example.local/app/data-explorer/discover"
+[services.bff]
+url = "https://dashboards.example.local/app/data-explorer/discover#?_a=(metadata:(indexPattern:bff-example,view:discover))"
 
-[opensearch.index_patterns]
-bff = "bff-example"
-myconnect = "myconnect-example"
-sip_stack = "sip-stack-example"
+[services.myconnect]
+url = "https://dashboards.example.local/app/data-explorer/discover#?_a=(metadata:(indexPattern:myconnect-example,view:discover))"
+
+[services.myconnect_call]
+url = "https://dashboards.example.local/app/data-explorer/discover#?_a=(metadata:(indexPattern:myconnect-example,view:discover))"

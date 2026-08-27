@@ -21,9 +21,24 @@ Create the local configuration from the supplied template:
 cp config.example.toml config.toml
 ```
 
-Replace every example URL, environment name, organization ID, and index pattern
-in `config.toml` with values for your environment. The local file is ignored by
-git and must not be committed.
+For each service, open the required Grafana dashboard or OpenSearch Discover
+view and copy its URL into the matching section:
+
+```toml
+[services.zapis]
+url = "https://grafana.example.local/d/...?..."
+
+[services.bff]
+url = "https://dashboards.example.local/app/data-explorer/discover#?..."
+```
+
+For Grafana, l2tool preserves static query parameters from the copied URL (for
+example `orgId`, environment and cluster) and replaces ticket-specific values.
+For OpenSearch, first select the required data view and then copy the Discover
+URL: l2tool extracts its `indexPattern` and replaces the query and time range.
+
+The local `config.toml` is ignored by git and must not be committed. The legacy
+`[grafana]` and `[opensearch]` configuration layout remains supported.
 
 Create the local ticket directory, which is also ignored by git:
 
@@ -48,7 +63,7 @@ python3 gtool.py
 Default behavior:
 
 - reads `tickets/current.txt`
-- prompts for a product and selects its configured modules
+- prompts for a product and selects its configured services
 - uses a 120 minute Grafana window
 - prints prior local history matches
 - prints generated links without opening a browser
@@ -75,7 +90,7 @@ structured JSON file for later handoff to `l2-local-ai`:
 python3 gtool.py --file tickets/current.txt --product recording --export-case cases/current.json
 ```
 
-The export contains normalized identifiers, event date/time, selected modules,
+The export contains normalized identifiers, event date/time, selected services,
 and generated links. It does not include the original ticket text, raw phone
 fields, absolute local paths, config contents, tokens, cookies, or environment
 variables.
@@ -96,7 +111,7 @@ python3 gtool.py --product recording
 
 Available product profiles:
 
-| Profile | Product | Modules |
+| Profile | Product | Services |
 | --- | --- | --- |
 | `recording` | Запись | `zapis`, `sip_stack`, `bff` |
 | `secretary` | Секретарь | `bff` |
@@ -105,7 +120,7 @@ Available product profiles:
 | `assistant` | Ассистент в звонке | not configured yet |
 
 Use either `--product` or `--open`; the options cannot be combined. Pass
-`--open all` to run every configured module. When neither option is supplied in
+`--open all` to run every configured service. When neither option is supplied in
 an interactive terminal, the tool displays the product menu. Non-interactive
 runs use `zapis,bff,myconnect,myconnect_call` by default.
 
@@ -137,7 +152,12 @@ These paths are ignored by git. `--no-history` prevents creation of a history
 archive but does not disable parser diagnostics. Use `--dry-run` when neither
 history nor parser diagnostics should be written.
 
-## Modules
+## Services
+
+Service metadata is kept in `services/registry.py`. Platform-specific URL
+assembly is isolated in `services/grafana.py` and `services/opensearch.py`;
+ticket-specific queries remain in `modules/`. This keeps the CLI independent
+from individual service implementations.
 
 - `zapis` - search call logs in the Grafana dashboard `find-call-in-logs`.
 - `sip_stack` - search SIP stack logs in OpenSearch by client `msisdn`.

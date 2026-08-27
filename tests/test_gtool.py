@@ -1,12 +1,19 @@
-from types import SimpleNamespace
-from datetime import datetime
 import json
+from datetime import datetime
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
-import gtool
 import pytest
+
+import gtool
 from core import parser
-from gtool import format_event_time, format_links, format_opensearch_periods, format_parsed_context, format_phone_normalization
+from gtool import (
+    format_event_time,
+    format_links,
+    format_opensearch_periods,
+    format_parsed_context,
+    format_phone_normalization,
+)
 
 
 def test_format_phone_b_normalization():
@@ -82,11 +89,15 @@ def test_resolve_modules_accepts_known_modules():
     assert gtool.resolve_modules("zapis,bff") == ["zapis", "bff"]
 
 
+def test_resolve_modules_removes_duplicates_without_reordering():
+    assert gtool.resolve_modules("bff,zapis,bff") == ["bff", "zapis"]
+
+
 def test_resolve_modules_rejects_unknown_module():
     with pytest.raises(
         ValueError,
         match=(
-            "Unknown module: bad. Available: "
+            "Unknown service: bad. Available: "
             "zapis, sip_stack, bff, myconnect, myconnect_call"
         ),
     ):

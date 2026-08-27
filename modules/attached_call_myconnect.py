@@ -1,6 +1,4 @@
-from urllib.parse import quote_plus
-
-from core.config import opensearch_base_url, opensearch_index_pattern
+from services.opensearch import build_discover_url
 
 SEARCH_PERIOD = ("now-2M", "now")
 
@@ -37,18 +35,15 @@ def build_one(ctx, time_from, time_to):
     if not msisdn:
         return None
 
-    query = quote_plus(build_query(msisdn, phone_a, phone_b))
-    index_pattern = opensearch_index_pattern("myconnect")
-
-    url = (
-        f"{opensearch_base_url()}#"
-        f"?_a=(discover:(columns:!(rawData,message,params),isDirty:!f,sort:!()),"
-        f"metadata:(indexPattern:{index_pattern},view:discover))"
-        f"&_g=(filters:!(),refreshInterval:(pause:!t,value:0),time:(from:{time_from},to:{time_to}))"
-        f"&_q=(filters:!(),query:(language:kuery,query:'{query}'))"
+    return build_discover_url(
+        "myconnect_call",
+        legacy_index_name="myconnect",
+        columns=("rawData", "message", "params"),
+        query=build_query(msisdn, phone_a, phone_b),
+        time_from=time_from,
+        time_to=time_to,
+        quote_query=True,
     )
-
-    return url
 
 
 def build(ctx):

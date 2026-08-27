@@ -94,6 +94,14 @@ def config_value(key_path, default=None):
     return value
 
 
+def service_url(name):
+    return config_value(f"services.{name}.url")
+
+
+def service_index_pattern(name):
+    return config_value(f"services.{name}.index_pattern")
+
+
 def default_env():
     return config_value("defaults.env")
 

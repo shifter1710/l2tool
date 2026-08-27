@@ -1,6 +1,6 @@
 from urllib.parse import quote_plus
 
-from core.config import opensearch_base_url, opensearch_index_pattern
+from services.opensearch import build_discover_url, resolve_target
 
 FIXED_FILTER = "failed starting call on IMS side: profile not found"
 SEARCH_PERIOD = ("now-2M", "now")
@@ -12,23 +12,25 @@ def build_one(ctx, time_from, time_to):
     if not msisdn:
         return None
 
-    query = quote_plus(msisdn)
+    query = msisdn
     phrase = quote_plus(FIXED_FILTER)
-    index_pattern = opensearch_index_pattern("myconnect")
-
-    url = (
-        f"{opensearch_base_url()}#"
-        f"?_a=(discover:(columns:!(rawData,message,params),isDirty:!f,sort:!()),"
-        f"metadata:(indexPattern:{index_pattern},view:discover))"
-        f"&_g=(filters:!(),refreshInterval:(pause:!t,value:0),time:(from:{time_from},to:{time_to}))"
-        f"&_q=(filters:!(('$state':(store:appState),meta:(alias:!n,disabled:!f,"
+    index_pattern = resolve_target("myconnect", "myconnect").index_pattern
+    filters = (
+        f"!(('$state':(store:appState),meta:(alias:!n,disabled:!f,"
         f"index:{index_pattern},key:message,negate:!f,"
         f"params:(query:'{phrase}'),type:phrase),"
-        f"query:(match_phrase:(message:'{phrase}')))),"
-        f"query:(language:kuery,query:'{query}'))"
+        f"query:(match_phrase:(message:'{phrase}'))))"
     )
-
-    return url
+    return build_discover_url(
+        "myconnect",
+        legacy_index_name="myconnect",
+        columns=("rawData", "message", "params"),
+        query=query,
+        time_from=time_from,
+        time_to=time_to,
+        filters=filters,
+        quote_query=True,
+    )
 
 
 def build(ctx):

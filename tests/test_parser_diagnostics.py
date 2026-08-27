@@ -34,6 +34,29 @@ def test_bad_phone_creates_issue_and_warning(monkeypatch, tmp_path):
     assert any(line.startswith("[WARN] Проблема парсинга:") for line in result.lines)
 
 
+def test_issue_location_skips_blank_lines_before_indented_field():
+    text = "\n  Номер клиента (msisdn): 14951234567"
+
+    issues = collect_parse_issues(text, parser.parse(text))
+
+    assert issues[0]["line_number"] == 2
+    assert issues[0]["line_text"] == "  Номер клиента (msisdn): 14951234567"
+
+
+def test_diagnostic_uses_same_field_precedence_as_parser():
+    text = """Номер клиента: 14951234567
+Номер клиента (msisdn): 12345
+"""
+
+    ctx = parser.parse(text)
+    issues = collect_parse_issues(text, ctx)
+
+    assert ctx["msisdn_raw"] == "12345"
+    assert issues[0]["line_number"] == 2
+    assert issues[0]["line_text"] == "Номер клиента (msisdn): 12345"
+    assert issues[0]["message"] == "Номер клиента не распознан: 12345"
+
+
 def test_ignore_values_do_not_create_issues():
     text = """Номер клиента (msisdn): любой
 Номер звонящего (А): нет

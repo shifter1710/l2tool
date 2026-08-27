@@ -1,35 +1,34 @@
 import json
-import re
 from pathlib import Path
 
-from core.parser import is_empty_phone_value, parse_date_value, parse_datetime_value, parse_time_value
+from core.parser import (
+    is_empty_phone_value,
+    parse_date_value,
+    parse_datetime_value,
+    parse_time_value,
+)
+from core.ticket_fields import TICKET_FIELDS, find_ticket_field
 
 PHONE_FIELDS = (
-    ("msisdn", "msisdn_raw", "Номер клиента", [r"^\s*Номер клиента\s*\(msisdn\)\s*[:：]\s*(.+)", r"^\s*msisdn\s*[:：]\s*(.+)", r"^\s*Номер клиента\s*[:：]\s*(.+)"]),
-    ("phone_a", "phone_a_raw", "Номер А", [r"^\s*Номер звонящего\s*\(А\)\s*[:：]\s*(.+)", r"^\s*Номер звонящего\s*[:：]\s*(.+)", r"^\s*Номер А\s*[:：]\s*(.+)"]),
-    ("phone_b", "phone_b_raw", "Номер Б", [r"^\s*Номер принимающего звонок\s*\(Б\)\s*[:：]\s*(.+)", r"^\s*Номер принимающего звонок\s*Б\s*[:：]\s*(.+)", r"^\s*Номер принимающего\s*[:：]\s*(.+)", r"^\s*Номер Б\s*[:：]\s*(.+)", r"^\s*Б\s*[:：]\s*(.+)", r"^\s*callee\s*[:：]\s*(.+)", r"^\s*number_b\s*[:：]\s*(.+)"]),
+    ("msisdn", "msisdn_raw"),
+    ("phone_a", "phone_a_raw"),
+    ("phone_b", "phone_b_raw"),
 )
 
 DATETIME_FIELDS = (
     (
         "event_datetime",
         "datetime_parse_failed",
-        "Дата и время проблемного звонка",
-        [r"^\s*Дата и время проблемного звонка\s*[:：]\s*(.+)", r"^\s*Дата и время звонка\s*[:：]\s*(.+)", r"^\s*Время события\s*[:：]\s*(.+)"],
         parse_datetime_value,
     ),
     (
         "event_date",
         "date_parse_failed",
-        "Дата",
-        [r"^\s*Дата проблемного звонка\s*[:：]\s*(.+)", r"^\s*Дата звонка\s*[:：]\s*(.+)", r"^\s*Дата события\s*[:：]\s*(.+)", r"^\s*Дата\s*[:：]\s*(.+)"],
         parse_date_value,
     ),
     (
         "event_time",
         "time_parse_failed",
-        "Время",
-        [r"^\s*Время проблемного звонка\s*[:：]\s*(.+)", r"^\s*Время звонка\s*[:：]\s*(.+)", r"^\s*Время\s*[:：]\s*(.+)"],
         parse_time_value,
     ),
 )
@@ -45,42 +44,32 @@ def _issue(field, reason, line_number, line_text, message):
     }
 
 
-def _find_field_line(text, patterns):
-    for line_number, line in enumerate(text.splitlines(), start=1):
-        for pattern in patterns:
-            match = re.search(pattern, line, re.IGNORECASE)
-            if match:
-                return match.group(1).strip(), line_number, line
-
-    return None, 0, ""
-
-
 def collect_parse_issues(text, ctx) -> list[dict]:
     issues = []
 
-    for field, raw_key, title, patterns in PHONE_FIELDS:
+    for field, raw_key in PHONE_FIELDS:
         raw_value = ctx.get(raw_key)
         if not raw_value or is_empty_phone_value(raw_value):
             continue
 
         if ctx.get(field) is None:
-            _, line_number, line_text = _find_field_line(text, patterns)
+            match = find_ticket_field(text, field)
             issues.append(
                 _issue(
                     field=field,
                     reason="phone_normalization_failed",
-                    line_number=line_number,
-                    line_text=line_text,
-                    message=f"{title} не распознан: {raw_value}",
+                    line_number=match.line_number if match else 0,
+                    line_text=match.line_text if match else "",
+                    message=f"{TICKET_FIELDS[field].title} не распознан: {raw_value}",
                 )
             )
 
-    for field, reason, title, patterns, parser_fn in DATETIME_FIELDS:
-        raw_value, line_number, line_text = _find_field_line(text, patterns)
-        if not raw_value or is_empty_phone_value(raw_value):
+    for field, reason, parser_fn in DATETIME_FIELDS:
+        match = find_ticket_field(text, field)
+        if not match or is_empty_phone_value(match.value):
             continue
 
-        parsed_value = parser_fn(raw_value)
+        parsed_value = parser_fn(match.value)
         if field == "event_datetime":
             parsed_value = ctx.get("event_time") or ctx.get("event_date")
 
@@ -89,9 +78,11 @@ def collect_parse_issues(text, ctx) -> list[dict]:
                 _issue(
                     field=field,
                     reason=reason,
-                    line_number=line_number,
-                    line_text=line_text,
-                    message=f"{title} не распознано: {raw_value}",
+                    line_number=match.line_number,
+                    line_text=match.line_text,
+                    message=(
+                        f"{TICKET_FIELDS[field].title} не распознано: {match.value}"
+                    ),
                 )
             )
 
