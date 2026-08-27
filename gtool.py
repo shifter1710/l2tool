@@ -19,7 +19,7 @@ from services.registry import service_modules, service_titles
 
 DEFAULT_FILE = "tickets/current.txt"
 DEFAULT_OPEN = "zapis,bff,myconnect,myconnect_call"
-DEFAULT_WINDOW = 120
+DEFAULT_WINDOW = 60
 LOKI_RETENTION_DAYS = 5
 
 MODULES = service_modules()
@@ -33,6 +33,16 @@ class RunResult:
     links_by_module: dict[str, list[str]]
     lines: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+
+
+PARSE_FIX_FIELDS = {
+    "msisdn": ("Номер клиента (msisdn)", "Номер клиента"),
+    "phone_a": ("Номер звонящего (А)", "Номер А"),
+    "phone_b": ("Номер принимающего звонок (Б)", "Номер Б"),
+    "event_datetime": ("Дата и время проблемного звонка", "Дата и время звонка"),
+    "event_date": ("Дата проблемного звонка", "Дата звонка"),
+    "event_time": ("Время проблемного звонка", "Дата и время звонка"),
+}
 
 
 def read_file(path: str) -> str:
@@ -218,6 +228,66 @@ def format_warnings(warnings):
     return ["--- Warnings and errors ---", *warnings, "---------------------------"]
 
 
+def format_parse_errors(issues):
+    lines = ["--- Parse errors ---"]
+    for issue in issues:
+        lines.append(f"[ERROR] {issue['message']}")
+        if issue["line_number"]:
+            lines.append(f"  Строка {issue['line_number']}: {issue['line_text']}")
+    lines.extend(
+        [
+            "Исправьте указанные поля; ссылки не сформированы.",
+            "--------------------",
+        ]
+    )
+    return lines
+
+
+def prompt_parse_fixes(text, issues, input_fn=None):
+    input_fn = input if input_fn is None else input_fn
+    corrections = []
+    prompted_fields = set()
+
+    for issue in issues:
+        field_name = issue["field"]
+        if field_name in prompted_fields or field_name not in PARSE_FIX_FIELDS:
+            continue
+
+        source_label, prompt_label = PARSE_FIX_FIELDS[field_name]
+        value = input_fn(f"Введите {prompt_label}: ").strip()
+        if value:
+            corrections.append(f"{source_label}: {value}")
+        prompted_fields.add(field_name)
+
+    return "\n".join([*corrections, text])
+
+
+def is_date_only_context(ctx):
+    return bool(
+        ctx.get("event_date")
+        and not ctx.get("event_time")
+        and not ctx.get("event_time_range")
+        and not ctx.get("event_datetimes")
+    )
+
+
+def prompt_date_only_window(text, ctx, input_fn=None):
+    input_fn = input if input_fn is None else input_fn
+    event_datetime = input_fn(
+        "Найдена только дата. Нажмите Enter для поиска с 08:00 до 20:00 "
+        "или введите дату и время звонка (ДД.ММ.ГГГГ ЧЧ:ММ): "
+    ).strip()
+    if not event_datetime:
+        return text
+
+    return "\n".join(
+        [
+            f"Дата и время проблемного звонка: {event_datetime}",
+            text,
+        ]
+    )
+
+
 def build_links(ctx, selected_modules):
     links_by_module = {}
     errors = []
@@ -287,23 +357,26 @@ def run_ticket(
     save_history=False,
     history_root=history.HISTORY_ROOT,
     write_diagnostics=True,
+    parse_text=None,
 ):
-    ctx = parser.parse(text)
+    source_text = parse_text if parse_text is not None else text
+    ctx = parser.parse(source_text)
     ctx["tz"] = resolve_timezone(ctx.get("region"))
     ctx["window"] = window
     selected = resolve_modules(open_arg)
     ctx["selected_modules"] = selected
 
-    issues = collect_parse_issues(text, ctx)
+    issues = collect_parse_issues(source_text, ctx)
     lines, warnings = partition_warnings(format_parsed_context(ctx))
     warnings.extend(format_loki_retention_warning(ctx))
     lines.append("")
 
-    for issue in issues:
-        warnings.append(f"[WARN] Проблема парсинга: {issue['message']}")
-
     if issues and write_diagnostics:
         write_parse_issues(issues)
+
+    if issues:
+        lines.extend(format_parse_errors(issues))
+        return RunResult(ctx, selected, {}, lines, [issue["message"] for issue in issues])
 
     matches = history.find_matches(ctx, history_root=history_root)
     lines.extend(history.format_matches(matches))
@@ -386,6 +459,28 @@ def main():
         ap.error(f"ticket file not found: {args.file}")
 
     try:
+        preview_selected = resolve_modules(open_arg)
+    except ValueError as error:
+        ap.error(str(error))
+
+    preview_ctx = parser.parse(text)
+    preview_ctx["tz"] = resolve_timezone(preview_ctx.get("region"))
+    preview_ctx["window"] = args.window
+    preview_ctx["selected_modules"] = preview_selected
+    preview_issues = collect_parse_issues(text, preview_ctx)
+    parse_text = text
+
+    interactive = sys.stdin.isatty()
+    if preview_issues and interactive:
+        print("\n" + "\n".join(format_parsed_context(preview_ctx)))
+        print("\n" + "\n".join(format_parse_errors(preview_issues)))
+        parse_text = prompt_parse_fixes(text, preview_issues)
+
+    date_only_ctx = parser.parse(parse_text)
+    if interactive and is_date_only_context(date_only_ctx):
+        parse_text = prompt_date_only_window(parse_text, date_only_ctx)
+
+    try:
         result = run_ticket(
             text,
             open_arg=open_arg,
@@ -393,6 +488,7 @@ def main():
             input_file=args.file,
             save_history=not args.no_history and not args.dry_run,
             write_diagnostics=not args.dry_run,
+            parse_text=parse_text,
         )
     except ValueError as error:
         ap.error(str(error))

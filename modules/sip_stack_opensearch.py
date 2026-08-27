@@ -1,6 +1,6 @@
 from services.opensearch import build_discover_url
 
-SEARCH_PERIOD = ("now-1M", "now")
+SEARCH_PERIOD = ("now-7d", "now")
 
 
 def msisdn_query(msisdn):

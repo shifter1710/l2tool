@@ -37,7 +37,9 @@ def test_ticket_numbers_includes_all_participants():
 
 
 def test_run_ticket_prints_history_matches_without_saving(monkeypatch, tmp_path):
-    ticket = "Номер клиента (msisdn): +7 (999) 123-45-67"
+    ticket = """Номер клиента (msisdn): +7 (999) 123-45-67
+Дата и время проблемного звонка: 06.05.2026 10:30
+"""
     history_dir = tmp_path / "history"
     saved_path = "history/2026/05/2026-05-06_79991234567_a1b2c3d4.yaml"
     history_dir.mkdir()
@@ -62,7 +64,9 @@ def test_run_ticket_prints_history_matches_without_saving(monkeypatch, tmp_path)
 
 
 def test_run_ticket_treats_corrupted_index_as_no_matches(monkeypatch, tmp_path):
-    ticket = "Номер клиента (msisdn): +7 (999) 123-45-67"
+    ticket = """Номер клиента (msisdn): +7 (999) 123-45-67
+Дата и время проблемного звонка: 06.05.2026 10:30
+"""
     history_dir = tmp_path / "history"
     history_dir.mkdir()
     (history_dir / "index.json").write_text('{"79991234567": [', encoding="utf-8")
@@ -80,7 +84,9 @@ def test_run_ticket_treats_corrupted_index_as_no_matches(monkeypatch, tmp_path):
 
 
 def test_run_ticket_does_not_parse_existing_history_yaml(monkeypatch, tmp_path):
-    ticket = "Номер клиента (msisdn): +7 (999) 123-45-67"
+    ticket = """Номер клиента (msisdn): +7 (999) 123-45-67
+Дата и время проблемного звонка: 06.05.2026 10:30
+"""
     history_dir = tmp_path / "history"
     archive_path = history_dir / "2026" / "05" / "partial.yaml"
     archive_path.parent.mkdir(parents=True)
@@ -168,7 +174,10 @@ def test_run_ticket_saves_history_yaml_and_updates_index(monkeypatch, tmp_path):
 
 def test_cli_no_history_does_not_save_or_open_links(monkeypatch, tmp_path, capsys):
     ticket_path = tmp_path / "ticket.txt"
-    ticket_path.write_text("Номер клиента (msisdn): +7 (999) 123-45-67", encoding="utf-8")
+    ticket_path.write_text(
+        "Номер клиента (msisdn): +7 (999) 123-45-67\nДата и время проблемного звонка: 06.05.2026 10:30",
+        encoding="utf-8",
+    )
     opened = []
 
     monkeypatch.chdir(tmp_path)
@@ -233,7 +242,10 @@ def test_cli_normal_run_saves_history_without_opening_links(monkeypatch, tmp_pat
 
 def test_cli_dry_run_does_not_save_or_open(monkeypatch, tmp_path, capsys):
     ticket_path = tmp_path / "ticket.txt"
-    ticket_path.write_text("Номер клиента (msisdn): +7 (999) 123-45-67", encoding="utf-8")
+    ticket_path.write_text(
+        "Номер клиента (msisdn): +7 (999) 123-45-67\nДата и время проблемного звонка: 06.05.2026 10:30",
+        encoding="utf-8",
+    )
     opened = []
 
     monkeypatch.chdir(tmp_path)
@@ -255,7 +267,10 @@ def test_cli_dry_run_does_not_save_or_open(monkeypatch, tmp_path, capsys):
 
 def test_cli_dry_run_does_not_write_parser_diagnostics(monkeypatch, tmp_path, capsys):
     ticket_path = tmp_path / "ticket.txt"
-    ticket_path.write_text("Номер клиента (msisdn): 14951234567", encoding="utf-8")
+    ticket_path.write_text(
+        "Номер клиента (msisdn): 14951234567\nДата и время проблемного звонка: 06.05.2026 10:30",
+        encoding="utf-8",
+    )
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setitem(gtool.MODULES, "dummy", dummy_module())
@@ -267,7 +282,7 @@ def test_cli_dry_run_does_not_write_parser_diagnostics(monkeypatch, tmp_path, ca
 
     gtool.main()
 
-    assert "[WARN] Проблема парсинга:" in capsys.readouterr().out
+    assert "[ERROR] Номер клиента не распознан:" in capsys.readouterr().out
     assert not (tmp_path / "parser_issues").exists()
 
 

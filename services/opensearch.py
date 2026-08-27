@@ -1,11 +1,20 @@
 import re
 from dataclasses import dataclass
-from urllib.parse import quote_plus, unquote, urlsplit, urlunsplit
+from urllib.parse import (
+    parse_qsl,
+    quote,
+    quote_plus,
+    unquote,
+    urlencode,
+    urlsplit,
+    urlunsplit,
+)
 
 from core.config import (
     opensearch_base_url,
     opensearch_index_pattern,
     service_index_pattern,
+    service_security_tenant,
     service_url,
 )
 
@@ -33,11 +42,40 @@ def _without_fragment(url: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, parts.query, ""))
 
 
+def _tenant_from_url(url: str) -> str | None:
+    return dict(parse_qsl(urlsplit(url).query, keep_blank_values=True)).get(
+        "security_tenant"
+    )
+
+
+def _with_security_tenant(url: str, tenant: str) -> str:
+    parts = urlsplit(url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query["security_tenant"] = tenant
+    return urlunsplit(
+        (
+            parts.scheme,
+            parts.netloc,
+            parts.path,
+            urlencode(query, quote_via=quote),
+            "",
+        )
+    )
+
+
 def resolve_target(service_name: str, legacy_index_name: str) -> OpenSearchTarget:
     configured_url = service_url(service_name)
     base_url = configured_url or opensearch_base_url()
     if not base_url:
         raise ValueError(f"OpenSearch URL is not configured for service: {service_name}")
+
+    security_tenant = service_security_tenant(service_name)
+    if not security_tenant and configured_url:
+        security_tenant = _tenant_from_url(configured_url)
+    if not security_tenant:
+        raise ValueError(
+            f"OpenSearch security_tenant is not configured for service: {service_name}"
+        )
 
     index_pattern = service_index_pattern(service_name)
     if not index_pattern and configured_url:
@@ -51,7 +89,7 @@ def resolve_target(service_name: str, legacy_index_name: str) -> OpenSearchTarge
         )
 
     return OpenSearchTarget(
-        base_url=_without_fragment(base_url),
+        base_url=_with_security_tenant(_without_fragment(base_url), str(security_tenant)),
         index_pattern=str(index_pattern),
     )
 

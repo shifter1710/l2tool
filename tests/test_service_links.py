@@ -46,6 +46,26 @@ url = "https://opensearch.test/discover?security_tenant=private#?_a=(metadata:(i
     assert target.index_pattern == "bff-view"
 
 
+def test_opensearch_tenant_from_config_is_url_encoded(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """[services.bff]
+url = "https://opensearch.test/discover#?_a=(metadata:(indexPattern:bff-view))"
+security_tenant = "Тест tenant/QA"
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "CONFIG_PATH", config_path)
+
+    url = bff_logs_opensearch.build({"msisdn": "79990000000"})[0]
+
+    assert url.startswith(
+        "https://opensearch.test/discover?"
+        "security_tenant=%D0%A2%D0%B5%D1%81%D1%82%20tenant%2FQA#?_a="
+    )
+    assert url.count("security_tenant=") == 1
+
+
 def test_opensearch_link_uses_service_specific_copied_url(monkeypatch, tmp_path):
     config_path = tmp_path / "config.toml"
     config_path.write_text(
@@ -54,6 +74,7 @@ url = "https://new-opensearch.test/discover#?_a=(metadata:(indexPattern:new-bff-
 
 [opensearch]
 base_url = "https://legacy.test/discover"
+security_tenant = "legacy tenant"
 
 [opensearch.index_patterns]
 bff = "legacy-bff-view"
@@ -64,7 +85,9 @@ bff = "legacy-bff-view"
 
     url = bff_logs_opensearch.build({"msisdn": "79990000000"})[0]
 
-    assert url.startswith("https://new-opensearch.test/discover#")
+    assert url.startswith(
+        "https://new-opensearch.test/discover?security_tenant=legacy%20tenant#"
+    )
     assert "indexPattern:new-bff-view" in url
     assert "legacy-bff-view" not in url
 
@@ -74,6 +97,7 @@ def test_legacy_opensearch_config_still_builds_links(monkeypatch, tmp_path):
     config_path.write_text(
         """[opensearch]
 base_url = "https://legacy.test/discover"
+security_tenant = "legacy tenant"
 
 [opensearch.index_patterns]
 bff = "legacy-bff-view"
@@ -84,7 +108,9 @@ bff = "legacy-bff-view"
 
     url = bff_logs_opensearch.build({"msisdn": "79990000000"})[0]
 
-    assert url.startswith("https://legacy.test/discover#")
+    assert url.startswith(
+        "https://legacy.test/discover?security_tenant=legacy%20tenant#"
+    )
     assert "indexPattern:legacy-bff-view" in url
 
 
@@ -114,6 +140,9 @@ def test_opensearch_url_without_data_view_has_helpful_error(monkeypatch, tmp_pat
     config_path.write_text(
         """[services.bff]
 url = "https://opensearch.test/discover"
+
+[opensearch]
+security_tenant = "tenant"
 """,
         encoding="utf-8",
     )

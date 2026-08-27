@@ -6,7 +6,9 @@ from core.parser_diagnostics import collect_parse_issues, write_parse_issues
 
 
 def test_bad_phone_creates_issue_and_warning(monkeypatch, tmp_path):
-    text = "Номер клиента (msisdn): 14951234567"
+    text = """Номер клиента (msisdn): 14951234567
+Дата и время проблемного звонка: 04.05.2026 10:30
+"""
 
     ctx = parser.parse(text)
     issues = collect_parse_issues(text, ctx)
@@ -31,7 +33,9 @@ def test_bad_phone_creates_issue_and_warning(monkeypatch, tmp_path):
     monkeypatch.setattr(gtool, "write_parse_issues", lambda issues: None)
     result = gtool.run_ticket(text, open_arg="zapis")
 
-    assert any(line.startswith("[WARN] Проблема парсинга:") for line in result.lines)
+    assert result.links_by_module == {}
+    assert "[ERROR] Номер клиента не распознан: 14951234567" in result.lines
+    assert "  Строка 1: Номер клиента (msisdn): 14951234567" in result.lines
 
 
 def test_issue_location_skips_blank_lines_before_indented_field():
@@ -64,7 +68,34 @@ def test_ignore_values_do_not_create_issues():
 Дата и время проблемного звонка: неизвестно
 """
 
-    assert collect_parse_issues(text, parser.parse(text)) == []
+    issues = collect_parse_issues(text, parser.parse(text))
+
+    assert issues == [
+        {
+            "field": "event_datetime",
+            "reason": "event_time_missing",
+            "line_number": 4,
+            "line_text": "Дата и время проблемного звонка: неизвестно",
+            "message": "Дата и время звонка не найдены",
+        }
+    ]
+
+
+def test_missing_event_time_creates_issue_without_source_line():
+    issues = collect_parse_issues(
+        "Номер клиента (msisdn): 79991234567",
+        parser.parse("Номер клиента (msisdn): 79991234567"),
+    )
+
+    assert issues == [
+        {
+            "field": "event_datetime",
+            "reason": "event_time_missing",
+            "line_number": 0,
+            "line_text": "",
+            "message": "Дата и время звонка не найдены",
+        }
+    ]
 
 
 def test_bad_datetime_creates_issue():
@@ -95,12 +126,20 @@ def test_date_without_time_does_not_create_datetime_issue():
     assert collect_parse_issues(text, parser.parse(text)) == []
 
 
-def test_common_unspecified_phone_values_do_not_create_issues():
+def test_common_unspecified_phone_values_only_require_event_time():
     text = """Номер звонящего (А): все номера не записываются
 Номер принимающего звонок (Б): не знает
 """
 
-    assert collect_parse_issues(text, parser.parse(text)) == []
+    assert collect_parse_issues(text, parser.parse(text)) == [
+        {
+            "field": "event_datetime",
+            "reason": "event_time_missing",
+            "line_number": 0,
+            "line_text": "",
+            "message": "Дата и время звонка не найдены",
+        }
+    ]
 
 
 def test_time_only_with_submission_date_does_not_create_issue():

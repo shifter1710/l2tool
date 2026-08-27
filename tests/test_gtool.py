@@ -71,8 +71,7 @@ def test_format_loki_retention_warning_for_recent_date():
 
 def test_format_opensearch_periods():
     assert format_opensearch_periods(["zapis", "bff", "myconnect", "myconnect_call"]) == [
-        "OpenSearch: период поиска с now-1M по now",
-        "OpenSearch: период поиска с now-2M по now",
+        "OpenSearch: период поиска с now-7d по now",
     ]
 
 
@@ -106,6 +105,54 @@ def test_resolve_modules_rejects_unknown_module():
 
 def test_default_open_matches_issue_workflow():
     assert gtool.DEFAULT_OPEN == "zapis,bff,myconnect,myconnect_call"
+
+
+def test_default_grafana_window_is_one_hour():
+    assert gtool.DEFAULT_WINDOW == 60
+
+
+def test_prompt_parse_fixes_requests_only_problem_fields():
+    prompts = []
+    answers = iter(["79991112233", "04.05.2026 12:30"])
+    issues = [
+        {"field": "phone_a", "message": "Номер А не распознан"},
+        {"field": "event_datetime", "message": "Дата не распознана"},
+    ]
+
+    repaired = gtool.prompt_parse_fixes(
+        "Исходный тикет",
+        issues,
+        input_fn=lambda prompt: prompts.append(prompt) or next(answers),
+    )
+
+    assert prompts == ["Введите Номер А: ", "Введите Дата и время звонка: "]
+    assert repaired == (
+        "Номер звонящего (А): 79991112233\n"
+        "Дата и время проблемного звонка: 04.05.2026 12:30\n"
+        "Исходный тикет"
+    )
+
+
+def test_prompt_date_only_window_keeps_default_when_empty():
+    text = "Дата проблемного звонка: 04.05.2026"
+    ctx = parser.parse(text)
+
+    assert gtool.is_date_only_context(ctx) is True
+    assert gtool.prompt_date_only_window(text, ctx, input_fn=lambda prompt: "") == text
+
+
+def test_prompt_date_only_window_uses_entered_datetime():
+    text = "Дата проблемного звонка: 04.05.2026"
+    ctx = parser.parse(text)
+
+    repaired = gtool.prompt_date_only_window(
+        text,
+        ctx,
+        input_fn=lambda prompt: "05.05.2026 12:30",
+    )
+    repaired_ctx = parser.parse(repaired)
+
+    assert str(repaired_ctx["event_time"]) == "2026-05-05 12:30:00"
 
 
 def test_format_parsed_context_omits_technical_duplicates():
@@ -162,7 +209,10 @@ def test_warnings_are_grouped_after_history_before_links(monkeypatch, tmp_path):
 
 def test_cli_main_prints_generated_links(monkeypatch, tmp_path, capsys):
     ticket_path = tmp_path / "ticket.txt"
-    ticket_path.write_text("Номер клиента (msisdn): +7 (999) 123-45-67", encoding="utf-8")
+    ticket_path.write_text(
+        "Номер клиента (msisdn): +7 (999) 123-45-67\nДата и время проблемного звонка: 06.05.2026 10:30",
+        encoding="utf-8",
+    )
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setitem(gtool.MODULES, "dummy", SimpleNamespace(build=lambda ctx: ["https://example.test/logs"]))
@@ -182,6 +232,38 @@ def test_cli_main_prints_generated_links(monkeypatch, tmp_path, capsys):
     gtool.main()
 
     assert "https://example.test/logs" in capsys.readouterr().out
+
+
+def test_cli_interactively_repairs_parse_error_before_building_links(
+    monkeypatch, tmp_path, capsys
+):
+    ticket_path = tmp_path / "ticket.txt"
+    ticket_path.write_text(
+        "Номер клиента (msisdn): 14951234567\nДата и время проблемного звонка: 06.05.2026 10:30",
+        encoding="utf-8",
+    )
+    calls = []
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setitem(
+        gtool.MODULES,
+        "dummy",
+        SimpleNamespace(build=lambda ctx: calls.append(ctx) or ["https://example.test/logs"]),
+    )
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda prompt: "79991234567")
+    monkeypatch.setattr(
+        "sys.argv",
+        ["gtool.py", "--file", str(ticket_path), "--open", "dummy", "--no-history"],
+    )
+
+    gtool.main()
+
+    output = capsys.readouterr().out
+    assert "[ERROR] Номер клиента не распознан: 14951234567" in output
+    assert "Строка 1: Номер клиента (msisdn): 14951234567" in output
+    assert "https://example.test/logs" in output
+    assert calls[0]["msisdn"] == "79991234567"
 
 
 def test_cli_missing_default_ticket_reports_error(monkeypatch, tmp_path, capsys):

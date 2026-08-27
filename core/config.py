@@ -102,6 +102,11 @@ def service_index_pattern(name):
     return config_value(f"services.{name}.index_pattern")
 
 
+def service_security_tenant(name):
+    tenant = config_value(f"services.{name}.security_tenant")
+    return tenant if tenant is not None else opensearch_security_tenant()
+
+
 def default_env():
     return config_value("defaults.env")
 
@@ -124,6 +129,10 @@ def grafana_env_cluster():
 
 def opensearch_base_url():
     return config_value("opensearch.base_url")
+
+
+def opensearch_security_tenant():
+    return config_value("opensearch.security_tenant")
 
 
 def opensearch_index_pattern(name):

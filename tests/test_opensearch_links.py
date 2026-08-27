@@ -1,7 +1,9 @@
 from core import parser
-from modules import attached_call_myconnect
-from modules import bff_logs_opensearch
-from modules import profile_not_found_myconnect
+from modules import (
+    attached_call_myconnect,
+    bff_logs_opensearch,
+    profile_not_found_myconnect,
+)
 
 
 def test_opensearch_links_stay_single_and_wide_with_multiple_event_times():
@@ -21,15 +23,15 @@ def test_opensearch_links_stay_single_and_wide_with_multiple_event_times():
     attached_urls = attached_call_myconnect.build(ctx)
 
     assert len(bff_urls) == 1
-    assert "time:(from:now-1M,to:now)" in bff_urls[0]
+    assert "time:(from:now-7d,to:now)" in bff_urls[0]
     assert "2026-05-04T" not in bff_urls[0]
 
     assert len(profile_urls) == 1
-    assert "time:(from:now-2M,to:now)" in profile_urls[0]
+    assert "time:(from:now-7d,to:now)" in profile_urls[0]
     assert "2026-05-04T" not in profile_urls[0]
 
     assert len(attached_urls) == 1
-    assert "time:(from:now-2M,to:now)" in attached_urls[0]
+    assert "time:(from:now-7d,to:now)" in attached_urls[0]
     assert "2026-05-04T" not in attached_urls[0]
 
 

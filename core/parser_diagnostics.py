@@ -86,6 +86,30 @@ def collect_parse_issues(text, ctx) -> list[dict]:
                 )
             )
 
+    has_event_time = any(
+        (
+            ctx.get("event_date"),
+            ctx.get("event_time"),
+            ctx.get("event_time_range"),
+            ctx.get("event_datetimes"),
+        )
+    )
+    has_event_issue = any(
+        issue["field"] in {"event_datetime", "event_date", "event_time"}
+        for issue in issues
+    )
+    if not has_event_time and not has_event_issue:
+        match = find_ticket_field(text, "event_datetime")
+        issues.append(
+            _issue(
+                field="event_datetime",
+                reason="event_time_missing",
+                line_number=match.line_number if match else 0,
+                line_text=match.line_text if match else "",
+                message="Дата и время звонка не найдены",
+            )
+        )
+
     return issues
 
 

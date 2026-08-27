@@ -36,6 +36,9 @@ For Grafana, l2tool preserves static query parameters from the copied URL (for
 example `orgId`, environment and cluster) and replaces ticket-specific values.
 For OpenSearch, first select the required data view and then copy the Discover
 URL: l2tool extracts its `indexPattern` and replaces the query and time range.
+Set `opensearch.security_tenant` to the tenant used by the project; it is
+URL-encoded and inserted before the URL fragment. A service can override it
+with `services.<name>.security_tenant`.
 
 The local `config.toml` is ignored by git and must not be committed. The legacy
 `[grafana]` and `[opensearch]` configuration layout remains supported.
@@ -64,7 +67,9 @@ Default behavior:
 
 - reads `tickets/current.txt`
 - prompts for a product and selects its configured services
-- uses a 120 minute Grafana window
+- uses a 60 minute Grafana window
+- when only a call date is found, lets you keep the 08:00–20:00 interval or enter an exact date and time
+- reports parsing errors with the source line and requests only the missing or invalid fields before building links
 - prints prior local history matches
 - prints generated links without opening a browser
 - saves a local YAML archive under `history/`

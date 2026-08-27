@@ -3,6 +3,11 @@
 [services.zapis]
 url = "https://grafana.example.local/d/example/find-call-in-logs?orgId=000&var-env=example&var-env_cluster=example"
 
+# Use the OpenSearch tenant configured for the project. A service-specific
+# security_tenant can override this value when necessary.
+[opensearch]
+security_tenant = "example tenant"
+
 # Copy a Discover URL after selecting the required OpenSearch data view.
 # l2tool extracts indexPattern from each URL and replaces its query and time.
 [services.sip_stack]
