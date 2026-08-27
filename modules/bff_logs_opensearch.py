@@ -1,7 +1,7 @@
 from core.utils import hash_phone
 from services.opensearch import build_discover_url
 
-SEARCH_PERIOD = ("now-7d", "now")
+SEARCH_PERIOD = ("now-1M", "now")
 
 
 def build_one(ctx, time_from, time_to):

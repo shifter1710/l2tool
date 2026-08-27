@@ -71,7 +71,8 @@ def test_format_loki_retention_warning_for_recent_date():
 
 def test_format_opensearch_periods():
     assert format_opensearch_periods(["zapis", "bff", "myconnect", "myconnect_call"]) == [
-        "OpenSearch: период поиска с now-7d по now",
+        "OpenSearch: период поиска с now-1M по now",
+        "OpenSearch: период поиска с now-2M по now",
     ]
 
 

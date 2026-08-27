@@ -1,6 +1,6 @@
 from services.opensearch import build_discover_url
 
-SEARCH_PERIOD = ("now-7d", "now")
+SEARCH_PERIOD = ("now-2M", "now")
 
 
 def select_other_phone(msisdn, phone_a, phone_b):

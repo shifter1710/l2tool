@@ -3,7 +3,7 @@ from urllib.parse import quote_plus
 from services.opensearch import build_discover_url, resolve_target
 
 FIXED_FILTER = "failed starting call on IMS side: profile not found"
-SEARCH_PERIOD = ("now-7d", "now")
+SEARCH_PERIOD = ("now-2M", "now")
 
 
 def build_one(ctx, time_from, time_to):
