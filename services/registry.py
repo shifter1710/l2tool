@@ -7,6 +7,7 @@ from modules import (
     find_call_in_logs,
     profile_not_found_myconnect,
     recording_collector,
+    recording_crs,
     recording_mgw,
     recording_vss_crs,
     sip_stack_opensearch,
@@ -52,9 +53,14 @@ SERVICES: dict[str, ServiceDefinition] = {
         module=recording_mgw,
     ),
     "recording_vss_crs": ServiceDefinition(
-        title="Запись / VSS CRS / Loki",
+        title="Запись / VSS / Loki",
         platform="grafana",
         module=recording_vss_crs,
+    ),
+    "recording_crs": ServiceDefinition(
+        title="Запись / CRS / Loki",
+        platform="grafana",
+        module=recording_crs,
     ),
     "recording_collector": ServiceDefinition(
         title="Запись / Collector / Loki",

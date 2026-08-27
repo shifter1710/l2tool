@@ -365,7 +365,7 @@ def prompt_recording_scenario(call_uuid):
     if choice == "1":
         return "recording_mgw", call_uuid
     if choice == "2":
-        return "recording_mgw,recording_vss_crs,recording_collector", call_uuid
+        return "recording_mgw,recording_vss_crs,recording_crs,recording_collector", call_uuid
     if choice == "3":
         print("Этот сценарий пока не настроен")
         return None, call_uuid

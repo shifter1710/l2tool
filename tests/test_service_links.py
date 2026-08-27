@@ -15,6 +15,7 @@ def test_service_registry_separates_platforms_and_modules():
         "myconnect_call",
         "recording_mgw",
         "recording_vss_crs",
+        "recording_crs",
         "recording_collector",
     ]
     assert SERVICES["zapis"].platform == "grafana"

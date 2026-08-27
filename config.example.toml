@@ -3,27 +3,16 @@
 [services.zapis]
 url = "https://grafana.example.local/d/example/find-call-in-logs?orgId=000&var-env=example&var-env_cluster=example"
 
-# Скопируйте URL Discover после выбора нужного представления данных OpenSearch.
-# l2tool извлекает indexPattern из каждого URL и заменяет поисковый запрос и время.
-[services.sip_stack]
-url = "https://dashboards.example.local/app/data-explorer/discover#?_a=(metadata:(indexPattern:sip-stack-example,view:discover))"
+# Общий URL OpenSearch Discover и представления данных для сервисов.
+[opensearch]
+base_url = "https://dashboards.example.local/app/data-explorer/discover"
 
-[services.bff]
-url = "https://dashboards.example.local/app/data-explorer/discover#?_a=(metadata:(indexPattern:bff-example,view:discover))"
+[opensearch.index_patterns]
+bff = "bff-example"
+myconnect = "myconnect-example"
+sip_stack = "sip-stack-example"
 
-[services.myconnect]
-url = "https://dashboards.example.local/app/data-explorer/discover#?_a=(metadata:(indexPattern:myconnect-example,view:discover))"
-
-[services.myconnect_call]
-url = "https://dashboards.example.local/app/data-explorer/discover#?_a=(metadata:(indexPattern:myconnect-example,view:discover))"
-
-# Вставьте полные ссылки Grafana Explore из вашего окружения. Эти значения
-# хранятся только в локальном config.toml и не должны попадать в Git.
-[services.recording_mgw]
-url = ""
-
-[services.recording_vss_crs]
-url = ""
-
-[services.recording_collector]
+# Вставьте одну полную ссылку Grafana Explore из вашего окружения. Она служит
+# шаблоном для всех запросов записи и хранится только в локальном config.toml.
+[services.recording_explore]
 url = ""
