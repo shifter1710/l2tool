@@ -100,7 +100,6 @@ def test_process_xlsx_cleans_columns_and_builds_utc_links(
     result = process_table(
         source,
         output,
-        window=60,
         now=datetime(2026, 8, 2, 12, tzinfo=timezone.utc),
     )
 
@@ -131,8 +130,8 @@ def test_process_xlsx_cleans_columns_and_builds_utc_links(
     assert outgoing["timezone"] == ["UTC"]
     assert outgoing["var-phone"] == ["9990000001"]
     assert outgoing["var-second_phone"] == ["9990000002"]
-    assert outgoing["from"] == ["2026-08-01T09:00:00.000Z"]
-    assert outgoing["to"] == ["2026-08-01T11:00:00.000Z"]
+    assert outgoing["from"] == ["2026-08-01T09:58:00.000Z"]
+    assert outgoing["to"] == ["2026-08-01T11:30:00.000Z"]
 
     incoming = link_params(sheet["F3"])
     assert incoming["var-phone"] == ["9990000003"]
@@ -146,18 +145,18 @@ def test_process_xlsx_cleans_columns_and_builds_utc_links(
     assert "sip-stack-view" in incoming_sip_link
     assert "*9990000003" in incoming_sip_link
     assert (
-        "time:(from:2026-08-01T13:30:00.000,to:2026-08-01T15:30:00.000)"
+        "time:(from:2026-08-01T14:28:00.000,to:2026-08-01T16:00:00.000)"
         in incoming_sip_link
     )
 
     mgw_params = parse_qs(urlsplit(incoming_mgw_link).query)
     mgw_pane = json.loads(mgw_params["panes"][0])["A"]
     assert mgw_pane["range"] == {
-        "from": "2026-08-01T10:30:00.000Z",
-        "to": "2026-08-01T12:30:00.000Z",
+        "from": "2026-08-01T11:28:00.000Z",
+        "to": "2026-08-01T13:00:00.000Z",
     }
     assert mgw_pane["queries"][0]["expr"] == (
-        '{unit="mgw\\\\.service"} |= "79990000003" | json'
+        '{unit="mgw.service"} |= "9990000003" |= "9990000004" | json'
     )
     workbook.close()
 
@@ -174,7 +173,6 @@ def test_csv_input_and_default_output_path(monkeypatch, tmp_path):
 
     result = process_table(
         source,
-        window=0,
         now=datetime(2026, 8, 2, 12, tzinfo=timezone.utc),
     )
 

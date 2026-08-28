@@ -32,6 +32,8 @@ LINK_SERVICES = (
 )
 
 MAX_CALL_AGE = timedelta(days=5)
+LINK_WINDOW_BEFORE = timedelta(minutes=2)
+LINK_WINDOW_AFTER = timedelta(minutes=90)
 
 SOURCE_FIELDS = (
     "user_phone",
@@ -322,9 +324,8 @@ def filter_recent_rows(rows, now=None):
     return recent_rows, dropped_count
 
 
-def event_window(event_time, window):
-    delta = timedelta(minutes=window)
-    return event_time - delta, event_time + delta
+def event_window(event_time):
+    return event_time - LINK_WINDOW_BEFORE, event_time + LINK_WINDOW_AFTER
 
 
 def format_opensearch_msk(value):
@@ -334,8 +335,8 @@ def format_opensearch_msk(value):
     return msk_value.strftime("%Y-%m-%dT%H:%M:%S.000")
 
 
-def build_sip_stack_links(ctx, event_time, window):
-    time_from, time_to = event_window(event_time, window)
+def build_sip_stack_links(ctx, event_time):
+    time_from, time_to = event_window(event_time)
     link = sip_stack_opensearch.build_one(
         ctx,
         format_opensearch_msk(time_from),
@@ -344,24 +345,32 @@ def build_sip_stack_links(ctx, event_time, window):
     return [link] if link else []
 
 
-def build_mgw_links(ctx, event_time, window):
-    msisdn = ctx.get("msisdn")
-    if not msisdn:
+def mgw_phone(value):
+    phone = normalize_phone(value)
+    if len(phone) == 11 and phone.startswith("7"):
+        return phone[1:]
+    return phone
+
+
+def build_mgw_links(ctx, event_time):
+    phone_a = mgw_phone(ctx.get("phone_a"))
+    phone_b = mgw_phone(ctx.get("phone_b"))
+    if not phone_a or not phone_b:
         return []
 
-    time_from, time_to = event_window(event_time, window)
+    time_from, time_to = event_window(event_time)
     return [
         build_explore_url_from_dashboard(
             service_url("zapis"),
             grafana_recording_loki_datasource_uid(),
-            f'{{unit="mgw\\\\.service"}} |= "{msisdn}" | json',
+            f'{{unit="mgw.service"}} |= "{phone_a}" |= "{phone_b}" | json',
             time_from=fmt_utc(time_from),
             time_to=fmt_utc(time_to),
         )
     ]
 
 
-def build_links(row, window):
+def build_links(row, window=None):
     user_phone = normalize_phone(row.user_phone)
     other_phone = normalize_phone(row.other_phone)
     event_time = parse_utc_datetime(row.call_start)
@@ -384,14 +393,14 @@ def build_links(row, window):
         "phone_b_values": [other_phone],
         "event_time": event_time,
         "event_datetimes": [event_time],
+        "event_time_range": event_window(event_time),
         "tz": "UTC",
-        "window": window,
     }
 
     service_builders = {
         "zapis": lambda: find_call_in_logs.build(ctx),
-        "sip_stack": lambda: build_sip_stack_links(ctx, event_time, window),
-        "mgw": lambda: build_mgw_links(ctx, event_time, window),
+        "sip_stack": lambda: build_sip_stack_links(ctx, event_time),
+        "mgw": lambda: build_mgw_links(ctx, event_time),
     }
 
     links_by_service = {}

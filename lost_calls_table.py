@@ -18,12 +18,6 @@ def main():
         help="Выходной XLSX (по умолчанию <имя>.cleaned.xlsx рядом с исходником)",
     )
     parser.add_argument("--sheet", help="Имя листа исходного XLSX")
-    parser.add_argument(
-        "--window",
-        type=int,
-        default=60,
-        help="Окно ссылки до и после старта звонка в минутах (по умолчанию 60)",
-    )
     args = parser.parse_args()
 
     try:
@@ -31,7 +25,6 @@ def main():
             args.input,
             args.output,
             sheet_name=args.sheet,
-            window=args.window,
         )
     except (FileNotFoundError, TableFormatError, ValueError) as error:
         parser.error(str(error))
