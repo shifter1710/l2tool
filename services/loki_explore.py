@@ -40,3 +40,35 @@ def build_explore_url(url, expression):
     return urlunsplit(
         (parts.scheme, parts.netloc, parts.path, urlencode(params, quote_via=quote_plus), parts.fragment)
     )
+
+
+def build_explore_url_from_dashboard(dashboard_url, datasource_uid, expression):
+    if not dashboard_url:
+        raise ValueError("Grafana dashboard URL is not configured for service: zapis")
+    if not datasource_uid:
+        raise ValueError("Grafana Loki datasource UID is not configured")
+
+    dashboard = urlsplit(dashboard_url)
+    org_id = dict(parse_qsl(dashboard.query)).get("orgId")
+    if not org_id:
+        raise ValueError("Grafana dashboard URL must contain orgId")
+
+    pane = {
+        "datasource": datasource_uid,
+        "queries": [
+            {
+                "refId": "A",
+                "expr": expression,
+                "queryType": "range",
+                "datasource": {"type": "loki", "uid": datasource_uid},
+                "editorMode": "code",
+                "direction": "backward",
+            }
+        ],
+        "range": {"from": "now-1h", "to": "now"},
+        "panelsState": {"logs": {"visualisationType": "logs"}},
+    }
+    params = {"schemaVersion": "1", "panes": json.dumps({"A": pane}, separators=(",", ":")), "orgId": org_id}
+    return urlunsplit(
+        (dashboard.scheme, dashboard.netloc, "/explore", urlencode(params, quote_via=quote_plus), "")
+    )

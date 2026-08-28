@@ -1,0 +1,186 @@
+from datetime import datetime, timedelta
+from urllib.parse import parse_qs, urlsplit
+
+import pytest
+from openpyxl import Workbook, load_workbook
+
+from core import config
+from core.lost_calls_table import (
+    CALLEE_FILL,
+    CALLER_FILL,
+    OUTPUT_HEADERS,
+    TableFormatError,
+    default_output_path,
+    process_table,
+)
+
+
+def configure_dashboard(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """[services.zapis]
+url = "https://grafana.test/d/calls?orgId=42&var-env=test"
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "CONFIG_PATH", config_path)
+
+
+def create_source_xlsx(path):
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Выгрузка"
+    sheet.append(["Служебная строка"])
+    sheet.append(
+        [
+            "Лишний столбец",
+            "Номер пользователя",
+            "Номер другой стороны",
+            "Старт звонка (UTC)",
+            "Продолжительность звонка",
+            "Направление",
+        ]
+    )
+    sheet.append(
+        [
+            "не переносить",
+            79990000001,
+            "+7 (999) 000-00-02",
+            datetime(2026, 8, 1, 10, 0, 0),
+            timedelta(seconds=95),
+            "out",
+        ]
+    )
+    sheet.append(
+        [
+            "не переносить",
+            "79990000003",
+            "79990000004",
+            "2026-08-01T11:30:00Z",
+            "00:02:10",
+            "Входящий",
+        ]
+    )
+    sheet.append(
+        [
+            "не переносить",
+            "79990000005",
+            "79990000006",
+            "не дата",
+            "15",
+            "out",
+        ]
+    )
+    workbook.save(path)
+    workbook.close()
+
+
+def link_params(cell):
+    target = cell.hyperlink.target
+    return parse_qs(urlsplit(target).query)
+
+
+def fill_color(cell):
+    return cell.fill.fgColor.rgb[-6:]
+
+
+def test_process_xlsx_cleans_columns_builds_utc_links_and_colors(
+    monkeypatch,
+    tmp_path,
+):
+    configure_dashboard(monkeypatch, tmp_path)
+    source = tmp_path / "calls.xlsx"
+    output = tmp_path / "cleaned.xlsx"
+    create_source_xlsx(source)
+
+    result = process_table(source, output, window=15)
+
+    assert result.row_count == 3
+    assert result.link_count == 2
+    assert result.warnings == (
+        "Строка 5: не заполнено или некорректно: старт звонка",
+    )
+
+    workbook = load_workbook(output)
+    sheet = workbook.active
+    assert tuple(cell.value for cell in sheet[1]) == OUTPUT_HEADERS
+    assert sheet.max_column == 6
+    assert sheet.freeze_panes == "A2"
+    assert sheet.sheet_view.showGridLines is False
+    assert sheet["A2"].value == "79990000001"
+    assert sheet["B2"].value == "+7 (999) 000-00-02"
+    assert sheet["C2"].value == datetime(2026, 8, 1, 10, 0, 0)
+    assert sheet["F2"].value == "Открыть логи"
+    assert sheet["F4"].hyperlink is None
+
+    outgoing = link_params(sheet["F2"])
+    assert outgoing["timezone"] == ["UTC"]
+    assert outgoing["var-phone"] == ["9990000001"]
+    assert outgoing["var-second_phone"] == ["9990000002"]
+    assert outgoing["from"] == ["2026-08-01T09:45:00.000Z"]
+    assert outgoing["to"] == ["2026-08-01T10:15:00.000Z"]
+
+    incoming = link_params(sheet["F3"])
+    assert incoming["var-phone"] == ["9990000004"]
+    assert incoming["var-second_phone"] == ["9990000003"]
+    assert fill_color(sheet["A2"]) == CALLER_FILL
+    assert fill_color(sheet["B2"]) == CALLEE_FILL
+    assert fill_color(sheet["A3"]) == CALLEE_FILL
+    assert fill_color(sheet["B3"]) == CALLER_FILL
+    workbook.close()
+
+
+def test_csv_input_and_default_output_path(monkeypatch, tmp_path):
+    configure_dashboard(monkeypatch, tmp_path)
+    source = tmp_path / "calls.csv"
+    source.write_text(
+        "Номер пользователя;Номер другой стороны;Старт звонка;"
+        "Продолжительность звонка;Направление звонка;Лишнее\n"
+        "79990000001;79990000002;01.08.2026 10:00;30;out;удалить\n",
+        encoding="utf-8",
+    )
+
+    result = process_table(source, window=0)
+
+    assert result.output_path == default_output_path(source)
+    assert result.row_count == 1
+    assert result.link_count == 1
+    workbook = load_workbook(result.output_path)
+    assert workbook.active.max_column == 6
+    assert workbook.active["F2"].hyperlink is not None
+    workbook.close()
+
+
+def test_unknown_direction_keeps_link_and_reports_warning(monkeypatch, tmp_path):
+    configure_dashboard(monkeypatch, tmp_path)
+    source = tmp_path / "calls.csv"
+    source.write_text(
+        "Номер пользователя,Номер другой стороны,Старт звонка,"
+        "Продолжительность звонка,Направление звонка\n"
+        "79990000001,79990000002,2026-08-01 10:00,30,unknown\n",
+        encoding="utf-8",
+    )
+
+    result = process_table(source)
+
+    assert result.link_count == 1
+    assert "не распознано направление" in result.warnings[0]
+
+
+def test_missing_required_column_is_rejected(tmp_path):
+    source = tmp_path / "calls.csv"
+    source.write_text(
+        "Номер пользователя,Номер другой стороны,Старт звонка\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(TableFormatError, match="Не найдены обязательные столбцы"):
+        process_table(source)
+
+
+def test_source_file_cannot_be_overwritten(tmp_path):
+    source = tmp_path / "calls.csv"
+    source.write_text("", encoding="utf-8")
+
+    with pytest.raises(TableFormatError, match="не должен перезаписывать"):
+        process_table(source, source)

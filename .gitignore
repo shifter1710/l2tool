@@ -6,6 +6,7 @@ history/
 cases/
 *.ticket.txt
 *.parsed.json
+*.cleaned.xlsx
 
 # python
 __pycache__/

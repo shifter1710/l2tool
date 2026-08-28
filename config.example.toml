@@ -12,7 +12,7 @@ bff = "bff-example"
 myconnect = "myconnect-example"
 sip_stack = "sip-stack-example"
 
-# Вставьте одну полную ссылку Grafana Explore из вашего окружения. Она служит
-# шаблоном для всех запросов записи и хранится только в локальном config.toml.
-[services.recording_explore]
-url = ""
+# UID Loki datasource для расследования записи. Домен и orgId берутся из
+# services.zapis, поэтому вторую полную ссылку Grafana Explore указывать не нужно.
+[grafana.recording]
+loki_datasource_uid = ""

@@ -122,6 +122,10 @@ def grafana_env_cluster():
     return config_value("grafana.env_cluster", default_env())
 
 
+def grafana_recording_loki_datasource_uid():
+    return config_value("grafana.recording.loki_datasource_uid")
+
+
 def opensearch_base_url():
     return config_value("opensearch.base_url")
 
