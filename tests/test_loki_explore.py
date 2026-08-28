@@ -22,3 +22,20 @@ def test_explore_url_reuses_dashboard_host_and_org_id():
     assert panes["A"]["queries"][0]["expr"] == (
         '{unit="mgw\\.service"} |= "uuid-value" | json'
     )
+
+
+def test_explore_url_accepts_absolute_time_range():
+    url = build_explore_url_from_dashboard(
+        "https://grafana.example.local/d/abc/dashboard?orgId=42",
+        "loki-example",
+        '{unit="mgw\\.service"} |= "79990000000" | json',
+        time_from="2026-08-01T09:00:00.000Z",
+        time_to="2026-08-01T11:00:00.000Z",
+    )
+
+    panes = json.loads(parse_qs(urlsplit(url).query)["panes"][0])
+
+    assert panes["A"]["range"] == {
+        "from": "2026-08-01T09:00:00.000Z",
+        "to": "2026-08-01T11:00:00.000Z",
+    }

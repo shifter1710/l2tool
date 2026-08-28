@@ -1,11 +1,11 @@
 from datetime import datetime, timedelta, timezone
+import json
 from urllib.parse import parse_qs, unquote, urlsplit
 
 import pytest
 from openpyxl import Workbook, load_workbook
 
 from core import config
-from core.utils import hash_phone
 from core.lost_calls_table import (
     OUTPUT_HEADERS,
     TableFormatError,
@@ -25,7 +25,9 @@ base_url = "https://opensearch.test/discover"
 
 [opensearch.index_patterns]
 sip_stack = "sip-stack-view"
-bff = "bff-view"
+
+[grafana.recording]
+loki_datasource_uid = "loki-test"
 """,
         encoding="utf-8",
     )
@@ -98,7 +100,7 @@ def test_process_xlsx_cleans_columns_and_builds_utc_links(
     result = process_table(
         source,
         output,
-        window=15,
+        window=60,
         now=datetime(2026, 8, 2, 12, tzinfo=timezone.utc),
     )
 
@@ -129,8 +131,8 @@ def test_process_xlsx_cleans_columns_and_builds_utc_links(
     assert outgoing["timezone"] == ["UTC"]
     assert outgoing["var-phone"] == ["9990000001"]
     assert outgoing["var-second_phone"] == ["9990000002"]
-    assert outgoing["from"] == ["2026-08-01T09:45:00.000Z"]
-    assert outgoing["to"] == ["2026-08-01T10:15:00.000Z"]
+    assert outgoing["from"] == ["2026-08-01T09:00:00.000Z"]
+    assert outgoing["to"] == ["2026-08-01T11:00:00.000Z"]
 
     incoming = link_params(sheet["F3"])
     assert incoming["var-phone"] == ["9990000003"]
@@ -140,11 +142,23 @@ def test_process_xlsx_cleans_columns_and_builds_utc_links(
     assert sheet["A3"].fill.fill_type is None
     assert sheet["B3"].fill.fill_type is None
     incoming_sip_link = unquote(sheet["G3"].hyperlink.target)
-    incoming_bff_link = unquote(sheet["H3"].hyperlink.target)
+    incoming_mgw_link = sheet["H3"].hyperlink.target
     assert "sip-stack-view" in incoming_sip_link
     assert "*9990000003" in incoming_sip_link
-    assert "bff-view" in incoming_bff_link
-    assert hash_phone("79990000003") in incoming_bff_link
+    assert (
+        "time:(from:2026-08-01T13:30:00.000,to:2026-08-01T15:30:00.000)"
+        in incoming_sip_link
+    )
+
+    mgw_params = parse_qs(urlsplit(incoming_mgw_link).query)
+    mgw_pane = json.loads(mgw_params["panes"][0])["A"]
+    assert mgw_pane["range"] == {
+        "from": "2026-08-01T10:30:00.000Z",
+        "to": "2026-08-01T12:30:00.000Z",
+    }
+    assert mgw_pane["queries"][0]["expr"] == (
+        '{unit="mgw\\\\.service"} |= "79990000003" | json'
+    )
     workbook.close()
 
 

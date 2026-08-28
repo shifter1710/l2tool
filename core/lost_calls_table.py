@@ -3,8 +3,15 @@ import re
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
-from modules import bff_logs_opensearch, find_call_in_logs, sip_stack_opensearch
+from core.config import (
+    grafana_recording_loki_datasource_uid,
+    service_url,
+)
+from core.time_windows import fmt_utc
+from modules import find_call_in_logs, sip_stack_opensearch
+from services.loki_explore import build_explore_url_from_dashboard
 
 
 OUTPUT_HEADERS = (
@@ -14,14 +21,14 @@ OUTPUT_HEADERS = (
     "Продолжительность звонка",
     "Направление звонка",
     "Ссылка: Zapis",
-    "Ссылка: SIP stack",
-    "Ссылка: BFF",
+    "Ссылка: SIP stack prod",
+    "Ссылка: MGW",
 )
 
 LINK_SERVICES = (
-    ("zapis", "Zapis", find_call_in_logs),
-    ("sip_stack", "SIP stack", sip_stack_opensearch),
-    ("bff", "BFF", bff_logs_opensearch),
+    ("zapis", "Zapis"),
+    ("sip_stack", "SIP stack prod"),
+    ("mgw", "MGW"),
 )
 
 MAX_CALL_AGE = timedelta(days=5)
@@ -315,6 +322,45 @@ def filter_recent_rows(rows, now=None):
     return recent_rows, dropped_count
 
 
+def event_window(event_time, window):
+    delta = timedelta(minutes=window)
+    return event_time - delta, event_time + delta
+
+
+def format_opensearch_msk(value):
+    msk_value = value.replace(tzinfo=timezone.utc).astimezone(
+        ZoneInfo("Europe/Moscow")
+    )
+    return msk_value.strftime("%Y-%m-%dT%H:%M:%S.000")
+
+
+def build_sip_stack_links(ctx, event_time, window):
+    time_from, time_to = event_window(event_time, window)
+    link = sip_stack_opensearch.build_one(
+        ctx,
+        format_opensearch_msk(time_from),
+        format_opensearch_msk(time_to),
+    )
+    return [link] if link else []
+
+
+def build_mgw_links(ctx, event_time, window):
+    msisdn = ctx.get("msisdn")
+    if not msisdn:
+        return []
+
+    time_from, time_to = event_window(event_time, window)
+    return [
+        build_explore_url_from_dashboard(
+            service_url("zapis"),
+            grafana_recording_loki_datasource_uid(),
+            f'{{unit="mgw\\\\.service"}} |= "{msisdn}" | json',
+            time_from=fmt_utc(time_from),
+            time_to=fmt_utc(time_to),
+        )
+    ]
+
+
 def build_links(row, window):
     user_phone = normalize_phone(row.user_phone)
     other_phone = normalize_phone(row.other_phone)
@@ -342,11 +388,17 @@ def build_links(row, window):
         "window": window,
     }
 
+    service_builders = {
+        "zapis": lambda: find_call_in_logs.build(ctx),
+        "sip_stack": lambda: build_sip_stack_links(ctx, event_time, window),
+        "mgw": lambda: build_mgw_links(ctx, event_time, window),
+    }
+
     links_by_service = {}
     warnings = []
-    for service_name, service_title, module in LINK_SERVICES:
+    for service_name, service_title in LINK_SERVICES:
         try:
-            links = module.build(ctx)
+            links = service_builders[service_name]()
         except Exception as error:
             warnings.append(f"не удалось создать ссылку {service_title}: {error}")
             continue
@@ -414,7 +466,7 @@ def write_clean_workbook(
             _output_value(source_row.call_direction),
             *(
                 "Открыть" if service_name in links_by_service else ""
-                for service_name, _service_title, _module in LINK_SERVICES
+                for service_name, _service_title in LINK_SERVICES
             ),
         )
         sheet.append(values)
@@ -439,7 +491,7 @@ def write_clean_workbook(
         elif hasattr(source_row.call_duration, "total_seconds"):
             sheet.cell(output_row, 4).number_format = "[h]:mm:ss"
 
-        for column_index, (service_name, _service_title, _module) in enumerate(
+        for column_index, (service_name, _service_title) in enumerate(
             LINK_SERVICES,
             start=6,
         ):

@@ -42,7 +42,14 @@ def build_explore_url(url, expression):
     )
 
 
-def build_explore_url_from_dashboard(dashboard_url, datasource_uid, expression):
+def build_explore_url_from_dashboard(
+    dashboard_url,
+    datasource_uid,
+    expression,
+    *,
+    time_from="now-1h",
+    time_to="now",
+):
     if not dashboard_url:
         raise ValueError("Grafana dashboard URL is not configured for service: zapis")
     if not datasource_uid:
@@ -65,7 +72,7 @@ def build_explore_url_from_dashboard(dashboard_url, datasource_uid, expression):
                 "direction": "backward",
             }
         ],
-        "range": {"from": "now-1h", "to": "now"},
+        "range": {"from": time_from, "to": time_to},
         "panelsState": {"logs": {"visualisationType": "logs"}},
     }
     params = {"schemaVersion": "1", "panes": json.dumps({"A": pane}, separators=(",", ":")), "orgId": org_id}
