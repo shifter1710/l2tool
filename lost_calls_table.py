@@ -37,6 +37,7 @@ def main():
         parser.error(str(error))
 
     print(f"Обработано строк: {result.row_count}")
+    print(f"Отброшено звонков старше 5 суток: {result.dropped_count}")
     print(f"Создано ссылок: {result.link_count}")
     for warning in result.warnings:
         print(f"[WARN] {warning}")

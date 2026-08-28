@@ -1,13 +1,12 @@
-from datetime import datetime, timedelta
-from urllib.parse import parse_qs, urlsplit
+from datetime import datetime, timedelta, timezone
+from urllib.parse import parse_qs, unquote, urlsplit
 
 import pytest
 from openpyxl import Workbook, load_workbook
 
 from core import config
+from core.utils import hash_phone
 from core.lost_calls_table import (
-    CALLEE_FILL,
-    CALLER_FILL,
     OUTPUT_HEADERS,
     TableFormatError,
     default_output_path,
@@ -20,6 +19,13 @@ def configure_dashboard(monkeypatch, tmp_path):
     config_path.write_text(
         """[services.zapis]
 url = "https://grafana.test/d/calls?orgId=42&var-env=test"
+
+[opensearch]
+base_url = "https://opensearch.test/discover"
+
+[opensearch.index_patterns]
+sip_stack = "sip-stack-view"
+bff = "bff-view"
 """,
         encoding="utf-8",
     )
@@ -80,11 +86,7 @@ def link_params(cell):
     return parse_qs(urlsplit(target).query)
 
 
-def fill_color(cell):
-    return cell.fill.fgColor.rgb[-6:]
-
-
-def test_process_xlsx_cleans_columns_builds_utc_links_and_colors(
+def test_process_xlsx_cleans_columns_and_builds_utc_links(
     monkeypatch,
     tmp_path,
 ):
@@ -93,10 +95,16 @@ def test_process_xlsx_cleans_columns_builds_utc_links_and_colors(
     output = tmp_path / "cleaned.xlsx"
     create_source_xlsx(source)
 
-    result = process_table(source, output, window=15)
+    result = process_table(
+        source,
+        output,
+        window=15,
+        now=datetime(2026, 8, 2, 12, tzinfo=timezone.utc),
+    )
 
     assert result.row_count == 3
-    assert result.link_count == 2
+    assert result.link_count == 6
+    assert result.dropped_count == 0
     assert result.warnings == (
         "Строка 5: не заполнено или некорректно: старт звонка",
     )
@@ -104,14 +112,18 @@ def test_process_xlsx_cleans_columns_builds_utc_links_and_colors(
     workbook = load_workbook(output)
     sheet = workbook.active
     assert tuple(cell.value for cell in sheet[1]) == OUTPUT_HEADERS
-    assert sheet.max_column == 6
+    assert sheet.max_column == 8
     assert sheet.freeze_panes == "A2"
     assert sheet.sheet_view.showGridLines is False
     assert sheet["A2"].value == "79990000001"
     assert sheet["B2"].value == "+7 (999) 000-00-02"
     assert sheet["C2"].value == datetime(2026, 8, 1, 10, 0, 0)
-    assert sheet["F2"].value == "Открыть логи"
+    assert sheet["F2"].value == "Открыть"
+    assert sheet["G2"].value == "Открыть"
+    assert sheet["H2"].value == "Открыть"
     assert sheet["F4"].hyperlink is None
+    assert sheet["G4"].hyperlink is None
+    assert sheet["H4"].hyperlink is None
 
     outgoing = link_params(sheet["F2"])
     assert outgoing["timezone"] == ["UTC"]
@@ -121,12 +133,18 @@ def test_process_xlsx_cleans_columns_builds_utc_links_and_colors(
     assert outgoing["to"] == ["2026-08-01T10:15:00.000Z"]
 
     incoming = link_params(sheet["F3"])
-    assert incoming["var-phone"] == ["9990000004"]
-    assert incoming["var-second_phone"] == ["9990000003"]
-    assert fill_color(sheet["A2"]) == CALLER_FILL
-    assert fill_color(sheet["B2"]) == CALLEE_FILL
-    assert fill_color(sheet["A3"]) == CALLEE_FILL
-    assert fill_color(sheet["B3"]) == CALLER_FILL
+    assert incoming["var-phone"] == ["9990000003"]
+    assert incoming["var-second_phone"] == ["9990000004"]
+    assert sheet["A2"].fill.fill_type is None
+    assert sheet["B2"].fill.fill_type is None
+    assert sheet["A3"].fill.fill_type is None
+    assert sheet["B3"].fill.fill_type is None
+    incoming_sip_link = unquote(sheet["G3"].hyperlink.target)
+    incoming_bff_link = unquote(sheet["H3"].hyperlink.target)
+    assert "sip-stack-view" in incoming_sip_link
+    assert "*9990000003" in incoming_sip_link
+    assert "bff-view" in incoming_bff_link
+    assert hash_phone("79990000003") in incoming_bff_link
     workbook.close()
 
 
@@ -140,18 +158,25 @@ def test_csv_input_and_default_output_path(monkeypatch, tmp_path):
         encoding="utf-8",
     )
 
-    result = process_table(source, window=0)
+    result = process_table(
+        source,
+        window=0,
+        now=datetime(2026, 8, 2, 12, tzinfo=timezone.utc),
+    )
 
     assert result.output_path == default_output_path(source)
     assert result.row_count == 1
-    assert result.link_count == 1
+    assert result.link_count == 3
+    assert result.dropped_count == 0
     workbook = load_workbook(result.output_path)
-    assert workbook.active.max_column == 6
+    assert workbook.active.max_column == 8
     assert workbook.active["F2"].hyperlink is not None
+    assert workbook.active["G2"].hyperlink is not None
+    assert workbook.active["H2"].hyperlink is not None
     workbook.close()
 
 
-def test_unknown_direction_keeps_link_and_reports_warning(monkeypatch, tmp_path):
+def test_unknown_direction_is_kept_as_metadata(monkeypatch, tmp_path):
     configure_dashboard(monkeypatch, tmp_path)
     source = tmp_path / "calls.csv"
     source.write_text(
@@ -161,10 +186,49 @@ def test_unknown_direction_keeps_link_and_reports_warning(monkeypatch, tmp_path)
         encoding="utf-8",
     )
 
-    result = process_table(source)
+    result = process_table(
+        source,
+        now=datetime(2026, 8, 2, 12, tzinfo=timezone.utc),
+    )
 
-    assert result.link_count == 1
-    assert "не распознано направление" in result.warnings[0]
+    assert result.link_count == 3
+    assert result.dropped_count == 0
+    assert result.warnings == ()
+
+
+def test_calls_older_than_five_days_are_removed(monkeypatch, tmp_path):
+    configure_dashboard(monkeypatch, tmp_path)
+    source = tmp_path / "calls.csv"
+    source.write_text(
+        "Номер пользователя,Номер другой стороны,Старт звонка,"
+        "Продолжительность звонка,Направление звонка\n"
+        "79990000010,79990000110,2026-08-23 11:59,30,out\n"
+        "79990000011,79990000111,2026-08-23 12:00,30,out\n"
+        "79990000012,79990000112,2026-08-27 12:00,30,out\n"
+        "79990000013,79990000113,не дата,30,out\n",
+        encoding="utf-8",
+    )
+
+    result = process_table(
+        source,
+        now=datetime(2026, 8, 28, 12, tzinfo=timezone.utc),
+    )
+
+    assert result.row_count == 3
+    assert result.dropped_count == 1
+    assert result.link_count == 6
+    assert result.warnings == (
+        "Строка 5: не заполнено или некорректно: старт звонка",
+    )
+
+    workbook = load_workbook(result.output_path)
+    sheet = workbook.active
+    assert [sheet.cell(row, 1).value for row in range(2, 5)] == [
+        "79990000011",
+        "79990000012",
+        "79990000013",
+    ]
+    workbook.close()
 
 
 def test_missing_required_column_is_rejected(tmp_path):

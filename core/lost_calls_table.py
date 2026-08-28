@@ -1,10 +1,10 @@
 import csv
 import re
 from dataclasses import dataclass
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
-from modules import find_call_in_logs
+from modules import bff_logs_opensearch, find_call_in_logs, sip_stack_opensearch
 
 
 OUTPUT_HEADERS = (
@@ -13,8 +13,18 @@ OUTPUT_HEADERS = (
     "Старт звонка",
     "Продолжительность звонка",
     "Направление звонка",
-    "Ссылка",
+    "Ссылка: Zapis",
+    "Ссылка: SIP stack",
+    "Ссылка: BFF",
 )
+
+LINK_SERVICES = (
+    ("zapis", "Zapis", find_call_in_logs),
+    ("sip_stack", "SIP stack", sip_stack_opensearch),
+    ("bff", "BFF", bff_logs_opensearch),
+)
+
+MAX_CALL_AGE = timedelta(days=5)
 
 SOURCE_FIELDS = (
     "user_phone",
@@ -57,10 +67,6 @@ HEADER_ALIASES = {
     ),
 }
 
-CALLER_FILL = "E2F0D9"
-CALLEE_FILL = "DDEBF7"
-
-
 @dataclass(frozen=True)
 class SourceRow:
     source_row: int
@@ -76,6 +82,7 @@ class TableResult:
     output_path: Path
     row_count: int
     link_count: int
+    dropped_count: int
     warnings: tuple[str, ...]
 
 
@@ -290,29 +297,25 @@ def parse_utc_datetime(value):
     return parsed
 
 
-def normalize_direction(value):
-    normalized = normalize_header(value).replace("-", " ")
-    normalized = re.sub(r"\s+", " ", normalized)
-    if normalized in {
-        "in",
-        "inbound",
-        "incoming",
-        "входящий",
-        "входящий звонок",
-    }:
-        return "in"
-    if normalized in {
-        "out",
-        "outbound",
-        "outgoing",
-        "исходящий",
-        "исходящий звонок",
-    }:
-        return "out"
-    return None
+def filter_recent_rows(rows, now=None):
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is not None:
+        current = current.astimezone(timezone.utc).replace(tzinfo=None)
+
+    cutoff = current - MAX_CALL_AGE
+    recent_rows = []
+    dropped_count = 0
+    for row in rows:
+        call_start = parse_utc_datetime(row.call_start)
+        if call_start is not None and call_start < cutoff:
+            dropped_count += 1
+            continue
+        recent_rows.append(row)
+
+    return recent_rows, dropped_count
 
 
-def build_link(row, window):
+def build_links(row, window):
     user_phone = normalize_phone(row.user_phone)
     other_phone = normalize_phone(row.other_phone)
     event_time = parse_utc_datetime(row.call_start)
@@ -325,33 +328,32 @@ def build_link(row, window):
     if event_time is None:
         missing.append("старт звонка")
     if missing:
-        return None, "не заполнено или некорректно: " + ", ".join(missing)
-
-    direction = normalize_direction(row.call_direction)
-    warning = None
-    if direction is None:
-        warning = (
-            "не распознано направление звонка; ссылка создана в порядке "
-            "пользователь → другая сторона, цветовая маркировка пропущена"
-        )
-    if direction == "in":
-        phone_a, phone_b = other_phone, user_phone
-    else:
-        phone_a, phone_b = user_phone, other_phone
+        return {}, ("не заполнено или некорректно: " + ", ".join(missing),)
 
     ctx = {
         "msisdn": user_phone,
-        "phone_a": phone_a,
-        "phone_a_values": [phone_a],
-        "phone_b": phone_b,
-        "phone_b_values": [phone_b],
+        "phone_a": user_phone,
+        "phone_a_values": [user_phone],
+        "phone_b": other_phone,
+        "phone_b_values": [other_phone],
         "event_time": event_time,
         "event_datetimes": [event_time],
         "tz": "UTC",
         "window": window,
     }
-    links = find_call_in_logs.build(ctx)
-    return (links[0] if links else None), warning
+
+    links_by_service = {}
+    warnings = []
+    for service_name, service_title, module in LINK_SERVICES:
+        try:
+            links = module.build(ctx)
+        except Exception as error:
+            warnings.append(f"не удалось создать ссылку {service_title}: {error}")
+            continue
+        if links:
+            links_by_service[service_name] = links[0]
+
+    return links_by_service, tuple(warnings)
 
 
 def _safe_sheet_title(value):
@@ -365,10 +367,17 @@ def _output_value(value):
     return value
 
 
-def write_clean_workbook(rows, output_path, *, sheet_title, window=60):
+def write_clean_workbook(
+    rows,
+    output_path,
+    *,
+    sheet_title,
+    window=60,
+    dropped_count=0,
+):
     from openpyxl import Workbook
-    from openpyxl.comments import Comment
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
     from openpyxl.worksheet.table import Table, TableStyleInfo
 
     output_path = Path(output_path)
@@ -390,29 +399,23 @@ def write_clean_workbook(rows, output_path, *, sheet_title, window=60):
         cell.alignment = header_alignment
     sheet.row_dimensions[1].height = 32
 
-    legend = (
-        "Зелёный — инициатор звонка; голубой — принимающая сторона. "
-        "Для out пользователь считается инициатором, для in — принимающей стороной."
-    )
-    sheet["A1"].comment = Comment(legend, "l2tool")
-    sheet["B1"].comment = Comment(legend, "l2tool")
-
     thin_gray = Side(style="thin", color="D9E2F3")
-    caller_fill = PatternFill("solid", fgColor=CALLER_FILL)
-    callee_fill = PatternFill("solid", fgColor=CALLEE_FILL)
     body_font = Font(name="Aptos", size=11, color="1F2937")
     warnings = []
     link_count = 0
 
     for output_row, source_row in enumerate(rows, start=2):
-        link, warning = build_link(source_row, window)
+        links_by_service, row_warnings = build_links(source_row, window)
         values = (
             phone_text(source_row.user_phone),
             phone_text(source_row.other_phone),
             _output_value(parse_utc_datetime(source_row.call_start) or source_row.call_start),
             _output_value(source_row.call_duration),
             _output_value(source_row.call_direction),
-            "Открыть логи" if link else "",
+            *(
+                "Открыть" if service_name in links_by_service else ""
+                for service_name, _service_title, _module in LINK_SERVICES
+            ),
         )
         sheet.append(values)
 
@@ -436,25 +439,30 @@ def write_clean_workbook(rows, output_path, *, sheet_title, window=60):
         elif hasattr(source_row.call_duration, "total_seconds"):
             sheet.cell(output_row, 4).number_format = "[h]:mm:ss"
 
-        direction = normalize_direction(source_row.call_direction)
-        if direction == "out":
-            sheet.cell(output_row, 1).fill = caller_fill
-            sheet.cell(output_row, 2).fill = callee_fill
-        elif direction == "in":
-            sheet.cell(output_row, 1).fill = callee_fill
-            sheet.cell(output_row, 2).fill = caller_fill
-
-        if link:
-            link_cell = sheet.cell(output_row, 6)
+        for column_index, (service_name, _service_title, _module) in enumerate(
+            LINK_SERVICES,
+            start=6,
+        ):
+            link = links_by_service.get(service_name)
+            if not link:
+                continue
+            link_cell = sheet.cell(output_row, column_index)
             link_cell.hyperlink = link
             link_cell.font = Font(name="Aptos", size=11, color="0563C1", underline="single")
             link_count += 1
-        if warning:
-            warnings.append(f"Строка {source_row.source_row}: {warning}")
+        warnings.extend(
+            f"Строка {source_row.source_row}: {warning}"
+            for warning in row_warnings
+        )
 
     last_row = max(sheet.max_row, 1)
+    last_column = len(OUTPUT_HEADERS)
+    last_column_letter = get_column_letter(last_column)
     if rows:
-        table = Table(displayName="LostCallsTable", ref=f"A1:F{last_row}")
+        table = Table(
+            displayName="LostCallsTable",
+            ref=f"A1:{last_column_letter}{last_row}",
+        )
         table.tableStyleInfo = TableStyleInfo(
             name="TableStyleMedium2",
             showFirstColumn=False,
@@ -463,9 +471,12 @@ def write_clean_workbook(rows, output_path, *, sheet_title, window=60):
             showColumnStripes=False,
         )
         sheet.add_table(table)
-        sheet.auto_filter.ref = f"A1:F{last_row}"
+        sheet.auto_filter.ref = f"A1:{last_column_letter}{last_row}"
 
-    for column_letter, width in zip("ABCDEF", (22, 22, 24, 28, 23, 18)):
+    for column_letter, width in zip(
+        "ABCDEFGH",
+        (22, 22, 24, 28, 23, 18, 20, 18),
+    ):
         sheet.column_dimensions[column_letter].width = width
 
     workbook.save(output_path)
@@ -474,6 +485,7 @@ def write_clean_workbook(rows, output_path, *, sheet_title, window=60):
         output_path=output_path,
         row_count=len(rows),
         link_count=link_count,
+        dropped_count=dropped_count,
         warnings=tuple(warnings),
     )
 
@@ -483,7 +495,14 @@ def default_output_path(input_path):
     return path.with_name(f"{path.stem}.cleaned.xlsx")
 
 
-def process_table(input_path, output_path=None, *, sheet_name=None, window=60):
+def process_table(
+    input_path,
+    output_path=None,
+    *,
+    sheet_name=None,
+    window=60,
+    now=None,
+):
     if window < 0:
         raise ValueError("Окно поиска не может быть отрицательным")
 
@@ -493,9 +512,11 @@ def process_table(input_path, output_path=None, *, sheet_name=None, window=60):
         raise TableFormatError("Выходной файл не должен перезаписывать исходную таблицу")
 
     source_title, rows = read_source_rows(input_path, sheet_name=sheet_name)
+    rows, dropped_count = filter_recent_rows(rows, now=now)
     return write_clean_workbook(
         rows,
         output_path,
         sheet_title=f"{source_title} — очищено",
         window=window,
+        dropped_count=dropped_count,
     )
