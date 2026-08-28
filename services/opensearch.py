@@ -79,6 +79,6 @@ def build_discover_url(
         f"?_a=(discover:(columns:!({columns_value}),isDirty:{dirty_value},sort:!()),"
         f"metadata:(indexPattern:{target.index_pattern},view:discover))"
         f"&_g=(filters:!(),refreshInterval:(pause:!t,value:0),"
-        f"time:(from:{time_from},to:{time_to}))"
+        f"time:(from:'{time_from}',to:'{time_to}'))"
         f"&_q=(filters:{filters},query:(language:kuery,query:{query_value}))"
     )

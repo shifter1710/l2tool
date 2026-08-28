@@ -145,7 +145,7 @@ def test_process_xlsx_cleans_columns_and_builds_utc_links(
     assert "sip-stack-view" in incoming_sip_link
     assert "*9990000003" in incoming_sip_link
     assert (
-        "time:(from:2026-08-01T14:28:00.000,to:2026-08-01T16:00:00.000)"
+        "time:(from:'2026-08-01T14:28:00.000',to:'2026-08-01T16:00:00.000')"
         in incoming_sip_link
     )
 
