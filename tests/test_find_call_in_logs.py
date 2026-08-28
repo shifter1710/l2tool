@@ -110,6 +110,22 @@ def test_does_not_duplicate_same_phone_in_grafana_params():
     assert params["var-second_phone"] == [""]
 
 
+def test_hidden_caller_uses_available_client_number():
+    ctx = parser.parse("""Номер клиента (msisdn): 79990000000
+Номер звонящего (А): Номер с услугой Антиопределитель номера
+Дата и время проблемного звонка: 28.08.2026 12:00
+""")
+    ctx["tz"] = "Europe/Moscow"
+
+    params = parse_qs(
+        urlparse(find_call_in_logs.build(ctx)[0]).query,
+        keep_blank_values=True,
+    )
+
+    assert params["var-phone"] == ["9990000000"]
+    assert params["var-second_phone"] == [""]
+
+
 def test_grafana_phone_a_uses_number_without_country_code():
     ctx = {"phone_a": "79999999999"}
 

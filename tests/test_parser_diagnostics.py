@@ -81,6 +81,18 @@ def test_ignore_values_do_not_create_issues():
     ]
 
 
+def test_anti_caller_id_value_does_not_create_phone_issue():
+    text = """Номер клиента (msisdn): 79991234567
+Номер звонящего (А): Номер с услугой Антиопределитель номера
+Дата и время проблемного звонка: 28.08.2026 12:00
+"""
+
+    ctx = parser.parse(text)
+
+    assert ctx["phone_a"] is None
+    assert collect_parse_issues(text, ctx) == []
+
+
 def test_missing_event_time_creates_issue_without_source_line():
     issues = collect_parse_issues(
         "Номер клиента (msisdn): 79991234567",

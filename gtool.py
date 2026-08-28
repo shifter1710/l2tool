@@ -44,6 +44,7 @@ PARSE_FIX_FIELDS = {
     "event_date": ("Дата проблемного звонка", "Дата звонка"),
     "event_time": ("Время проблемного звонка", "Дата и время звонка"),
 }
+PHONE_FIX_FIELDS = {"msisdn", "phone_a", "phone_b"}
 
 
 def read_file(path: str) -> str:
@@ -255,9 +256,12 @@ def prompt_parse_fixes(text, issues, input_fn=None):
             continue
 
         source_label, prompt_label = PARSE_FIX_FIELDS[field_name]
-        value = input_fn(f"Введите {prompt_label}: ").strip()
+        suffix = " (Enter — оставить пустым)" if field_name in PHONE_FIX_FIELDS else ""
+        value = input_fn(f"Введите {prompt_label}{suffix}: ").strip()
         if value:
             corrections.append(f"{source_label}: {value}")
+        elif field_name in PHONE_FIX_FIELDS:
+            corrections.append(f"{source_label}: нет")
         prompted_fields.add(field_name)
 
     return "\n".join([*corrections, text])

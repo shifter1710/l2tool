@@ -126,12 +126,30 @@ def test_prompt_parse_fixes_requests_only_problem_fields():
         input_fn=lambda prompt: prompts.append(prompt) or next(answers),
     )
 
-    assert prompts == ["Введите Номер А: ", "Введите Дата и время звонка: "]
+    assert prompts == [
+        "Введите Номер А (Enter — оставить пустым): ",
+        "Введите Дата и время звонка: ",
+    ]
     assert repaired == (
         "Номер звонящего (А): 79991112233\n"
         "Дата и время проблемного звонка: 04.05.2026 12:30\n"
         "Исходный тикет"
     )
+
+
+def test_prompt_parse_fixes_allows_empty_phone():
+    text = """Номер клиента (msisdn): 79990000000
+Номер звонящего (А): скрыт оператором
+Дата и время проблемного звонка: 28.08.2026 12:00
+"""
+    issues = gtool.collect_parse_issues(text, parser.parse(text))
+
+    repaired = gtool.prompt_parse_fixes(text, issues, input_fn=lambda _prompt: "")
+    repaired_ctx = parser.parse(repaired)
+
+    assert repaired.startswith("Номер звонящего (А): нет\n")
+    assert repaired_ctx["phone_a"] is None
+    assert gtool.collect_parse_issues(repaired, repaired_ctx) == []
 
 
 def test_prompt_date_only_window_keeps_default_when_empty():
