@@ -48,6 +48,23 @@ url = "https://opensearch.test/discover#?_a=(metadata:(indexPattern:bff-id))"
     assert config.service_url("missing") is None
 
 
+def test_config_reads_service_time_window(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """[services.bff]
+minutes_before = 5
+minutes_after = 120
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "CONFIG_PATH", config_path)
+
+    assert config.service_minutes_before("bff") == 5
+    assert config.service_minutes_after("bff") == 120
+    assert config.service_minutes_before("sip_stack") == 2
+    assert config.service_minutes_after("sip_stack") == 90
+
+
 def test_python_310_toml_fallback_keeps_opensearch_fragment(monkeypatch, tmp_path):
     config_path = tmp_path / "config.toml"
     config_path.write_text(

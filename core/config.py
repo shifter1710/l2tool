@@ -102,6 +102,14 @@ def service_index_pattern(name):
     return config_value(f"services.{name}.index_pattern")
 
 
+def service_minutes_before(name, default=2):
+    return config_value(f"services.{name}.minutes_before", default)
+
+
+def service_minutes_after(name, default=90):
+    return config_value(f"services.{name}.minutes_after", default)
+
+
 def default_env():
     return config_value("defaults.env")
 

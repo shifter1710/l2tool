@@ -15,6 +15,7 @@ from core.parser_diagnostics import collect_parse_issues, write_parse_issues
 from core.products import available_products, product_title, resolve_product_modules
 from core.timezones import resolve_timezone
 from core.utils import hash_phone
+from services.opensearch import configured_search_period
 from services.registry import service_modules, service_titles
 
 DEFAULT_FILE = "tickets/current.txt"
@@ -137,11 +138,13 @@ def format_event_time(ctx):
     return lines
 
 
-def format_opensearch_periods(selected_modules):
+def format_opensearch_periods(selected_modules, ctx=None):
     periods = []
 
     for name in selected_modules:
         period = getattr(MODULES[name], "SEARCH_PERIOD", None)
+        if period:
+            period = configured_search_period(name, period, ctx)
         if period and period not in periods:
             periods.append(period)
 
@@ -199,7 +202,7 @@ def format_parsed_context(ctx):
     lines.append(f"Timezone: {ctx.get('tz')}")
     lines.append(f"Window: {ctx.get('window')}")
     lines.append(f"selected_modules: {', '.join(ctx.get('selected_modules', []))}")
-    lines.extend(format_opensearch_periods(ctx.get("selected_modules", [])))
+    lines.extend(format_opensearch_periods(ctx.get("selected_modules", []), ctx))
     lines.extend(format_phone_normalization(ctx))
 
     if ctx.get("msisdn_raw") and not ctx.get("msisdn"):

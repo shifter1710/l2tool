@@ -1,5 +1,5 @@
 from core.utils import hash_phone
-from services.opensearch import build_discover_url
+from services.opensearch import build_discover_url, configured_search_period
 
 SEARCH_PERIOD = ("now-1M", "now")
 
@@ -31,6 +31,6 @@ def build_one(ctx, time_from, time_to):
 
 
 def build(ctx):
-    url = build_one(ctx, *SEARCH_PERIOD)
+    url = build_one(ctx, *configured_search_period("bff", SEARCH_PERIOD, ctx))
 
     return [url] if url else []

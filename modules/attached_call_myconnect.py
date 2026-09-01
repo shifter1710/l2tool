@@ -1,4 +1,4 @@
-from services.opensearch import build_discover_url
+from services.opensearch import build_discover_url, configured_search_period
 
 SEARCH_PERIOD = ("now-2M", "now")
 
@@ -57,11 +57,14 @@ def build(ctx):
         return [
             build_one(
                 {**ctx, "phone_a": participant, "phone_b": None},
-                *SEARCH_PERIOD,
+                *configured_search_period("myconnect_call", SEARCH_PERIOD, ctx),
             )
             for participant in participants
         ]
 
-    url = build_one(ctx, *SEARCH_PERIOD)
+    url = build_one(
+        ctx,
+        *configured_search_period("myconnect_call", SEARCH_PERIOD, ctx),
+    )
 
     return [url] if url else []

@@ -12,6 +12,23 @@ bff = "bff-example"
 myconnect = "myconnect-example"
 sip_stack = "sip-stack-example"
 
+# Окно каждой ссылки OpenSearch задаётся в минутах относительно времени звонка.
+[services.sip_stack]
+minutes_before = 2
+minutes_after = 90
+
+[services.bff]
+minutes_before = 2
+minutes_after = 90
+
+[services.myconnect]
+minutes_before = 2
+minutes_after = 90
+
+[services.myconnect_call]
+minutes_before = 2
+minutes_after = 90
+
 # UID Loki datasource для расследования записи. Домен и orgId берутся из
 # services.zapis, поэтому вторую полную ссылку Grafana Explore указывать не нужно.
 [grafana.recording]

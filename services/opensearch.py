@@ -1,11 +1,15 @@
 import re
 from dataclasses import dataclass
+from datetime import datetime, time, timedelta
 from urllib.parse import quote, unquote, urlsplit, urlunsplit
+from zoneinfo import ZoneInfo
 
 from core.config import (
     opensearch_base_url,
     opensearch_index_pattern,
     service_index_pattern,
+    service_minutes_after,
+    service_minutes_before,
     service_url,
 )
 
@@ -36,6 +40,47 @@ def _without_fragment(url: str) -> str:
 def _rison_url_string(value: str) -> str:
     escaped = str(value).replace("!", "!!").replace("'", "!'")
     return f"'{quote(escaped, safe='')}'"
+
+
+def configured_search_period(
+    service_name: str,
+    default: tuple[str, str],
+    ctx: dict | None = None,
+) -> tuple[str, str]:
+    ctx = ctx or {}
+    event_range = ctx.get("event_time_range")
+    event_values = list(ctx.get("event_datetimes") or [])
+    if not event_values and ctx.get("event_time"):
+        event_values = [ctx["event_time"]]
+
+    if event_range:
+        start, end = event_range
+    elif event_values:
+        start, end = min(event_values), max(event_values)
+    elif ctx.get("event_date"):
+        start = datetime.combine(ctx["event_date"], time(hour=8))
+        end = datetime.combine(ctx["event_date"], time(hour=20))
+    else:
+        return default
+
+    source_tz = ZoneInfo(ctx.get("tz", "Europe/Moscow"))
+    target_tz = ZoneInfo("Europe/Moscow")
+
+    def to_moscow(value):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=source_tz)
+        return value.astimezone(target_tz).replace(tzinfo=None)
+
+    start = to_moscow(start) - timedelta(
+        minutes=int(service_minutes_before(service_name))
+    )
+    end = to_moscow(end) + timedelta(
+        minutes=int(service_minutes_after(service_name))
+    )
+    return (
+        start.strftime("%Y-%m-%dT%H:%M:%S.000"),
+        end.strftime("%Y-%m-%dT%H:%M:%S.000"),
+    )
 
 
 def resolve_target(service_name: str, legacy_index_name: str) -> OpenSearchTarget:

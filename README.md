@@ -38,6 +38,30 @@ url = "https://dashboards.example.local/app/data-explorer/discover#?..."
 скопируйте URL Discover: l2tool извлечёт `indexPattern` и заменит поисковый
 запрос и временной диапазон.
 
+Период можно задать отдельно для каждой ссылки OpenSearch:
+
+```toml
+[services.sip_stack]
+minutes_before = 2
+minutes_after = 90
+
+[services.bff]
+minutes_before = 5
+minutes_after = 120
+
+[services.myconnect]
+minutes_before = 10
+minutes_after = 60
+
+[services.myconnect_call]
+minutes_before = 10
+minutes_after = 60
+```
+
+Диапазон строится относительно даты и времени звонка из заявки. При нескольких
+временах начало берётся от самого раннего звонка, окончание — от самого позднего.
+Если параметры не указаны, используются 2 минуты до и 90 минут после звонка.
+
 Локальный `config.toml` игнорируется Git и не должен попадать в коммит.
 Прежняя структура конфигурации `[grafana]` и `[opensearch]` по-прежнему
 поддерживается.

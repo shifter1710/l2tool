@@ -1,6 +1,10 @@
 from urllib.parse import quote_plus
 
-from services.opensearch import build_discover_url, resolve_target
+from services.opensearch import (
+    build_discover_url,
+    configured_search_period,
+    resolve_target,
+)
 
 FIXED_FILTER = "failed starting call on IMS side: profile not found"
 SEARCH_PERIOD = ("now-2M", "now")
@@ -33,6 +37,6 @@ def build_one(ctx, time_from, time_to):
 
 
 def build(ctx):
-    url = build_one(ctx, *SEARCH_PERIOD)
+    url = build_one(ctx, *configured_search_period("myconnect", SEARCH_PERIOD, ctx))
 
     return [url] if url else []
