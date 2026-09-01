@@ -29,7 +29,6 @@ def build_one(ctx, time_from, time_to):
         time_from=time_from,
         time_to=time_to,
         filters=filters,
-        quote_query=True,
     )
 
 

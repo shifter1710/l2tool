@@ -1,6 +1,6 @@
 import re
 from dataclasses import dataclass
-from urllib.parse import quote_plus, unquote, urlsplit, urlunsplit
+from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 from core.config import (
     opensearch_base_url,
@@ -31,6 +31,11 @@ def extract_index_pattern(url: str) -> str | None:
 def _without_fragment(url: str) -> str:
     parts = urlsplit(url)
     return urlunsplit((parts.scheme, parts.netloc, parts.path, parts.query, ""))
+
+
+def _rison_url_string(value: str) -> str:
+    escaped = str(value).replace("!", "!!").replace("'", "!'")
+    return f"'{quote(escaped, safe='')}'"
 
 
 def resolve_target(service_name: str, legacy_index_name: str) -> OpenSearchTarget:
@@ -66,11 +71,11 @@ def build_discover_url(
     time_to: str,
     filters: str = "!()",
     is_dirty: bool = False,
-    quote_query: bool = False,
 ) -> str:
     target = resolve_target(service_name, legacy_index_name)
-    encoded_query = quote_plus(query)
-    query_value = f"'{encoded_query}'" if quote_query else encoded_query
+    query_value = _rison_url_string(query)
+    time_from_value = _rison_url_string(time_from)
+    time_to_value = _rison_url_string(time_to)
     dirty_value = "!t" if is_dirty else "!f"
     columns_value = ",".join(columns)
 
@@ -79,6 +84,6 @@ def build_discover_url(
         f"?_a=(discover:(columns:!({columns_value}),isDirty:{dirty_value},sort:!()),"
         f"metadata:(indexPattern:{target.index_pattern},view:discover))"
         f"&_g=(filters:!(),refreshInterval:(pause:!t,value:0),"
-        f"time:(from:'{time_from}',to:'{time_to}'))"
+        f"time:(from:{time_from_value},to:{time_to_value}))"
         f"&_q=(filters:{filters},query:(language:kuery,query:{query_value}))"
     )

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse
-import json
 import sys
 import webbrowser
 from dataclasses import dataclass, field
@@ -45,6 +44,7 @@ PARSE_FIX_FIELDS = {
     "event_time": ("Время проблемного звонка", "Дата и время звонка"),
 }
 PHONE_FIX_FIELDS = {"msisdn", "phone_a", "phone_b"}
+EVENT_FIX_FIELDS = {"event_datetime", "event_date", "event_time"}
 
 
 def read_file(path: str) -> str:
@@ -256,12 +256,19 @@ def prompt_parse_fixes(text, issues, input_fn=None):
             continue
 
         source_label, prompt_label = PARSE_FIX_FIELDS[field_name]
-        suffix = " (Enter — оставить пустым)" if field_name in PHONE_FIX_FIELDS else ""
+        if field_name in PHONE_FIX_FIELDS:
+            suffix = " (Enter — оставить пустым)"
+        elif field_name in EVENT_FIX_FIELDS:
+            suffix = " (Enter — пропустить)"
+        else:
+            suffix = ""
         value = input_fn(f"Введите {prompt_label}{suffix}: ").strip()
         if value:
             corrections.append(f"{source_label}: {value}")
         elif field_name in PHONE_FIX_FIELDS:
             corrections.append(f"{source_label}: нет")
+        elif field_name in EVENT_FIX_FIELDS:
+            corrections.append(f"{source_label}: пропустить")
         prompted_fields.add(field_name)
 
     return "\n".join([*corrections, text])
@@ -343,21 +350,6 @@ def prompt_product():
         raise ValueError("Некорректный номер продукта")
 
     return products[choice - 1]
-
-
-def load_saved_case(path):
-    try:
-        return json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-
-
-def prompt_case_action(case_data):
-    source = case_data.get("source", {}).get("file_name", "заявки")
-    print(f"Найдена сохранённая обработка для {source}.")
-    print("1. Продолжить")
-    print("2. Начать новую обработку")
-    return input("Введите номер: ").strip() == "1"
 
 
 def prompt_recording_scenario(call_uuid):
@@ -480,15 +472,7 @@ def main():
 
     product_key = args.product
     interactive = sys.stdin.isatty()
-    saved_case = None
-    continuing_saved_case = False
     call_uuid = args.call_uuid
-    if not product_key and not args.open and interactive:
-        saved_case = load_saved_case(parsed_sidecar_path(args.file))
-        if saved_case and prompt_case_action(saved_case):
-            continuing_saved_case = True
-            product_key = saved_case.get("product")
-            call_uuid = call_uuid or saved_case.get("identifiers", {}).get("call_uuid")
 
     if not product_key and not args.open and interactive:
         try:
@@ -502,18 +486,6 @@ def main():
         open_arg = product_open_arg(product_key)
         if open_arg is None:
             return
-
-    if interactive and product_key == "recording" and continuing_saved_case:
-        if not call_uuid:
-            call_uuid = input("Введите UUID записи: ").strip()
-        try:
-            recording_open_arg, call_uuid = prompt_recording_scenario(call_uuid)
-        except ValueError as error:
-            print(str(error))
-            return
-        if recording_open_arg is None:
-            return
-        open_arg = recording_open_arg
 
     try:
         text = read_file(args.file)

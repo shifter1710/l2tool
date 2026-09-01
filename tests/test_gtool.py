@@ -128,7 +128,7 @@ def test_prompt_parse_fixes_requests_only_problem_fields():
 
     assert prompts == [
         "Введите Номер А (Enter — оставить пустым): ",
-        "Введите Дата и время звонка: ",
+        "Введите Дата и время звонка (Enter — пропустить): ",
     ]
     assert repaired == (
         "Номер звонящего (А): 79991112233\n"
@@ -150,6 +150,28 @@ def test_prompt_parse_fixes_allows_empty_phone():
     assert repaired.startswith("Номер звонящего (А): нет\n")
     assert repaired_ctx["phone_a"] is None
     assert gtool.collect_parse_issues(repaired, repaired_ctx) == []
+
+
+def test_prompt_parse_fixes_allows_skipping_bad_event_time():
+    text = """Номер клиента (msisdn): 79990000000
+Дата и время проблемного звонка: время неизвестно
+"""
+    issues = gtool.collect_parse_issues(text, parser.parse(text))
+
+    repaired = gtool.prompt_parse_fixes(text, issues, input_fn=lambda _prompt: "")
+    repaired_ctx = parser.parse(repaired)
+
+    assert repaired.startswith("Дата и время проблемного звонка: пропустить\n")
+    assert repaired_ctx["event_time"] is None
+    assert gtool.collect_parse_issues(repaired, repaired_ctx) == []
+
+    result = gtool.run_ticket(
+        text,
+        open_arg="zapis,bff",
+        parse_text=repaired,
+        write_diagnostics=False,
+    )
+    assert set(result.links_by_module) == {"zapis", "bff"}
 
 
 def test_prompt_date_only_window_keeps_default_when_empty():
@@ -479,6 +501,44 @@ def test_cli_interactive_product_exports_selected_product(monkeypatch, tmp_path)
     data = json.loads(export_path.read_text(encoding="utf-8"))
     assert data["product"] == "recording"
     assert selected_open_args == ["zapis,sip_stack,bff"]
+
+
+def test_cli_ignores_saved_case_and_always_starts_new(monkeypatch, tmp_path):
+    ticket_path = tmp_path / "ticket.txt"
+    ticket_path.write_text(
+        "Номер клиента (msisdn): +7 (999) 123-45-67",
+        encoding="utf-8",
+    )
+    ticket_path.with_name("ticket.parsed.json").write_text(
+        json.dumps({"product": "recording"}),
+        encoding="utf-8",
+    )
+    prompts = []
+    answers = iter(["2", ""])
+
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda prompt: prompts.append(prompt) or next(answers),
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        ["gtool.py", "--file", str(ticket_path), "--dry-run"],
+    )
+    monkeypatch.setattr(
+        gtool,
+        "run_ticket",
+        lambda text, open_arg, window, **kwargs: SimpleNamespace(
+            ctx={}, selected_modules=[], lines=["generated"], links_by_module={}
+        ),
+    )
+
+    gtool.main()
+
+    assert prompts == [
+        "Введите номер: ",
+        "Введите Дата и время звонка (Enter — пропустить): ",
+    ]
 
 
 def test_cli_open_exports_case_json_with_null_product(monkeypatch, tmp_path):

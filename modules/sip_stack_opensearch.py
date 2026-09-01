@@ -20,7 +20,7 @@ def build_one(ctx, time_from, time_to):
         "sip_stack",
         legacy_index_name="sip_stack",
         columns=("message",),
-        query=f"'{msisdn_query(msisdn)}'",
+        query=msisdn_query(msisdn),
         time_from=time_from,
         time_to=time_to,
     )

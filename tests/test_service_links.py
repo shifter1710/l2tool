@@ -1,4 +1,5 @@
 import pytest
+from urllib.parse import unquote
 
 from core import config
 from modules import bff_logs_opensearch, find_call_in_logs
@@ -90,6 +91,25 @@ bff = "legacy-bff-view"
 
     assert url.startswith("https://legacy.test/discover#")
     assert "indexPattern:legacy-bff-view" in url
+
+
+def test_bff_query_is_a_valid_quoted_rison_value(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """[opensearch]
+base_url = "https://opensearch.test/discover"
+
+[opensearch.index_patterns]
+bff = "bff-view"
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "CONFIG_PATH", config_path)
+
+    url = unquote(bff_logs_opensearch.build({"msisdn": "79990000000"})[0])
+
+    assert "query:'\"" in url
+    assert "\"'))" in url
 
 
 def test_legacy_grafana_config_still_builds_links(monkeypatch, tmp_path):
