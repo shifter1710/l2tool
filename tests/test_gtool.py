@@ -13,6 +13,7 @@ from gtool import (
     format_opensearch_periods,
     format_parsed_context,
     format_phone_normalization,
+    terminal_link,
 )
 
 
@@ -79,10 +80,22 @@ def test_format_opensearch_periods():
 def test_format_links_uses_human_readable_titles():
     assert format_links({"zapis": ["https://example.test/a"], "bff": ["https://example.test/b"]}) == [
         "[Grafana / find-call-in-logs]",
-        "https://example.test/a",
+        "\033]8;;https://example.test/a\033\\https://example.test/a\033]8;;\033\\",
         "[BFF / OpenSearch]",
-        "https://example.test/b",
+        "\033]8;;https://example.test/b\033\\https://example.test/b\033]8;;\033\\",
     ]
+
+
+def test_terminal_link_keeps_complex_url_unchanged():
+    url = (
+        "https://example.test/discover#?_g=(time:(from:'now-1h',to:now))"
+        "&_q=(query:(query:foo!bar))"
+    )
+
+    rendered = terminal_link(url, url)
+
+    assert rendered == f"\033]8;;{url}\033\\{url}\033]8;;\033\\"
+    assert rendered.removeprefix("\033]8;;").split("\033\\", 1)[0] == url
 
 
 def test_resolve_modules_accepts_known_modules():

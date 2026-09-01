@@ -319,12 +319,16 @@ def build_links(ctx, selected_modules):
     return links_by_module, errors
 
 
+def terminal_link(label: str, url: str) -> str:
+    return f"\033]8;;{url}\033\\{label}\033]8;;\033\\"
+
+
 def format_links(links_by_module):
     lines = []
 
     for name, links in links_by_module.items():
         lines.append(f"[{MODULE_TITLES.get(name, name)}]")
-        lines.extend(links)
+        lines.extend(terminal_link(url, url) for url in links)
 
     return lines
 
