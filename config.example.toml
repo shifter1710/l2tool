@@ -21,13 +21,23 @@ minutes_after = 90
 minutes_before = 2
 minutes_after = 90
 
+# В локальном config.toml вставьте полную скопированную ссылку Grafana Explore.
+# Реальные ссылки для этих сервисов не храните в Git.
+[services.secretary]
+url = ""
+
 [services.myconnect]
+# Один URL Discover используется и для myconnect, и для myconnect_call.
+url = ""
 minutes_before = 2
 minutes_after = 90
 
 [services.myconnect_call]
 minutes_before = 2
 minutes_after = 90
+
+[services.noise]
+url = ""
 
 # UID Loki datasource для расследования записи. Домен и orgId берутся из
 # services.zapis, поэтому вторую полную ссылку Grafana Explore указывать не нужно.

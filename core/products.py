@@ -1,8 +1,8 @@
 PRODUCTS = {
     "recording": ("Запись", ["zapis", "sip_stack", "bff"]),
-    "secretary": ("Секретарь", ["bff"]),
+    "secretary": ("Секретарь", ["secretary"]),
     "calls": ("Звонки", ["myconnect", "myconnect_call"]),
-    "noise": ("Шумоподавление", []),
+    "noise": ("Шумоподавление", ["noise"]),
     "assistant": ("Ассистент в звонке", []),
 }
 

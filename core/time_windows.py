@@ -41,3 +41,16 @@ def utc_range(ctx, event_time_range):
     start_utc = start.replace(tzinfo=tz).astimezone(ZoneInfo("UTC"))
     end_utc = end.replace(tzinfo=tz).astimezone(ZoneInfo("UTC"))
     return fmt_utc(start_utc), fmt_utc(end_utc)
+
+
+def utc_search_windows(ctx):
+    """Return Grafana search windows derived from the parsed ticket context."""
+    if ctx.get("event_time_range"):
+        return [utc_range(ctx, ctx["event_time_range"])]
+
+    values = event_datetimes(ctx)
+    if values:
+        return [utc_window(ctx, value) for value in values]
+
+    day_window = utc_day_window(ctx)
+    return [day_window] if day_window else []

@@ -5,11 +5,13 @@ from modules import (
     attached_call_myconnect,
     bff_logs_opensearch,
     find_call_in_logs,
+    noise_loki,
     profile_not_found_myconnect,
     recording_collector,
     recording_crs,
     recording_mgw,
     recording_vss_crs,
+    secretary_loki,
     sip_stack_opensearch,
 )
 
@@ -37,6 +39,11 @@ SERVICES: dict[str, ServiceDefinition] = {
         platform="opensearch",
         module=bff_logs_opensearch,
     ),
+    "secretary": ServiceDefinition(
+        title="Секретарь / Loki",
+        platform="grafana",
+        module=secretary_loki,
+    ),
     "myconnect": ServiceDefinition(
         title="MyConnect / OpenSearch",
         platform="opensearch",
@@ -46,6 +53,11 @@ SERVICES: dict[str, ServiceDefinition] = {
         title="MyConnect call / OpenSearch",
         platform="opensearch",
         module=attached_call_myconnect,
+    ),
+    "noise": ServiceDefinition(
+        title="Шумоподавление / Loki",
+        platform="grafana",
+        module=noise_loki,
     ),
     "recording_mgw": ServiceDefinition(
         title="Запись / MGW / Loki",

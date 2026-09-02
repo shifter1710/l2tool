@@ -1,32 +1,81 @@
 import json
+import re
 from urllib.parse import parse_qsl, quote_plus, urlencode, urlsplit, urlunsplit
 
 
-def _replace_query(node, expression):
+_PHONE_FILTER = re.compile(r"(?P<prefix>\|=\s*)`\+?\d{10,11}`")
+
+
+def _transform_query(node, transform):
     if isinstance(node, dict):
         return {
-            key: expression if key == "expr" else _replace_query(value, expression)
+            key: (
+                transform(value)
+                if key == "expr" and isinstance(value, str)
+                else _transform_query(value, transform)
+            )
             for key, value in node.items()
         }
     if isinstance(node, list):
-        return [_replace_query(value, expression) for value in node]
+        return [_transform_query(value, transform) for value in node]
     return node
 
 
-def build_explore_url(url, expression):
-    """Replace Loki expressions in a copied Grafana Explore URL."""
+def _replace_time_range(node, time_from, time_to):
+    replaced = 0
+
+    if isinstance(node, dict):
+        updated = {}
+        for key, value in node.items():
+            transformed, count = _replace_time_range(value, time_from, time_to)
+            updated[key] = transformed
+            replaced += count
+
+        if isinstance(updated.get("range"), dict):
+            updated["range"] = {
+                **updated["range"],
+                "from": time_from,
+                "to": time_to,
+            }
+            replaced += 1
+        return updated, replaced
+
+    if isinstance(node, list):
+        updated = []
+        for value in node:
+            transformed, count = _replace_time_range(value, time_from, time_to)
+            updated.append(transformed)
+            replaced += count
+        return updated, replaced
+
+    return node, replaced
+
+
+def _build_explore_url(url, transform, *, time_from=None, time_to=None):
     if not url:
         raise ValueError("Grafana Explore URL is not configured")
+
+    if (time_from is None) != (time_to is None):
+        raise ValueError("Both Grafana Explore time boundaries must be provided")
 
     parts = urlsplit(url)
     params = dict(parse_qsl(parts.query, keep_blank_values=True))
     updated = False
+    range_replaced = False
     for key in ("panes", "left"):
         if key not in params:
             continue
         try:
+            state = _transform_query(json.loads(params[key]), transform)
+            if time_from is not None:
+                state, replacement_count = _replace_time_range(
+                    state,
+                    time_from,
+                    time_to,
+                )
+                range_replaced = range_replaced or bool(replacement_count)
             params[key] = json.dumps(
-                _replace_query(json.loads(params[key]), expression),
+                state,
                 ensure_ascii=False,
                 separators=(",", ":"),
             )
@@ -36,10 +85,44 @@ def build_explore_url(url, expression):
 
     if not updated:
         raise ValueError("Copied Grafana Explore URL must contain panes or left")
+    if time_from is not None and not range_replaced:
+        raise ValueError("Copied Grafana Explore URL must contain a time range")
 
     return urlunsplit(
         (parts.scheme, parts.netloc, parts.path, urlencode(params, quote_via=quote_plus), parts.fragment)
     )
+
+
+def build_explore_url(url, expression):
+    """Replace Loki expressions in a copied Grafana Explore URL."""
+    return _build_explore_url(url, lambda _current: expression)
+
+
+def build_phone_explore_url(url, phone, *, time_from=None, time_to=None):
+    """Replace the first backtick-quoted phone filter in a copied Explore URL."""
+    replaced = False
+
+    def replace_phone(expression):
+        nonlocal replaced
+        updated, count = _PHONE_FILTER.subn(
+            lambda match: f'{match.group("prefix")}`{phone}`',
+            expression,
+            count=1,
+        )
+        replaced = replaced or bool(count)
+        return updated
+
+    result = _build_explore_url(
+        url,
+        replace_phone,
+        time_from=time_from,
+        time_to=time_to,
+    )
+    if not replaced:
+        raise ValueError(
+            "Copied Grafana Explore URL must contain a phone filter in backticks"
+        )
+    return result
 
 
 def build_explore_url_from_dashboard(

@@ -12,8 +12,10 @@ def test_service_registry_separates_platforms_and_modules():
         "zapis",
         "sip_stack",
         "bff",
+        "secretary",
         "myconnect",
         "myconnect_call",
+        "noise",
         "recording_mgw",
         "recording_vss_crs",
         "recording_crs",
@@ -21,6 +23,8 @@ def test_service_registry_separates_platforms_and_modules():
     ]
     assert SERVICES["zapis"].platform == "grafana"
     assert SERVICES["bff"].platform == "opensearch"
+    assert SERVICES["secretary"].platform == "grafana"
+    assert SERVICES["noise"].platform == "grafana"
     assert callable(SERVICES["bff"].module.build)
 
 
