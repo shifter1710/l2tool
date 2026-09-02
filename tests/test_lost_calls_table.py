@@ -210,6 +210,28 @@ def test_unknown_direction_is_kept_as_metadata(monkeypatch, tmp_path):
     assert result.warnings == ()
 
 
+def test_invalid_phone_lengths_do_not_generate_links(monkeypatch, tmp_path):
+    configure_dashboard(monkeypatch, tmp_path)
+    source = tmp_path / "calls.csv"
+    source.write_text(
+        "Номер пользователя,Номер другой стороны,Старт звонка,"
+        "Продолжительность звонка,Направление звонка\n"
+        "123,456,2026-08-01 10:00,30,out\n",
+        encoding="utf-8",
+    )
+
+    result = process_table(
+        source,
+        now=datetime(2026, 8, 2, 12, tzinfo=timezone.utc),
+    )
+
+    assert result.link_count == 0
+    assert result.warnings == (
+        "Строка 2: не заполнено или некорректно: "
+        "номер пользователя, номер другой стороны",
+    )
+
+
 def test_calls_older_than_five_days_are_removed(monkeypatch, tmp_path):
     configure_dashboard(monkeypatch, tmp_path)
     source = tmp_path / "calls.csv"

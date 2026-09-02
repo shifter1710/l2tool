@@ -8,12 +8,19 @@ from core import history
 
 
 def dummy_module(urls=None, calls=None):
-    urls = urls or ["https://example.test/logs"]
+    urls = ["https://example.test/logs"] if urls is None else urls
 
     def build(ctx):
         if calls is not None:
             calls.append(ctx)
         return urls
+
+    return SimpleNamespace(build=build)
+
+
+def failing_module(message="service unavailable"):
+    def build(_ctx):
+        raise RuntimeError(message)
 
     return SimpleNamespace(build=build)
 
@@ -170,6 +177,79 @@ def test_run_ticket_saves_history_yaml_and_updates_index(monkeypatch, tmp_path):
         "79991234567": [archive_text_path],
     }
     assert not list(history_dir.rglob("*.tmp"))
+
+
+def test_run_ticket_does_not_save_history_when_all_services_fail(
+    monkeypatch,
+    tmp_path,
+):
+    history_dir = tmp_path / "history"
+    monkeypatch.setattr(gtool, "MODULES", {"broken": failing_module()})
+
+    result = gtool.run_ticket(
+        """Номер клиента (msisdn): 79991234567
+Дата и время проблемного звонка: 06.05.2026 10:30
+""",
+        open_arg="broken",
+        save_history=True,
+        history_root=history_dir,
+    )
+
+    assert result.status == "failed"
+    assert not history_dir.exists()
+
+
+def test_run_ticket_marks_partial_result_and_does_not_save_history(
+    monkeypatch,
+    tmp_path,
+):
+    history_dir = tmp_path / "history"
+    monkeypatch.setattr(
+        gtool,
+        "MODULES",
+        {
+            "working": dummy_module(),
+            "broken": failing_module(),
+        },
+    )
+
+    result = gtool.run_ticket(
+        """Номер клиента (msisdn): 79991234567
+Дата и время проблемного звонка: 06.05.2026 10:30
+""",
+        open_arg="working,broken",
+        save_history=True,
+        history_root=history_dir,
+    )
+
+    assert result.status == "partial"
+    assert result.links_by_module == {"working": ["https://example.test/logs"]}
+    assert not history_dir.exists()
+
+
+def test_run_ticket_treats_empty_service_result_as_partial(monkeypatch, tmp_path):
+    history_dir = tmp_path / "history"
+    monkeypatch.setattr(
+        gtool,
+        "MODULES",
+        {
+            "working": dummy_module(),
+            "empty": dummy_module(urls=[]),
+        },
+    )
+
+    result = gtool.run_ticket(
+        """Номер клиента (msisdn): 79991234567
+Дата и время проблемного звонка: 06.05.2026 10:30
+""",
+        open_arg="working,empty",
+        save_history=True,
+        history_root=history_dir,
+    )
+
+    assert result.status == "partial"
+    assert result.errors == ["[ERROR] Service generated no links: empty"]
+    assert not history_dir.exists()
 
 
 def test_cli_no_history_does_not_save_or_open_links(monkeypatch, tmp_path, capsys):

@@ -14,7 +14,7 @@ from core.parser import is_empty_phone_value
 from core.parser_diagnostics import collect_parse_issues, write_parse_issues
 from core.products import available_products, product_title, resolve_product_modules
 from core.timezones import resolve_timezone
-from core.utils import hash_phone
+from core.utils import hash_phone, normalize_uuid
 from services.opensearch import configured_search_period
 from services.registry import service_modules, service_titles
 
@@ -34,6 +34,7 @@ class RunResult:
     links_by_module: dict[str, list[str]]
     lines: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    status: str = "success"
 
 
 PARSE_FIX_FIELDS = {
@@ -331,6 +332,8 @@ def build_links(ctx, selected_modules):
 
         if links:
             links_by_module[name] = links
+        else:
+            errors.append(f"[ERROR] Service generated no links: {name}")
 
     return links_by_module, errors
 
@@ -372,27 +375,6 @@ def prompt_product():
     return products[choice - 1]
 
 
-def prompt_recording_scenario(call_uuid=None, input_fn=None):
-    input_fn = input if input_fn is None else input_fn
-    print("Выберите сценарий записи:")
-    print("1. Не зашёл в петлю")
-    print("2. Не обработалась запись")
-    print("3. Обработалась, но нет в приложении (пока не настроено)")
-    choice = input_fn("Введите номер: ").strip()
-    if choice not in {"1", "2"}:
-        if choice == "3":
-            print("Этот сценарий пока не настроен")
-            return None, call_uuid
-        raise ValueError("Некорректный номер сценария записи")
-
-    if not call_uuid:
-        call_uuid = input_fn("Введите UUID записи: ").strip()
-
-    if choice == "1":
-        return "recording_mgw", call_uuid
-    return "recording_mgw,recording_vss_crs,recording_crs,recording_collector", call_uuid
-
-
 def product_open_arg(product_key):
     modules = resolve_product_modules(product_key)
     if not modules:
@@ -413,6 +395,9 @@ def run_ticket(
     parse_text=None,
     call_uuid=None,
 ):
+    if call_uuid:
+        call_uuid = normalize_uuid(call_uuid)
+
     source_text = parse_text if parse_text is not None else text
     ctx = parser.parse(source_text)
     ctx["tz"] = resolve_timezone(ctx.get("region"))
@@ -431,7 +416,14 @@ def run_ticket(
 
     if issues:
         lines.extend(format_parse_errors(issues))
-        return RunResult(ctx, selected, {}, lines, [issue["message"] for issue in issues])
+        return RunResult(
+            ctx,
+            selected,
+            {},
+            lines,
+            [issue["message"] for issue in issues],
+            status="failed",
+        )
 
     matches = history.find_matches(ctx, history_root=history_root)
     lines.extend(history.format_matches(matches))
@@ -440,8 +432,15 @@ def run_ticket(
     links_by_module, errors = build_links(ctx, selected)
     warnings.extend(errors)
 
+    if errors and links_by_module:
+        status = "partial"
+    elif errors or not links_by_module:
+        status = "failed"
+    else:
+        status = "success"
+
     saved_history_path = None
-    if save_history:
+    if save_history and status == "success":
         saved_history_path = history.save_ticket_history(
             ctx=ctx,
             input_file=input_file,
@@ -457,7 +456,14 @@ def run_ticket(
         lines.append("No URLs generated")
         if saved_history_path:
             lines.append(f"History saved: {saved_history_path.as_posix()}")
-        return RunResult(ctx, selected, links_by_module, lines, errors)
+        return RunResult(
+            ctx,
+            selected,
+            links_by_module,
+            lines,
+            errors,
+            status=status,
+        )
 
     lines.extend(format_warnings(warnings))
     if warnings:
@@ -468,7 +474,14 @@ def run_ticket(
         lines.append("")
         lines.append(f"History saved: {saved_history_path.as_posix()}")
 
-    return RunResult(ctx, selected, links_by_module, lines, errors)
+    return RunResult(
+        ctx,
+        selected,
+        links_by_module,
+        lines,
+        errors,
+        status=status,
+    )
 
 
 def main():
@@ -477,12 +490,15 @@ def main():
     ap.add_argument(
         "--open",
         default=None,
-        help="Services: zapis,sip_stack,bff,myconnect,myconnect_call or all",
+        help=f"Services: {','.join(MODULES)} or all",
     )
     ap.add_argument("--product", choices=available_products(), help="Product profile")
     ap.add_argument("--window", type=int, default=DEFAULT_WINDOW, help="Window in minutes for Grafana")
     ap.add_argument("--export-case", help="Path to write parsed case JSON")
-    ap.add_argument("--call-uuid", help="UUID записи для сценариев записи")
+    ap.add_argument(
+        "--call-uuid",
+        help="UUID звонка для вторичной диагностики записи",
+    )
     ap.add_argument("--no-history", action="store_true", help="Do not save a history archive")
     ap.add_argument(
         "--dry-run",
@@ -506,23 +522,13 @@ def main():
             product_key = prompt_product()
         except ValueError as error:
             print(str(error))
-            return
+            return 2
 
     open_arg = args.open or DEFAULT_OPEN
     if product_key:
         open_arg = product_open_arg(product_key)
         if open_arg is None:
-            return
-
-        if product_key == "recording" and interactive:
-            try:
-                scenario_arg, call_uuid = prompt_recording_scenario(call_uuid)
-            except ValueError as error:
-                print(str(error))
-                return
-            if scenario_arg is None:
-                return
-            open_arg = scenario_arg
+            return 2
 
     try:
         text = read_file(args.file)
@@ -582,13 +588,25 @@ def main():
         file_name=Path(args.file).name,
     )
 
-    if not args.dry_run:
+    result_status = getattr(result, "status", "success")
+
+    if not args.dry_run and result_status == "success":
         sidecar_path = write_case_json(parsed_sidecar_path(args.file), case_data)
         print(f"Parsed case saved to: {sidecar_path}")
+    elif not args.dry_run:
+        print("Parsed case not saved: ticket processing was not successful")
 
-    if args.export_case:
+    if args.export_case and result_status == "success":
         output_path = write_case_json(args.export_case, case_data)
         print(f"Case JSON saved to: {output_path}")
+    elif args.export_case:
+        print("Case JSON not saved: ticket processing was not successful")
+
+    if result_status == "partial":
+        return 1
+    if result_status == "failed":
+        return 2
+    return 0
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

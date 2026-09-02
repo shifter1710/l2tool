@@ -260,7 +260,9 @@ def normalize_phone(value):
         return "7" + digits
     if len(digits) == 11 and digits.startswith("8"):
         return "7" + digits[1:]
-    return digits
+    if len(digits) == 11 and digits.startswith("7"):
+        return digits
+    return ""
 
 
 def parse_utc_datetime(value):

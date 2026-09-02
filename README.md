@@ -30,6 +30,12 @@ url = "https://grafana.example.local/d/...?..."
 
 [services.bff]
 url = "https://dashboards.example.local/app/data-explorer/discover#?..."
+
+[services.secretary]
+url = "<полная ссылка Grafana Explore>"
+
+[services.noise]
+url = "<полная ссылка Grafana Explore>"
 ```
 
 Для Grafana l2tool сохраняет статические параметры скопированного URL
@@ -37,6 +43,16 @@ url = "https://dashboards.example.local/app/data-explorer/discover#?..."
 заявке. Для OpenSearch сначала выберите нужное представление данных, затем
 скопируйте URL Discover: l2tool извлечёт `indexPattern` и заменит поисковый
 запрос и временной диапазон.
+
+Ссылки для `secretary` и `noise` храните только в локальном `config.toml`.
+В Git и `config.example.toml` реальные адреса не добавляются. Для двух ссылок
+продукта «Звонки» достаточно одного URL в `[services.myconnect]`:
+`myconnect_call` автоматически использует тот же tenant и представление данных.
+В скопированных Grafana Explore-ссылках оставьте пример номера в обратных
+кавычках: при запуске l2tool заменит его номером из заявки. Если в заявке
+распознаны дата и время, диапазон Explore также заменяется интервалом из
+заявки. При нескольких временах создаётся отдельная ссылка для каждого звонка.
+Если время явно пропущено, сохраняется диапазон скопированной ссылки.
 
 Период можно задать отдельно для каждой ссылки OpenSearch:
 
@@ -145,9 +161,9 @@ python3 gtool.py --product recording
 | Профиль | Продукт | Сервисы |
 | --- | --- | --- |
 | `recording` | Запись | `zapis`, `sip_stack`, `bff` |
-| `secretary` | Секретарь | `bff` |
+| `secretary` | Секретарь | `secretary` |
 | `calls` | Звонки | `myconnect`, `myconnect_call` |
-| `noise` | Шумоподавление | пока не настроено |
+| `noise` | Шумоподавление | `noise` |
 | `assistant` | Ассистент в звонке | пока не настроено |
 
 Используйте либо `--product`, либо `--open`: эти параметры нельзя совмещать.
@@ -159,11 +175,40 @@ python3 gtool.py --product recording
 `--dry-run` разбирает заявку и выводит совпадения в истории и сформированные
 ссылки, но не сохраняет историю и диагностические данные парсера.
 
+История, автоматический `*.parsed.json` и явно запрошенный `--export-case`
+записываются только после полностью успешной обработки. Частичный результат,
+когда часть сервисов не смогла сформировать ссылки, выводится в терминал, но не
+сохраняется. Код завершения равен `0` при успехе, `1` при частичном результате и
+`2` при неуспешной обработке или ошибке аргументов.
+
 Чтобы проверить настройку без реальной заявки:
 
 ```bash
 python3 gtool.py --file examples/ticket.example.txt --product recording --dry-run
 ```
+
+## Вторичная диагностика записи по UUID
+
+Поиск в MGW, VSS, CRS и Collector не входит в первичную диагностику продукта
+«Запись». Используйте его отдельно, когда UUID звонка уже найден на первом
+этапе:
+
+```bash
+python3 gtool.py --file tickets/current.txt \
+  --open recording_mgw \
+  --call-uuid 12345678-1234-5678-1234-567812345678
+```
+
+Для проверки всей цепочки обработки записи:
+
+```bash
+python3 gtool.py --file tickets/current.txt \
+  --open recording_mgw,recording_vss_crs,recording_crs,recording_collector \
+  --call-uuid 12345678-1234-5678-1234-567812345678
+```
+
+UUID проверяется перед созданием ссылок. Диапазон Loki строится по времени из
+заявки; если оно явно пропущено, используется последний час.
 
 ## Пакетная обработка потерянных звонков
 
@@ -231,16 +276,18 @@ CLI.
 ## Сервисы
 
 Метаданные сервисов находятся в `services/registry.py`. Сборка URL для каждой
-платформы изолирована в `services/grafana.py` и `services/opensearch.py`, а
+платформы изолирована в `services/loki_explore.py` и `services/opensearch.py`, а
 запросы, специфичные для заявок, остаются в `modules/`. Благодаря этому CLI не
 зависит от реализации отдельных сервисов.
 
 - `zapis` — поиск логов звонков на дашборде Grafana `find-call-in-logs`;
 - `sip_stack` — поиск логов SIP stack в OpenSearch по клиентскому `msisdn`;
 - `bff` — поиск логов BFF в OpenSearch;
+- `secretary` — поиск логов Секретаря в Grafana Loki по номеру клиента;
 - `myconnect` — поиск случаев `profile not found` в MyConnect;
 - `myconnect_call` — поиск логов MyConnect по присоединённому/проблемному
   звонку с использованием `master:<msisdn>` и участника SIP.
+- `noise` — поиск логов Шумоподавления в Grafana Loki по десятизначному номеру.
 
 ## Разработка
 

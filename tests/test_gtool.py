@@ -111,7 +111,8 @@ def test_resolve_modules_rejects_unknown_module():
         ValueError,
         match=(
             "Unknown service: bad. Available: "
-            "zapis, sip_stack, bff, myconnect, myconnect_call"
+            "zapis, sip_stack, bff, secretary, myconnect, myconnect_call, noise"
+            ", recording_mgw, recording_vss_crs, recording_crs, recording_collector"
         ),
     ):
         gtool.resolve_modules("bad")
@@ -348,13 +349,36 @@ def test_cli_product_bff_is_not_allowed(monkeypatch, capsys):
     assert "invalid choice: 'bff'" in capsys.readouterr().err
 
 
-def test_cli_plain_run_prompts_for_product(monkeypatch, tmp_path):
+def test_cli_product_without_services_returns_failed_exit(monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["gtool.py", "--product", "assistant"])
+
+    exit_code = gtool.main()
+
+    assert exit_code == 2
+    assert "пока нет настроенных сервисов" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("choice", "expected_open_arg"),
+    [
+        ("1", "zapis,sip_stack,bff"),
+        ("2", "secretary"),
+        ("3", "myconnect,myconnect_call"),
+        ("4", "noise"),
+    ],
+)
+def test_cli_plain_run_prompts_for_product(
+    monkeypatch,
+    tmp_path,
+    choice,
+    expected_open_arg,
+):
     ticket_path = tmp_path / "ticket.txt"
     ticket_path.write_text("Номер клиента (msisdn): +7 (999) 123-45-67", encoding="utf-8")
     selected_open_args = []
 
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
-    monkeypatch.setattr("builtins.input", lambda prompt: "1")
+    monkeypatch.setattr("builtins.input", lambda prompt: choice)
     monkeypatch.setattr("sys.argv", ["gtool.py", "--file", str(ticket_path)])
     monkeypatch.setattr(gtool, "open_links", lambda links: None)
     monkeypatch.setattr(
@@ -366,7 +390,7 @@ def test_cli_plain_run_prompts_for_product(monkeypatch, tmp_path):
 
     gtool.main()
 
-    assert selected_open_args == ["recording_mgw"]
+    assert selected_open_args == [expected_open_arg]
 
 
 def test_cli_product_skips_input(monkeypatch, tmp_path):
@@ -513,7 +537,7 @@ def test_cli_interactive_product_exports_selected_product(monkeypatch, tmp_path)
 
     data = json.loads(export_path.read_text(encoding="utf-8"))
     assert data["product"] == "recording"
-    assert selected_open_args == ["recording_mgw"]
+    assert selected_open_args == ["zapis,sip_stack,bff"]
 
 
 def test_cli_ignores_saved_case_and_always_starts_new(monkeypatch, tmp_path):
@@ -647,3 +671,60 @@ def test_cli_without_export_case_does_not_create_json(monkeypatch, tmp_path):
     sidecar_path = ticket_path.with_name("ticket.parsed.json")
     assert sidecar_path.exists()
     assert json.loads(sidecar_path.read_text(encoding="utf-8"))["identifiers"]["call_uuid"] == ""
+
+
+def test_cli_failed_parse_preserves_existing_sidecar_and_skips_export(
+    monkeypatch,
+    tmp_path,
+    capsys,
+):
+    ticket_path = tmp_path / "ticket.txt"
+    ticket_path.write_text(
+        "Номер клиента (msisdn): 123\nДата и время проблемного звонка: неверно",
+        encoding="utf-8",
+    )
+    sidecar_path = ticket_path.with_name("ticket.parsed.json")
+    sidecar_path.write_text('{"previous": true}\n', encoding="utf-8")
+    export_path = tmp_path / "case.json"
+
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "gtool.py",
+            "--file",
+            str(ticket_path),
+            "--open",
+            "bff",
+            "--export-case",
+            str(export_path),
+            "--no-history",
+        ],
+    )
+
+    exit_code = gtool.main()
+
+    assert exit_code == 2
+    assert sidecar_path.read_text(encoding="utf-8") == '{"previous": true}\n'
+    assert not export_path.exists()
+    output = capsys.readouterr().out
+    assert "Parsed case not saved" in output
+    assert "Case JSON not saved" in output
+
+
+def test_run_ticket_rejects_invalid_call_uuid(monkeypatch):
+    monkeypatch.setitem(
+        gtool.MODULES,
+        "dummy",
+        SimpleNamespace(build=lambda _ctx: ["https://example.test/logs"]),
+    )
+
+    with pytest.raises(ValueError, match="Некорректный UUID звонка"):
+        gtool.run_ticket(
+            """Номер клиента (msisdn): 79991234567
+Дата и время проблемного звонка: 06.05.2026 10:30
+""",
+            open_arg="dummy",
+            call_uuid='broken" |~ ".*"',
+            write_diagnostics=False,
+        )
