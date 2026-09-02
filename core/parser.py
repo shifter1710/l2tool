@@ -87,7 +87,7 @@ def is_empty_phone_value(value: str | None):
     return normalized in EMPTY_PHONE_VALUES or normalized.startswith(EMPTY_PHONE_PREFIXES)
 
 
-def normalize_phone(value: str | None, allow_landline: bool = False):
+def normalize_phone(value: str | None):
     if is_empty_phone_value(value):
         return None
 
@@ -112,9 +112,10 @@ def extract_phone_values(value: str | None, allow_short: bool = False):
     candidates = re.findall(r"(?<!\d)(?:[78]\d{10}|\d{10}|\d{7})(?!\d)", value)
     values = []
     for candidate in candidates:
-        normalized = normalize_phone(candidate)
-        if normalized is None and allow_short and len(candidate) == 7:
+        if allow_short and len(candidate) == 7:
             normalized = candidate
+        else:
+            normalized = normalize_phone(candidate)
         if normalized and normalized not in values:
             values.append(normalized)
 
@@ -129,16 +130,17 @@ def extract_partial_phone(value: str | None):
     return match.group("prefix") if match else None
 
 
-def _event_date_match(value: str | None):
+def _event_date_match(value: str | None, today=None):
     if not value or DATE_RANGE_PATTERN.search(value):
         return None, None
 
+    today = today or datetime.now().date()
     matches = list(DATE_PATTERN.finditer(value))
     matches.sort(key=lambda match: match.group("year") is None)
 
     for match in matches:
         raw_year = match.group("year")
-        year = datetime.now().year if raw_year is None else int(raw_year)
+        year = today.year if raw_year is None else int(raw_year)
         if raw_year and len(raw_year) == 2:
             year += 2000
 
@@ -146,6 +148,14 @@ def _event_date_match(value: str | None):
             event_date = datetime(year, int(match.group("month")), int(match.group("day"))).date()
         except ValueError:
             continue
+
+        # Дата без года не может быть в будущем: звонок уже состоялся,
+        # значит речь о прошлогодней дате (например, заявка в январе про декабрь).
+        if raw_year is None and event_date > today:
+            try:
+                event_date = event_date.replace(year=year - 1)
+            except ValueError:
+                pass
 
         return (match.start(), match.end()), event_date
 

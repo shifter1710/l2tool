@@ -1,4 +1,5 @@
 import csv
+import os
 import re
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
@@ -540,7 +541,14 @@ def write_clean_workbook(
     ):
         sheet.column_dimensions[column_letter].width = width
 
-    workbook.save(output_path)
+    file_descriptor = os.open(
+        output_path,
+        os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+        0o600,
+    )
+    os.fchmod(file_descriptor, 0o600)
+    with os.fdopen(file_descriptor, "wb") as file:
+        workbook.save(file)
     workbook.close()
     return TableResult(
         output_path=output_path,

@@ -366,7 +366,7 @@ def test_cli_plain_run_prompts_for_product(monkeypatch, tmp_path):
 
     gtool.main()
 
-    assert selected_open_args == ["zapis,sip_stack,bff"]
+    assert selected_open_args == ["recording_mgw"]
 
 
 def test_cli_product_skips_input(monkeypatch, tmp_path):
@@ -513,7 +513,7 @@ def test_cli_interactive_product_exports_selected_product(monkeypatch, tmp_path)
 
     data = json.loads(export_path.read_text(encoding="utf-8"))
     assert data["product"] == "recording"
-    assert selected_open_args == ["zapis,sip_stack,bff"]
+    assert selected_open_args == ["recording_mgw"]
 
 
 def test_cli_ignores_saved_case_and_always_starts_new(monkeypatch, tmp_path):

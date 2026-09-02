@@ -52,7 +52,7 @@ def read_file(path: str) -> str:
     return Path(path).read_text(encoding="utf-8")
 
 
-def resolve_modules(open_arg: str):
+def resolve_modules(open_arg: str, call_uuid=None):
     selected = list(MODULES.keys()) if open_arg == "all" else open_arg.split(",")
     resolved = []
     available = ", ".join(MODULES)
@@ -68,7 +68,20 @@ def resolve_modules(open_arg: str):
         if raw_name not in resolved:
             resolved.append(raw_name)
 
+    if open_arg == "all" and not call_uuid:
+        resolved = [
+            name
+            for name in resolved
+            if not getattr(MODULES[name], "REQUIRES_CALL_UUID", False)
+        ]
+
     return resolved
+
+
+def requires_call_uuid_modules():
+    return [
+        name for name, mod in MODULES.items() if getattr(mod, "REQUIRES_CALL_UUID", False)
+    ]
 
 
 def format_phone_normalization(ctx):
@@ -359,20 +372,25 @@ def prompt_product():
     return products[choice - 1]
 
 
-def prompt_recording_scenario(call_uuid):
+def prompt_recording_scenario(call_uuid=None, input_fn=None):
+    input_fn = input if input_fn is None else input_fn
     print("Выберите сценарий записи:")
     print("1. Не зашёл в петлю")
     print("2. Не обработалась запись")
     print("3. Обработалась, но нет в приложении (пока не настроено)")
-    choice = input("Введите номер: ").strip()
+    choice = input_fn("Введите номер: ").strip()
+    if choice not in {"1", "2"}:
+        if choice == "3":
+            print("Этот сценарий пока не настроен")
+            return None, call_uuid
+        raise ValueError("Некорректный номер сценария записи")
+
+    if not call_uuid:
+        call_uuid = input_fn("Введите UUID записи: ").strip()
+
     if choice == "1":
         return "recording_mgw", call_uuid
-    if choice == "2":
-        return "recording_mgw,recording_vss_crs,recording_crs,recording_collector", call_uuid
-    if choice == "3":
-        print("Этот сценарий пока не настроен")
-        return None, call_uuid
-    raise ValueError("Некорректный номер сценария записи")
+    return "recording_mgw,recording_vss_crs,recording_crs,recording_collector", call_uuid
 
 
 def product_open_arg(product_key):
@@ -399,7 +417,7 @@ def run_ticket(
     ctx = parser.parse(source_text)
     ctx["tz"] = resolve_timezone(ctx.get("region"))
     ctx["window"] = window
-    selected = resolve_modules(open_arg)
+    selected = resolve_modules(open_arg, call_uuid=call_uuid)
     ctx["selected_modules"] = selected
     ctx["call_uuid"] = call_uuid
 
@@ -476,6 +494,8 @@ def main():
 
     if args.product and args.open:
         ap.error("Use either --product or --open, not both")
+    if args.window < 0:
+        ap.error("--window must be non-negative")
 
     product_key = args.product
     interactive = sys.stdin.isatty()
@@ -494,15 +514,33 @@ def main():
         if open_arg is None:
             return
 
+        if product_key == "recording" and interactive:
+            try:
+                scenario_arg, call_uuid = prompt_recording_scenario(call_uuid)
+            except ValueError as error:
+                print(str(error))
+                return
+            if scenario_arg is None:
+                return
+            open_arg = scenario_arg
+
     try:
         text = read_file(args.file)
     except FileNotFoundError:
         ap.error(f"ticket file not found: {args.file}")
 
     try:
-        preview_selected = resolve_modules(open_arg)
+        preview_selected = resolve_modules(open_arg, call_uuid=call_uuid)
     except ValueError as error:
         ap.error(str(error))
+
+    if args.open == "all" and not call_uuid:
+        skipped = requires_call_uuid_modules()
+        if skipped:
+            print(
+                "Сервисы записи пропущены "
+                f"({', '.join(skipped)}): передайте --call-uuid, чтобы включить их"
+            )
 
     preview_ctx = parser.parse(text)
     preview_ctx["tz"] = resolve_timezone(preview_ctx.get("region"))
@@ -543,8 +581,10 @@ def main():
         product=product_key,
         file_name=Path(args.file).name,
     )
-    sidecar_path = write_case_json(parsed_sidecar_path(args.file), case_data)
-    print(f"Parsed case saved to: {sidecar_path}")
+
+    if not args.dry_run:
+        sidecar_path = write_case_json(parsed_sidecar_path(args.file), case_data)
+        print(f"Parsed case saved to: {sidecar_path}")
 
     if args.export_case:
         output_path = write_case_json(args.export_case, case_data)

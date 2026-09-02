@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from core import parser
 
@@ -154,9 +154,28 @@ def test_parse_datetime_variants():
 
 
 def test_parse_event_datetimes_without_year_uses_current_year():
-    result = parser.parse_event_datetimes("01.07 10:08")
+    past = datetime.now() - timedelta(days=30)
+    result = parser.parse_event_datetimes(f"{past:%d.%m} 10:08")
 
-    assert result == [datetime(datetime.now().year, 7, 1, 10, 8)]
+    assert result == [datetime(past.year, past.month, past.day, 10, 8)]
+
+
+def test_date_without_year_in_future_rolls_back_to_previous_year():
+    _match, event_date = parser._event_date_match("15.12 10:00", today=date(2026, 9, 2))
+
+    assert event_date == date(2025, 12, 15)
+
+
+def test_date_without_year_in_future_keeps_leap_day():
+    _match, event_date = parser._event_date_match("29.02", today=date(2024, 1, 1))
+
+    assert event_date == date(2024, 2, 29)
+
+
+def test_date_with_explicit_year_is_never_rolled_back():
+    _match, event_date = parser._event_date_match("15.12.2030", today=date(2026, 9, 2))
+
+    assert event_date == date(2030, 12, 15)
 
 
 def test_parse_problem_call_datetime_without_year_variants():

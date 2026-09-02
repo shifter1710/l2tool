@@ -1,4 +1,5 @@
 import json
+import stat
 
 import gtool
 from core import parser
@@ -29,6 +30,7 @@ def test_bad_phone_creates_issue_and_warning(monkeypatch, tmp_path):
     saved = issues_path.read_text(encoding="utf-8").splitlines()
     assert len(saved) == 1
     assert json.loads(saved[0]) == issues[0]
+    assert stat.S_IMODE(issues_path.stat().st_mode) == 0o600
 
     monkeypatch.setattr(gtool, "write_parse_issues", lambda issues: None)
     result = gtool.run_ticket(text, open_arg="zapis")

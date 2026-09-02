@@ -1,4 +1,5 @@
 import json
+import stat
 from datetime import date, datetime
 
 from core.case_export import build_case_dict, parsed_sidecar_path, write_case_json
@@ -114,6 +115,7 @@ def test_write_case_json_creates_parent_and_writes_utf8_pretty_json(tmp_path):
     assert "  " in raw
     assert "Москва" in raw
     assert json.loads(raw) == data
+    assert stat.S_IMODE(output_path.stat().st_mode) == 0o600
 
 
 def test_parsed_sidecar_path_is_next_to_input():

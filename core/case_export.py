@@ -1,4 +1,5 @@
 import json
+import os
 from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -81,10 +82,14 @@ def build_case_dict(
 def write_case_json(path: str | Path, case_data: dict):
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(
-        json.dumps(case_data, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
+    file_descriptor = os.open(
+        output_path,
+        os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+        0o600,
     )
+    os.fchmod(file_descriptor, 0o600)
+    with os.fdopen(file_descriptor, "w", encoding="utf-8") as file:
+        file.write(json.dumps(case_data, ensure_ascii=False, indent=2) + "\n")
     return output_path
 
 

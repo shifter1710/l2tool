@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import json
+import stat
 from urllib.parse import parse_qs, unquote, urlsplit
 
 import pytest
@@ -109,6 +110,7 @@ def test_process_xlsx_cleans_columns_and_builds_utc_links(
     assert result.warnings == (
         "Строка 5: не заполнено или некорректно: старт звонка",
     )
+    assert stat.S_IMODE(output.stat().st_mode) == 0o600
 
     workbook = load_workbook(output)
     sheet = workbook.active

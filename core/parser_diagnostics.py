@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 from core.parser import (
@@ -124,7 +125,13 @@ def write_parse_issues(issues, path="parser_issues/parser_issues.jsonl"):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    with path.open("a", encoding="utf-8") as file:
+    file_descriptor = os.open(
+        path,
+        os.O_WRONLY | os.O_CREAT | os.O_APPEND,
+        0o600,
+    )
+    os.fchmod(file_descriptor, 0o600)
+    with os.fdopen(file_descriptor, "a", encoding="utf-8") as file:
         for issue in issues:
             file.write(json.dumps(issue, ensure_ascii=False, sort_keys=True))
             file.write("\n")
