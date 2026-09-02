@@ -38,6 +38,7 @@ def build_one(ctx, time_from, time_to):
     return build_discover_url(
         "myconnect_call",
         legacy_index_name="myconnect",
+        fallback_service_name="myconnect",
         columns=("rawData", "message", "params"),
         query=build_query(msisdn, phone_a, phone_b),
         time_from=time_from,

@@ -83,13 +83,22 @@ def configured_search_period(
     )
 
 
-def resolve_target(service_name: str, legacy_index_name: str) -> OpenSearchTarget:
+def resolve_target(
+    service_name: str,
+    legacy_index_name: str,
+    *,
+    fallback_service_name: str | None = None,
+) -> OpenSearchTarget:
     configured_url = service_url(service_name)
+    if not configured_url and fallback_service_name:
+        configured_url = service_url(fallback_service_name)
     base_url = configured_url or opensearch_base_url()
     if not base_url:
         raise ValueError(f"OpenSearch URL is not configured for service: {service_name}")
 
     index_pattern = service_index_pattern(service_name)
+    if not index_pattern and fallback_service_name:
+        index_pattern = service_index_pattern(fallback_service_name)
     if not index_pattern and configured_url:
         index_pattern = extract_index_pattern(configured_url)
     if not index_pattern:
@@ -116,8 +125,13 @@ def build_discover_url(
     time_to: str,
     filters: str = "!()",
     is_dirty: bool = False,
+    fallback_service_name: str | None = None,
 ) -> str:
-    target = resolve_target(service_name, legacy_index_name)
+    target = resolve_target(
+        service_name,
+        legacy_index_name,
+        fallback_service_name=fallback_service_name,
+    )
     query_value = _rison_url_string(query)
     time_from_value = _rison_url_string(time_from)
     time_to_value = _rison_url_string(time_to)

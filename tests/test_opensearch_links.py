@@ -51,6 +51,24 @@ def test_myconnect_call_builds_link_per_participant():
     assert "sip%3A%2B79087803930" in urls[1]
 
 
+def test_myconnect_call_reuses_myconnect_copied_url(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """[services.myconnect]
+url = "https://shared-opensearch.test/discover?security_tenant=private#?_a=(metadata:(indexPattern:shared-myconnect-view))"
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "CONFIG_PATH", config_path)
+
+    url = attached_call_myconnect.build({"msisdn": "79990000000"})[0]
+
+    assert url.startswith(
+        "https://shared-opensearch.test/discover?security_tenant=private#"
+    )
+    assert "indexPattern:shared-myconnect-view" in url
+
+
 def test_each_opensearch_service_uses_its_own_configured_period(
     monkeypatch,
     tmp_path,
