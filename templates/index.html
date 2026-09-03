@@ -5,12 +5,14 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light dark">
-    <title>l2tool — локальная диагностика</title>
+    <meta name="description" content="Локальный разбор текста заявки: номера, дата, регион и готовые диагностические ссылки на Grafana и OpenSearch.">
+    <title>Диагностика заявки — l2tool</title>
     <link rel="icon" href="{{ url_for('static', path='/favicon.svg') }}" type="image/svg+xml">
     <script src="{{ url_for('static', path='/app.js') }}" defer></script>
-    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260904-4">
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260904-5">
   </head>
   <body>
+    <a class="skip-link" href="#ticket-form">Перейти к форме</a>
     <header class="topbar">
       <a class="brand" href="/" aria-label="l2tool — на главную">
         <span class="brand-mark">L2</span>
@@ -48,7 +50,7 @@
             <p>Текст обрабатывается локально и не отправляется во внешние сервисы.</p>
           </div>
 
-          <form method="post" action="/analyze#result" class="ticket-form">
+          <form method="post" action="/analyze#result" class="ticket-form" id="ticket-form" tabindex="-1">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="form-row">
               <label>
@@ -122,7 +124,7 @@
         </aside>
       </div>
 
-      <div id="result-zone">
+      <div id="result-zone" aria-live="polite">
         {% include "_results.html" %}
       </div>
     </main>

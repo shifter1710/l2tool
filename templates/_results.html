@@ -83,7 +83,7 @@
           <div><span class="step">03</span><h3>Диагностические ссылки</h3></div>
           {% if result.services %}
             <button class="copy-link copy-all" type="button" data-copy-all>
-              <span data-copy-label>Скопировать все ссылки</span>
+              <span data-copy-label aria-live="polite">Скопировать все ссылки</span>
             </button>
           {% endif %}
         </div>
@@ -94,6 +94,19 @@
         {% endif %}
       </section>
     </div>
+
+    {% if result.services %}
+      <div class="print-links">
+        <h3>Все ссылки списком</h3>
+        <ul>
+          {% for service in result.services %}
+            {% for link in service.links %}
+              <li>{{ service.title }}{% if service.links|length > 1 %} ({{ loop.index }}){% endif %}: {{ link }}</li>
+            {% endfor %}
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
 
     {% if result.history %}
       <section class="history-strip">
@@ -177,6 +190,16 @@
     {% endif %}
     {% if secondary_result.services %}
       {{ service_grid(secondary_result.services, "secondary-service-list") }}
+      <div class="print-links">
+        <h3>Все ссылки второго этапа</h3>
+        <ul>
+          {% for service in secondary_result.services %}
+            {% for link in service.links %}
+              <li>{{ service.title }}{% if service.links|length > 1 %} ({{ loop.index }}){% endif %}: {{ link }}</li>
+            {% endfor %}
+          {% endfor %}
+        </ul>
+      </div>
     {% else %}
       <p class="empty-state">Ссылки второго этапа не сформированы.</p>
     {% endif %}

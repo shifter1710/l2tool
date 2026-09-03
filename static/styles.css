@@ -158,11 +158,52 @@
   --shadow-lg: 0 18px 60px rgba(0, 0, 0, 0.28);
 }
 
+/* Печать всегда выходит в светлой палитре */
+@media print {
+  :root,
+  :root[data-theme="dark"] {
+    --ink: #13231d;
+    --muted: #5f6d67;
+    --paper: #ffffff;
+    --panel: #ffffff;
+    --subtle-panel: #ffffff;
+    --secondary-surface: #ffffff;
+    --line: #c9c9c4;
+    --soft-line: #dededa;
+    --page-glow: transparent;
+    --shadow-sm: none;
+    --shadow-lg: none;
+  }
+}
+
 /* ==========================================================================
    Базовый слой
    ========================================================================== */
 
 * { box-sizing: border-box; }
+
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.skip-link {
+  position: fixed;
+  top: var(--space-3);
+  left: var(--space-3);
+  z-index: 50;
+  padding: 10px var(--space-4);
+  border-radius: var(--radius-md);
+  color: white;
+  background: var(--button-bg);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  text-decoration: none;
+  transform: translateY(-300%);
+}
+
+.skip-link:focus-visible { transform: none; }
+.print-links { display: none; }
 
 body {
   margin: 0;
@@ -581,4 +622,38 @@ button span { margin-left: var(--space-3); }
   .product-levels { padding: 0 20px; }
   .config-level { gap: var(--space-4); padding: 22px 0; }
   .level-empty { align-items: flex-start; flex-direction: column; }
+}
+
+/* ==========================================================================
+   Печать: только блок результатов — поля, сервисы, плоский список URL
+   ========================================================================== */
+
+@media print {
+  .skip-link,
+  .topbar,
+  .hero,
+  .workspace-grid,
+  .followup-grid,
+  .history-strip,
+  .copy-link,
+  .url-details,
+  .draft-hint,
+  .result-skeleton,
+  .service-card .link-group { display: none !important; }
+
+  body { background: var(--paper); }
+  .shell { max-width: none; padding: 0; }
+  .results, .secondary-results { margin-top: var(--space-4); padding: 0; background: none; }
+  .panel { box-shadow: none; }
+  .result-panel, .service-card { padding: var(--space-2); }
+  .result-grid { grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+  .service-list, .secondary-service-list { grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+  .results > *, .secondary-results > * { animation: none; }
+  a { color: var(--ink); text-decoration: none; }
+  .result-panel, .service-card { break-inside: avoid; }
+
+  .print-links { display: block; margin-top: var(--space-4); }
+  .print-links h3 { margin: 0 0 var(--space-2); font-size: 14px; }
+  .print-links ul { margin: 0; padding-left: 18px; }
+  .print-links li { margin: 2px 0; font-size: var(--text-2xs); overflow-wrap: anywhere; }
 }
