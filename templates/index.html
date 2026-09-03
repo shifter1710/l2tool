@@ -9,7 +9,7 @@
     <title>Диагностика заявки — l2tool</title>
     <link rel="icon" href="{{ url_for('static', path='/favicon.svg') }}" type="image/svg+xml">
     <script src="{{ url_for('static', path='/app.js') }}" defer></script>
-    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260904-6">
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260904-7">
   </head>
   <body>
     <a class="skip-link" href="#ticket-form">Перейти к форме</a>
@@ -31,7 +31,7 @@
       </div>
     </header>
 
-    <main class="shell{% if result %} shell-compact{% endif %}">
+    <main class="shell">
       <h1 class="visually-hidden">Диагностика заявки</h1>
 
       {{ error_alert(error) }}

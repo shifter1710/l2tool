@@ -111,7 +111,7 @@ def test_settings_page_lists_editable_sources():
     assert response.text.count("Поиск по UUID") >= 5
     assert "product-recording" in response.text
     assert "product-secretary" in response.text
-    assert "styles.css?v=20260904-6" in response.text
+    assert "styles.css?v=20260904-7" in response.text
     assert 'class="config-level config-level-number"' in response.text
     assert 'class="config-level level-number"' not in response.text
     assert 'action="/settings/import"' in response.text
@@ -367,7 +367,6 @@ def test_analyze_renders_parsed_values_and_links():
     assert 'class="url-details"' in response.text
     assert "service-icon--grafana" in response.text
     assert "service-icon--opensearch" in response.text
-    assert 'class="shell shell-compact"' in response.text
     assert re.search(
         r"Номер А.*?79991234567.*?client-badge.*?Клиент",
         response.text,
