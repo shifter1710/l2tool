@@ -13,28 +13,32 @@
 {% endmacro %}
 
 {% macro render_source(source, csrf_token, product_options, levels) %}
-  <article class="panel source-card is-configured">
-    <header class="source-card-header">
-      <div><span class="platform-badge platform-{{ source.platform }}">{{ 'Grafana' if source.platform == 'grafana' else 'OpenSearch' }}</span><h3>{{ source.name }}</h3></div>
+  <details class="panel source-card is-configured">
+    <summary class="source-card-header">
+      <div>
+        <span class="platform-badge platform-{{ source.platform }}">{{ 'Grafana' if source.platform == 'grafana' else 'OpenSearch' }}</span>
+        <h3>{{ source.name }}</h3>
+      </div>
+      <span class="source-summary">
+        {% if source.level == 'uuid' %}{{ 'UUID без дефисов' if source.strategy == 'compact_uuid' else 'UUID целиком' }}{% elif source.replacements|length > 1 %}номер А + номер Б{% else %}{{ {'raw':'полный номер', 'national':'номер без 7', 'hash16':'хеш номера'}[source.strategy]|default('номер') }}{% endif %} · −{{ source.minutes_before }}/+{{ source.minutes_after }} мин
+      </span>
       <span class="source-status">Активен</span>
-    </header>
+      <svg class="source-chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3 6l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </summary>
     <dl class="parsed-source">
       <div><dt>Сервер</dt><dd>{{ source.host }}</dd></div>
       {% if source.index_pattern %}<div><dt>Представление</dt><dd>{{ source.index_pattern }}</dd></div>{% endif %}
-      <div><dt>Подстановка</dt><dd>{% if source.level == 'uuid' %}{{ 'UUID без дефисов' if source.strategy == 'compact_uuid' else 'UUID целиком' }}{% elif source.replacements|length > 1 %}номер А + номер Б{% else %}{{ {'raw':'полный номер', 'national':'номер без 7', 'hash16':'хеш номера'}[source.strategy]|default('номер') }}{% endif %}</dd></div>
     </dl>
     <form method="post" action="/settings/source" class="source-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="source_id" value="{{ source.id }}">
       {{ source_fields(source, product_options, levels) }}
-      <div class="source-actions"><button type="submit">Сохранить изменения</button></div>
+      <div class="source-actions">
+        <button type="submit">Сохранить изменения</button>
+        <button type="submit" formaction="/settings/source/delete" class="danger-button" data-confirm-delete="{{ source.name }}">Удалить блок</button>
+      </div>
     </form>
-    <form method="post" action="/settings/source/delete" class="delete-source-form" data-confirm-delete="{{ source.name }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <input type="hidden" name="source_id" value="{{ source.id }}">
-      <button type="submit" class="danger-button">Удалить блок</button>
-    </form>
-  </article>
+  </details>
 {% endmacro %}
 <!doctype html>
 <html lang="ru">
@@ -45,7 +49,7 @@
     <title>Источники диагностики — l2tool</title>
     <link rel="icon" href="{{ url_for('static', path='/favicon.svg') }}" type="image/svg+xml">
     <script src="{{ url_for('static', path='/app.js') }}" defer></script>
-    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260904-2">
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260904-3">
   </head>
   <body>
     <header class="topbar">

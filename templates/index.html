@@ -1,3 +1,36 @@
+{% macro service_icon(platform) %}
+  {%- if platform == "grafana" -%}
+    <svg class="service-icon service-icon--grafana" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><g fill="currentColor"><rect x="1.5" y="8" width="3" height="6.5" rx="1"/><rect x="6.5" y="4.5" width="3" height="10" rx="1"/><rect x="11.5" y="1" width="3" height="13.5" rx="1"/></g></svg>
+  {%- elif platform == "opensearch" -%}
+    <svg class="service-icon service-icon--opensearch" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="7" cy="7" r="4.75" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10.6 10.6 15 15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+  {%- else -%}
+    <span class="service-dot" aria-hidden="true"></span>
+  {%- endif -%}
+{% endmacro %}
+
+{% macro service_grid(services, extra_class="") %}
+  <div class="service-list {{ extra_class }}">
+    {% for service in services %}
+      <article class="service-card">
+        <div class="service-title">{{ service_icon(service.platform) }}<strong>{{ service.title }}</strong></div>
+        {% for link in service.links %}
+          <div class="link-group">
+            <div class="link-row">
+              <a class="open-link" href="{{ link }}" target="_blank" rel="noreferrer noopener">Открыть{% if service.links|length > 1 %} · {{ loop.index }}{% endif %}<span aria-hidden="true">↗</span></a>
+              <button class="copy-link" type="button" data-copy-link="{{ link }}" aria-label="Копировать ссылку {{ service.title }}{% if service.links|length > 1 %}, вариант {{ loop.index }}{% endif %}">
+                <span data-copy-label aria-live="polite">Копировать</span>
+              </button>
+            </div>
+            <details class="url-details">
+              <summary>Показать URL</summary>
+              <code>{{ link }}</code>
+            </details>
+          </div>
+        {% endfor %}
+      </article>
+    {% endfor %}
+  </div>
+{% endmacro %}
 <!doctype html>
 <html lang="ru">
   <head>
@@ -7,7 +40,7 @@
     <title>l2tool — локальная диагностика</title>
     <link rel="icon" href="{{ url_for('static', path='/favicon.svg') }}" type="image/svg+xml">
     <script src="{{ url_for('static', path='/app.js') }}" defer></script>
-    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260904-2">
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260904-3">
   </head>
   <body>
     <header class="topbar">
@@ -28,7 +61,7 @@
       </div>
     </header>
 
-    <main class="shell">
+    <main class="shell{% if result %} shell-compact{% endif %}">
       <section class="hero">
         <p class="eyebrow">Новая диагностика</p>
         <h1>От заявки до нужных логов<br>за один проход</h1>
@@ -164,23 +197,14 @@
             <section class="panel result-panel links-panel">
               <div class="panel-heading compact-heading">
                 <div><span class="step">03</span><h3>Диагностические ссылки</h3></div>
+                {% if result.services %}
+                  <button class="copy-link copy-all" type="button" data-copy-all>
+                    <span data-copy-label>Скопировать все ссылки</span>
+                  </button>
+                {% endif %}
               </div>
               {% if result.services %}
-                <div class="service-list">
-                  {% for service in result.services %}
-                    <article class="service-card">
-                      <div class="service-title"><span class="service-dot"></span><strong>{{ service.title }}</strong></div>
-                      {% for link in service.links %}
-                        <div class="link-row">
-                          <a class="open-link" href="{{ link }}" target="_blank" rel="noreferrer noopener">Открыть{% if service.links|length > 1 %} · {{ loop.index }}{% endif %}<span>↗</span></a>
-                          <button class="copy-link" type="button" data-copy-link="{{ link }}" aria-label="Копировать ссылку {{ service.title }}{% if service.links|length > 1 %}, вариант {{ loop.index }}{% endif %}">
-                            <span data-copy-label aria-live="polite">Копировать</span>
-                          </button>
-                        </div>
-                      {% endfor %}
-                    </article>
-                  {% endfor %}
-                </div>
+                {{ service_grid(result.services) }}
               {% else %}
                 <p class="empty-state">Ссылки пока не сформированы. Проверьте поля слева и внесите поправки ниже.</p>
               {% endif %}
@@ -190,9 +214,18 @@
           {% if result.history %}
             <section class="history-strip">
               <strong>Найдены похожие заявки в локальной истории</strong>
-              {% for number, paths in result.history.items() %}
-                <span>{{ number }} · {{ paths|length }}</span>
-              {% endfor %}
+              <ul class="history-list">
+                {% for item in result.history %}
+                  <li>
+                    <span class="history-number">{{ item.number }}</span>
+                    <ul class="history-entries">
+                      {% for entry in item.entries %}
+                        <li>{% if entry.date %}<time datetime="{{ entry.date }}">{{ entry.date }}</time> · {% endif %}<code>{{ entry.path }}</code></li>
+                      {% endfor %}
+                    </ul>
+                  </li>
+                {% endfor %}
+              </ul>
             </section>
           {% endif %}
 
@@ -213,12 +246,8 @@
                   <label><span>Номер Б</span><input name="override_phone_b" value="{{ form.corrections.phone_b|default('') }}" placeholder="79991234567"></label>
                   <label><span>Регион</span><input name="override_region" value="{{ form.corrections.region|default('') }}" placeholder="Красноярский край"></label>
                   <label><span>Дата и время вручную</span><input name="override_event_datetime" value="{{ form.corrections.event_datetime|default('') }}" placeholder="03.09.2026 14:30"></label>
-                  <label>
-                    <span>Или выбрать в календаре</span>
-                    <input type="datetime-local" name="override_event_datetime_picker" step="60" value="{{ form.corrections.event_datetime_picker|default('') }}">
-                    <small class="field-hint">Значение календаря имеет приоритет.</small>
-                  </label>
                 </div>
+                <p class="field-hint">Календарь уточнения времени — в основной форме выше.</p>
                 <button type="submit" class="secondary-button">Пересобрать результат</button>
               </form>
             </section>
@@ -262,21 +291,11 @@
               {% for warning in secondary_result.warnings %}<span>{{ warning }}</span>{% endfor %}
             </div>
           {% endif %}
-          <div class="service-list secondary-service-list">
-            {% for service in secondary_result.services %}
-              <article class="service-card">
-                <div class="service-title"><span class="service-dot"></span><strong>{{ service.title }}</strong></div>
-                {% for link in service.links %}
-                  <div class="link-row">
-                    <a class="open-link" href="{{ link }}" target="_blank" rel="noreferrer noopener">Открыть{% if service.links|length > 1 %} · {{ loop.index }}{% endif %}<span>↗</span></a>
-                    <button class="copy-link" type="button" data-copy-link="{{ link }}" aria-label="Копировать ссылку {{ service.title }}{% if service.links|length > 1 %}, вариант {{ loop.index }}{% endif %}"><span data-copy-label aria-live="polite">Копировать</span></button>
-                  </div>
-                {% endfor %}
-              </article>
-            {% else %}
-              <p class="empty-state">Ссылки второго этапа не сформированы.</p>
-            {% endfor %}
-          </div>
+          {% if secondary_result.services %}
+            {{ service_grid(secondary_result.services, "secondary-service-list") }}
+          {% else %}
+            <p class="empty-state">Ссылки второго этапа не сформированы.</p>
+          {% endif %}
         </section>
       {% endif %}
     </main>

@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 import secrets
 import shutil
 import tempfile
@@ -36,6 +37,7 @@ from core.lost_calls_table import TableFormatError, process_table
 from core.products import available_products, product_title, resolve_product_modules
 from core.utils import normalize_uuid
 from gtool import MODULE_TITLES, RunResult, run_ticket
+from services.registry import SERVICES
 
 ROOT_DIR = Path(__file__).resolve().parent
 LOCAL_HOSTS = ["127.0.0.1", "localhost"]
@@ -361,6 +363,34 @@ def parsed_fields(ctx):
     return fields
 
 
+HISTORY_DATE_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}")
+
+
+def service_platforms():
+    platforms = {name: definition.platform for name, definition in SERVICES.items()}
+    try:
+        platforms.update(
+            {source["id"]: source["platform"] for source in list_sources()}
+        )
+    except (OSError, ValueError):
+        pass
+    return platforms
+
+
+def history_view(matches):
+    items = []
+    for number, paths in matches.items():
+        entries = []
+        for path in paths:
+            name = str(path).replace("\\", "/").rsplit("/", 1)[-1]
+            prefix = HISTORY_DATE_PREFIX.match(name)
+            entries.append(
+                {"date": prefix.group(0) if prefix else "", "path": str(path)}
+            )
+        items.append({"number": str(number), "entries": entries})
+    return items
+
+
 def result_view(result: RunResult, title):
     warnings = []
     for line in result.lines:
@@ -373,6 +403,7 @@ def result_view(result: RunResult, title):
             warnings.append(message)
 
     ctx = result.ctx
+    platforms = service_platforms()
     return {
         "title": title,
         "status": result.status,
@@ -388,12 +419,13 @@ def result_view(result: RunResult, title):
                 "title": ctx.get("service_titles", {}).get(
                     module_name, MODULE_TITLES.get(module_name, module_name)
                 ),
+                "platform": platforms.get(module_name),
                 "links": links,
             }
             for module_name, links in result.links_by_module.items()
         ],
         "warnings": warnings,
-        "history": history.find_matches(ctx),
+        "history": history_view(history.find_matches(ctx)),
     }
 
 

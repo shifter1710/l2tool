@@ -84,6 +84,22 @@ def test_untrusted_host_is_rejected():
 
 
 def test_settings_page_lists_editable_sources():
+    save_response = request(
+        "POST",
+        "/settings/source",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "name": "Свёрнутый блок",
+            "product": "recording",
+            "level": "number",
+            "example_url": opensearch_example(),
+            "sample_value": "",
+            "minutes_before": "2",
+            "minutes_after": "90",
+        },
+    )
+    assert save_response.status_code == 303
+
     response = request("GET", "/settings")
 
     assert response.status_code == 200
@@ -95,11 +111,15 @@ def test_settings_page_lists_editable_sources():
     assert response.text.count("Поиск по UUID") >= 5
     assert "product-recording" in response.text
     assert "product-secretary" in response.text
-    assert "styles.css?v=20260904-2" in response.text
+    assert "styles.css?v=20260904-3" in response.text
     assert 'class="config-level config-level-number"' in response.text
     assert 'class="config-level level-number"' not in response.text
     assert 'action="/settings/import"' in response.text
     assert "Скачать текущий" in response.text
+    assert '<details class="panel source-card is-configured">' in response.text
+    assert 'formaction="/settings/source/delete"' in response.text
+    assert "data-confirm-delete=" in response.text
+    assert "Свёрнутый блок" in response.text
 
 
 def test_settings_levels_use_non_shrinking_vertical_layout():
@@ -343,6 +363,11 @@ def test_analyze_renders_parsed_values_and_links():
     assert "dashboards.example.local" in response.text
     assert "data-copy-link" in response.text
     assert "Копировать" in response.text
+    assert "Скопировать все ссылки" in response.text
+    assert 'class="url-details"' in response.text
+    assert "service-icon--grafana" in response.text
+    assert "service-icon--opensearch" in response.text
+    assert 'class="shell shell-compact"' in response.text
     assert re.search(
         r"Номер А.*?79991234567.*?client-badge.*?Клиент",
         response.text,
@@ -385,6 +410,36 @@ def test_client_number_falls_back_to_separate_row_when_it_matches_neither_side()
     assert response.status_code == 200
     assert "client-unmatched" in response.text
     assert "79990000001" in response.text
+
+
+def test_history_matches_render_dates_and_paths(monkeypatch):
+    monkeypatch.setattr(
+        webapp.history,
+        "find_matches",
+        lambda ctx, **_kwargs: {
+            "79991234567": [
+                "history/2026/09/2026-09-03_79991234567_ab12cd34.yaml",
+                "history/2026/08/2026-08-14_79991234567_ff00ff00.yaml",
+            ]
+        },
+    )
+    response = request(
+        "POST",
+        "/analyze",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "product": "recording",
+            "window": "60",
+            "ticket_text": valid_ticket(),
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Найдены похожие заявки в локальной истории" in response.text
+    assert "<time datetime=\"2026-09-03\">2026-09-03</time>" in response.text
+    assert "<time datetime=\"2026-08-14\">2026-08-14</time>" in response.text
+    assert "history/2026/09/2026-09-03_79991234567_ab12cd34.yaml" in response.text
+    assert "history/2026/08/2026-08-14_79991234567_ff00ff00.yaml" in response.text
 
 
 def test_theme_and_copy_script_is_served_locally():

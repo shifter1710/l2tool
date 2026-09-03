@@ -78,6 +78,20 @@
     });
   }
 
+  function flashCopyResult(button, ok, doneLabel) {
+    const label = button.querySelector("[data-copy-label]");
+    if (label && !label.dataset.copyIdle) {
+      label.dataset.copyIdle = label.textContent || "";
+    }
+    const idleLabel = label?.dataset.copyIdle || "";
+    button.classList.add(ok ? "is-copied" : "copy-failed");
+    if (label) label.textContent = ok ? doneLabel : "Не удалось";
+    window.setTimeout(() => {
+      button.classList.remove("is-copied", "copy-failed");
+      if (label) label.textContent = idleLabel;
+    }, 1800);
+  }
+
   function formPath(form) {
     try {
       return new URL(form.action).pathname;
@@ -167,32 +181,32 @@
 
     document.querySelectorAll("[data-copy-link]").forEach((button) => {
       button.addEventListener("click", async () => {
-        const label = button.querySelector("[data-copy-label]");
-        const originalLabel = "Копировать";
-
         try {
           await copyText(button.dataset.copyLink || "");
-          button.classList.add("is-copied");
-          if (label) label.textContent = "Скопировано";
+          flashCopyResult(button, true, "Скопировано");
         } catch (_error) {
-          button.classList.add("copy-failed");
-          if (label) label.textContent = "Не удалось";
+          flashCopyResult(button, false);
         }
-
-        window.setTimeout(() => {
-          button.classList.remove("is-copied", "copy-failed");
-          if (label) label.textContent = originalLabel;
-        }, 1800);
       });
     });
 
-    document.querySelectorAll("[data-confirm-delete]").forEach((form) => {
-      form.addEventListener("submit", (event) => {
-        const sourceName = form.dataset.confirmDelete || "этот источник";
-        if (!window.confirm(`Удалить сохранённый пример для «${sourceName}»?`)) {
-          event.preventDefault();
-        }
-      });
+    document.addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-copy-all]");
+      if (!button) return;
+      const scope = button.closest(".links-panel") || document;
+      const links = Array.from(scope.querySelectorAll("[data-copy-link]"))
+        .map((element) => element.dataset.copyLink)
+        .filter(Boolean);
+      if (!links.length) {
+        flashCopyResult(button, false);
+        return;
+      }
+      try {
+        await copyText(links.join("\n"));
+        flashCopyResult(button, true, `Скопировано: ${links.length}`);
+      } catch (_error) {
+        flashCopyResult(button, false);
+      }
     });
 
     const ticketField = document.querySelector(
@@ -216,7 +230,17 @@
   document.addEventListener(
     "submit",
     (event) => {
-      if (event.target instanceof HTMLFormElement) markPending(event.target);
+      const form = event.target;
+      if (!(form instanceof HTMLFormElement)) return;
+      const confirmName = event.submitter?.dataset.confirmDelete;
+      if (
+        confirmName !== undefined &&
+        !window.confirm(`Удалить блок «${confirmName}»?`)
+      ) {
+        event.preventDefault();
+        return;
+      }
+      markPending(form);
     },
     true,
   );
