@@ -110,6 +110,14 @@ def service_minutes_after(name, default=90):
     return config_value(f"services.{name}.minutes_after", default)
 
 
+def service_time_from(name):
+    return config_value(f"services.{name}.time_from")
+
+
+def service_time_to(name):
+    return config_value(f"services.{name}.time_to")
+
+
 def default_env():
     return config_value("defaults.env")
 

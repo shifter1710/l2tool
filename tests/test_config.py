@@ -54,6 +54,8 @@ def test_config_reads_service_time_window(monkeypatch, tmp_path):
         """[services.bff]
 minutes_before = 5
 minutes_after = 120
+time_from = "now-5d"
+time_to = "now"
 """,
         encoding="utf-8",
     )
@@ -61,6 +63,8 @@ minutes_after = 120
 
     assert config.service_minutes_before("bff") == 5
     assert config.service_minutes_after("bff") == 120
+    assert config.service_time_from("bff") == "now-5d"
+    assert config.service_time_to("bff") == "now"
     assert config.service_minutes_before("sip_stack") == 2
     assert config.service_minutes_after("sip_stack") == 90
 

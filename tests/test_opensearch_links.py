@@ -130,3 +130,25 @@ minutes_after = 4
         "time:(from:'2026-09-01T11%3A16%3A00.000',"
         "to:'2026-09-01T12%3A04%3A00.000')"
     ) in urls["myconnect_call"]
+
+
+def test_service_can_use_relative_period_instead_of_event_time(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """[services.bff]
+url = "https://opensearch.test/discover#?_a=(metadata:(indexPattern:bff-view))"
+time_from = "now-5d"
+time_to = "now"
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "CONFIG_PATH", config_path)
+    ctx = parser.parse("""Номер клиента (msisdn): 79991234567
+Дата и время проблемного звонка: 01.09.2026 12:00
+""")
+    ctx["tz"] = "Europe/Moscow"
+
+    url = bff_logs_opensearch.build(ctx)[0]
+
+    assert "time:(from:'now-5d',to:'now')" in url
+    assert "2026-09-01" not in url

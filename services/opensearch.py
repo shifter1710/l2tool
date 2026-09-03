@@ -10,6 +10,8 @@ from core.config import (
     service_index_pattern,
     service_minutes_after,
     service_minutes_before,
+    service_time_from,
+    service_time_to,
     service_url,
 )
 
@@ -48,6 +50,11 @@ def configured_search_period(
     ctx: dict | None = None,
 ) -> tuple[str, str]:
     ctx = ctx or {}
+    configured_from = service_time_from(service_name)
+    configured_to = service_time_to(service_name)
+    if configured_from and configured_to:
+        return str(configured_from), str(configured_to)
+
     event_range = ctx.get("event_time_range")
     event_values = list(ctx.get("event_datetimes") or [])
     if not event_values and ctx.get("event_time"):
