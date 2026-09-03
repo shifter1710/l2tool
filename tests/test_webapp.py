@@ -95,7 +95,7 @@ def test_settings_page_lists_editable_sources():
     assert response.text.count("Поиск по UUID") >= 5
     assert "product-recording" in response.text
     assert "product-secretary" in response.text
-    assert "styles.css?v=20260903-4" in response.text
+    assert "styles.css?v=20260904-1" in response.text
     assert 'class="config-level config-level-number"' in response.text
     assert 'class="config-level level-number"' not in response.text
     assert 'action="/settings/import"' in response.text
