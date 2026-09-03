@@ -90,7 +90,7 @@
     <title>Источники диагностики — l2tool</title>
     <link rel="icon" href="{{ url_for('static', path='/favicon.svg') }}" type="image/svg+xml">
     <script src="{{ url_for('static', path='/app.js') }}" defer></script>
-    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260904-6">
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260904-7">
   </head>
   <body>
     <a class="skip-link" href="#add-source">Перейти к форме</a>
@@ -104,11 +104,10 @@
     </header>
 
     <main class="shell settings-shell">
-      <section class="settings-hero">
-        <p class="eyebrow">Конструктор диагностики</p>
+      <div class="settings-header">
         <h1>Свои диагностические блоки</h1>
-        <p class="lead">Добавляйте продукты и любое количество блоков, называйте их так, как удобно команде. l2tool разбирает пример ссылки и при диагностике заменяет найденный номер или UUID и временной диапазон.</p>
-      </section>
+        <p>Добавляйте продукты и любое количество блоков, называйте их так, как удобно команде. l2tool разбирает пример ссылки и при диагностике заменяет найденный номер или UUID и временной диапазон.</p>
+      </div>
 
       {% if message %}<div class="alert alert-success" role="status"><strong>Готово</strong><span>{{ message }}</span></div>{% endif %}
       {% if error %}<div class="alert alert-error" role="alert"><strong>Не удалось сохранить</strong><span>{{ error }}</span></div>{% endif %}

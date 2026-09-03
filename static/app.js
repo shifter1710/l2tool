@@ -135,7 +135,10 @@
     );
   }
 
+  let zoneBusy = false;
+
   async function submitViaFetch(form, zone) {
+    zoneBusy = true;
     zone.setAttribute("aria-busy", "true");
     zone.innerHTML = skeletonMarkup();
     try {
@@ -156,11 +159,9 @@
       form.submit();
       return;
     }
+    zoneBusy = false;
     zone.removeAttribute("aria-busy");
     resetPending(form);
-    if (zone.querySelector("#result")) {
-      document.querySelector("main.shell")?.classList.add("shell-compact");
-    }
     scrollIntoFeedback();
   }
 
@@ -236,9 +237,16 @@
     }
 
     // Файл скачивается без перезагрузки страницы: возвращаем кнопке
-    // рабочее состояние, когда пользователь снова обращается к форме.
+    // рабочее состояние при новом обращении к форме, выборе файла
+    // или возврате на страницу.
     document.querySelectorAll('form[action$="/batch"]').forEach((form) => {
       form.addEventListener("focusin", () => resetPending(form));
+      form
+        .querySelector('input[type="file"]')
+        ?.addEventListener("change", () => resetPending(form));
+    });
+    window.addEventListener("pageshow", () => {
+      document.querySelectorAll('form[action$="/batch"]').forEach(resetPending);
     });
   });
 
@@ -294,6 +302,12 @@
       if (!fetchActions.has(formPath(form)) || !window.fetch) return;
       const zone = document.getElementById("result-zone");
       if (!zone) return;
+      if (zoneBusy) {
+        // Не смешиваем два параллельных запроса в одну зону результата.
+        event.preventDefault();
+        resetPending(form);
+        return;
+      }
       event.preventDefault();
       submitViaFetch(form, zone);
     },
