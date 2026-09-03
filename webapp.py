@@ -25,16 +25,27 @@ from core import history
 from core.dynamic_sources import (
     LEVELS,
     build_product_links,
+    create_product,
+    delete_product,
     delete_source,
+    duplicate_source,
+    import_services_from_config,
     import_sources,
     is_managed,
+    list_products,
     list_sources,
     load_store,
+    move_source,
+    preview_source,
     product_groups,
     save_source,
+    set_product_sources_enabled,
+    set_source_enabled,
+    update_product,
 )
 from core.lost_calls_table import TableFormatError, process_table
-from core.products import available_products, product_title, resolve_product_modules
+from core.products import PRODUCT_COLORS, available_products, product_title, resolve_product_modules
+from core.source_backups import list_backups, restore_backup
 from core.utils import normalize_uuid
 from gtool import MODULE_TITLES, RunResult, run_ticket
 from services.registry import SERVICES
@@ -180,7 +191,9 @@ def validate_product(product):
 
 def has_uuid_sources(product):
     try:
-        return is_managed(product) and bool(list_sources(product=product, level="uuid"))
+        return is_managed(product) and bool(
+            list_sources(product=product, level="uuid", enabled_only=True)
+        )
     except ValueError:
         return False
 
@@ -444,15 +457,22 @@ def wants_fragment(request: Request):
 
 
 def render_settings(request, *, status_code=200, overrides=None, **values):
+    products = []
+    catalog = []
+    backups = []
     try:
         products = product_groups(overrides=overrides)
+        catalog = list_products()
     except (OSError, ValueError) as error:
-        products = []
         values.setdefault(
             "error",
             f"{error}. Проверьте файл diagnostic_sources.json или удалите его.",
         )
         status_code = max(status_code, 400)
+    try:
+        backups = list_backups()
+    except (OSError, ValueError):
+        backups = []
     context = {
         "request": request,
         "csrf_token": app.state.csrf_token,
@@ -460,8 +480,13 @@ def render_settings(request, *, status_code=200, overrides=None, **values):
         "product_options": [
             {"key": key, "title": product_title(key)} for key in available_products()
         ],
+        "catalog": catalog,
+        "product_colors": PRODUCT_COLORS,
+        "backups": backups,
         "levels": LEVELS,
         "draft": None,
+        "preview": None,
+        "import_report": None,
         "error": None,
         "message": None,
     }
@@ -481,14 +506,38 @@ async def index(request: Request):
 
 @app.get("/settings")
 async def settings(request: Request):
+    params = request.query_params
     message = None
-    if request.query_params.get("saved"):
+    if params.get("saved"):
         message = "Диагностический блок сохранён и уже используется"
-    elif request.query_params.get("deleted"):
+    elif params.get("deleted"):
         message = "Диагностический блок удалён"
-    elif request.query_params.get("imported") is not None:
-        added = request.query_params.get("imported", "0")
-        skipped = request.query_params.get("skipped", "0")
+    elif params.get("duplicated"):
+        message = "Блок скопирован — отредактируйте копию под новую задачу"
+    elif params.get("toggled"):
+        enabled = params.get("toggled") == "1"
+        state = (
+            "включён и участвует в диагностике"
+            if enabled
+            else "выключен и не попадает в диагностику"
+        )
+        message = f"Блок {state}"
+    elif params.get("moved"):
+        message = "Порядок блоков изменён"
+    elif params.get("bulk"):
+        state = "включены" if params.get("bulk") == "1" else "выключены"
+        message = f"Блоки продукта {state}"
+    elif params.get("product_created"):
+        message = "Продукт добавлен — теперь выбирайте его в формах блоков"
+    elif params.get("product_updated"):
+        message = "Продукт обновлён"
+    elif params.get("product_deleted"):
+        message = "Продукт удалён"
+    elif params.get("restored"):
+        message = "Настройки восстановлены из резервной копии"
+    elif params.get("imported") is not None:
+        added = params.get("imported", "0")
+        skipped = params.get("skipped", "0")
         message = f"Импортировано блоков: {added}. Уже существовало: {skipped}"
     return render_settings(request, message=message)
 
@@ -540,15 +589,7 @@ async def settings_save_source(request: Request):
     form_data = await request.form()
     validate_csrf(form_data)
     source_id = form_text(form_data, "source_id") or None
-    values = {
-        "name": form_text(form_data, "name"),
-        "product": form_text(form_data, "product"),
-        "level": form_text(form_data, "level"),
-        "example_url": form_text(form_data, "example_url"),
-        "sample_value": form_text(form_data, "sample_value"),
-        "minutes_before": form_text(form_data, "minutes_before", "2"),
-        "minutes_after": form_text(form_data, "minutes_after", "90"),
-    }
+    values = source_form_values(form_data)
     try:
         source = save_source(values, source_id=source_id)
     except (OSError, ValueError) as error:
@@ -572,6 +613,149 @@ async def settings_delete_source(request: Request):
     except (OSError, ValueError) as error:
         return render_settings(request, error=str(error), status_code=400)
     return RedirectResponse("/settings?deleted=1", status_code=303)
+
+
+@app.post("/settings/source/toggle")
+async def settings_toggle_source(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    source_id = form_text(form_data, "source_id")
+    enabled = form_text(form_data, "enabled") == "1"
+    try:
+        set_source_enabled(source_id, enabled)
+    except (OSError, ValueError) as error:
+        return render_settings(request, error=str(error), status_code=400)
+    state = "1" if enabled else "0"
+    return RedirectResponse(f"/settings?toggled={state}#source-{source_id}", status_code=303)
+
+
+@app.post("/settings/source/move")
+async def settings_move_source(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    source_id = form_text(form_data, "source_id")
+    direction = form_text(form_data, "direction", "up")
+    try:
+        move_source(source_id, direction)
+    except (OSError, ValueError) as error:
+        return render_settings(request, error=str(error), status_code=400)
+    return RedirectResponse(f"/settings?moved=1#source-{source_id}", status_code=303)
+
+
+@app.post("/settings/source/duplicate")
+async def settings_duplicate_source(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    source_id = form_text(form_data, "source_id")
+    try:
+        copy = duplicate_source(source_id)
+    except (OSError, ValueError) as error:
+        return render_settings(request, error=str(error), status_code=400)
+    return RedirectResponse(f"/settings?duplicated=1#source-{copy['id']}", status_code=303)
+
+
+def source_form_values(form_data):
+    return {
+        "name": form_text(form_data, "name"),
+        "product": form_text(form_data, "product"),
+        "level": form_text(form_data, "level"),
+        "example_url": form_text(form_data, "example_url"),
+        "sample_value": form_text(form_data, "sample_value"),
+        "minutes_before": form_text(form_data, "minutes_before", "2"),
+        "minutes_after": form_text(form_data, "minutes_after", "90"),
+    }
+
+
+@app.post("/settings/source/preview")
+async def settings_preview_source(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    source_id = form_text(form_data, "source_id") or None
+    values = source_form_values(form_data)
+    preview = preview_source(values, form_text(form_data, "preview_value"))
+    return render_settings(
+        request,
+        status_code=200 if not preview["error"] else 400,
+        overrides={source_id: values} if source_id else None,
+        draft=values if not source_id else None,
+        preview={**preview, "name": values["name"], "value": form_text(form_data, "preview_value")},
+    )
+
+
+@app.post("/settings/product")
+async def settings_save_product(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    original_key = form_text(form_data, "product_key")
+    values = {
+        "key": form_text(form_data, "key"),
+        "title": form_text(form_data, "title"),
+        "color": form_text(form_data, "color"),
+    }
+    try:
+        if original_key:
+            update_product(original_key, values["title"], values["color"], new_key=values["key"])
+            return RedirectResponse("/settings?product_updated=1", status_code=303)
+        create_product(values["key"], values["title"], values["color"])
+        return RedirectResponse("/settings?product_created=1", status_code=303)
+    except (OSError, ValueError) as error:
+        return render_settings(
+            request,
+            error=str(error),
+            status_code=400,
+            product_draft={**values, "original_key": original_key},
+        )
+
+
+@app.post("/settings/product/delete")
+async def settings_delete_product(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    product_key = form_text(form_data, "product_key")
+    try:
+        delete_product(product_key)
+    except (OSError, ValueError) as error:
+        return render_settings(request, error=str(error), status_code=400)
+    return RedirectResponse("/settings?product_deleted=1", status_code=303)
+
+
+@app.post("/settings/product/toggle-all")
+async def settings_toggle_all_sources(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    product_key = form_text(form_data, "product_key")
+    enabled = form_text(form_data, "enabled") == "1"
+    try:
+        set_product_sources_enabled(product_key, enabled)
+    except (OSError, ValueError) as error:
+        return render_settings(request, error=str(error), status_code=400)
+    state = "1" if enabled else "0"
+    return RedirectResponse(f"/settings?bulk={state}", status_code=303)
+
+
+@app.post("/settings/backup/restore")
+async def settings_restore_backup(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    name = form_text(form_data, "backup_name")
+    try:
+        restore_backup(name)
+    except (OSError, ValueError) as error:
+        return render_settings(request, error=str(error), status_code=400)
+    return RedirectResponse("/settings?restored=1", status_code=303)
+
+
+@app.post("/settings/import-toml")
+async def settings_import_toml(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    product = form_text(form_data, "product")
+    sample_value = form_text(form_data, "sample_value")
+    try:
+        report = import_services_from_config(product, sample_value=sample_value)
+    except (OSError, ValueError) as error:
+        return render_settings(request, error=str(error), status_code=400)
+    return render_settings(request, import_report=report)
 
 
 @app.post("/analyze")

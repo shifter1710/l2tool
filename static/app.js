@@ -285,6 +285,11 @@
         event.preventDefault();
         return;
       }
+      const confirmMessage = form.dataset.confirm;
+      if (confirmMessage !== undefined && !window.confirm(confirmMessage)) {
+        event.preventDefault();
+        return;
+      }
       markPending(form);
       if (!fetchActions.has(formPath(form)) || !window.fetch) return;
       const zone = document.getElementById("result-zone");

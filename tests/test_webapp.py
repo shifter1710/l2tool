@@ -111,7 +111,7 @@ def test_settings_page_lists_editable_sources():
     assert response.text.count("Поиск по UUID") >= 5
     assert "product-recording" in response.text
     assert "product-secretary" in response.text
-    assert "styles.css?v=20260904-5" in response.text
+    assert "styles.css?v=20260904-6" in response.text
     assert 'class="config-level config-level-number"' in response.text
     assert 'class="config-level level-number"' not in response.text
     assert 'action="/settings/import"' in response.text
@@ -700,3 +700,261 @@ def test_settings_pages_survive_corrupted_store(monkeypatch, tmp_path):
     assert "diagnostic_sources.json" in settings_response.text
     assert export_response.status_code == 400
     assert "diagnostic_sources.json" in export_response.text
+
+
+def test_settings_products_section_and_crud():
+    response = request("GET", "/settings")
+
+    assert response.status_code == 200
+    assert "Продукты" in response.text
+    assert "Добавить продукт" in response.text
+
+    create_response = request(
+        "POST",
+        "/settings/product",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "key": "zapis-msk",
+            "title": "Запись МСК",
+            "color": "violet",
+        },
+    )
+    rename_response = request(
+        "POST",
+        "/settings/product",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "product_key": "zapis-msk",
+            "key": "zapis-spb",
+            "title": "Запись СПБ",
+            "color": "teal",
+        },
+    )
+    delete_response = request(
+        "POST",
+        "/settings/product/delete",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "product_key": "zapis-spb",
+        },
+    )
+
+    assert create_response.status_code == 303
+    assert rename_response.status_code == 303
+    assert delete_response.status_code == 303
+    assert dynamic_sources.list_sources() == []
+
+    forbidden = request(
+        "POST",
+        "/settings/product/delete",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "product_key": "recording",
+        },
+    )
+    assert forbidden.status_code == 303
+
+
+def test_settings_rejects_invalid_product_key():
+    response = request(
+        "POST",
+        "/settings/product",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "key": "Плохой Ключ",
+            "title": "Продукт",
+            "color": "",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "латиница" in response.text
+
+
+def test_settings_toggle_move_and_duplicate_source():
+    first = dynamic_sources.save_source(
+        {
+            "name": "Первый",
+            "product": "recording",
+            "level": "number",
+            "example_url": opensearch_example("first-view"),
+            "sample_value": "",
+            "minutes_before": 2,
+            "minutes_after": 90,
+        }
+    )
+    second = dynamic_sources.save_source(
+        {
+            "name": "Второй",
+            "product": "recording",
+            "level": "number",
+            "example_url": opensearch_example("second-view"),
+            "sample_value": "",
+            "minutes_before": 2,
+            "minutes_after": 90,
+        }
+    )
+
+    duplicate_response = request(
+        "POST",
+        "/settings/source/duplicate",
+        data={"csrf_token": webapp.app.state.csrf_token, "source_id": second["id"]},
+    )
+    move_response = request(
+        "POST",
+        "/settings/source/move",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "source_id": second["id"],
+            "direction": "up",
+        },
+    )
+    toggle_response = request(
+        "POST",
+        "/settings/source/toggle",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "source_id": first["id"],
+            "enabled": "0",
+        },
+    )
+    bulk_response = request(
+        "POST",
+        "/settings/product/toggle-all",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "product_key": "recording",
+            "enabled": "1",
+        },
+    )
+
+    assert duplicate_response.status_code == 303
+    assert move_response.status_code == 303
+    assert toggle_response.status_code == 303
+    assert bulk_response.status_code == 303
+    names = [item["name"] for item in dynamic_sources.list_sources()]
+    assert names == ["Второй", "Первый", "Второй (копия)"]
+    assert all(item["enabled"] for item in dynamic_sources.list_sources())
+
+    settings_page = request("GET", "/settings")
+    assert settings_page.text.count('class="source-status"') >= 3
+
+
+def test_settings_preview_builds_link_without_saving():
+    before = dynamic_sources.list_sources()
+
+    response = request(
+        "POST",
+        "/settings/source/preview",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "name": "Черновик BFF",
+            "product": "recording",
+            "level": "number",
+            "example_url": opensearch_example("preview-view"),
+            "sample_value": "",
+            "minutes_before": "2",
+            "minutes_after": "90",
+            "preview_value": "79991230001",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Проверка ссылки" in response.text
+    assert "msisdn:79991230001" in response.text
+    assert "Открыть в новой вкладке" in response.text
+    assert dynamic_sources.list_sources() == before
+
+    broken = request(
+        "POST",
+        "/settings/source/preview",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "name": "Сломанный",
+            "product": "recording",
+            "level": "number",
+            "example_url": "https://example.local/without-number",
+            "sample_value": "",
+            "preview_value": "79991230001",
+        },
+    )
+
+    assert broken.status_code == 400
+    assert "Ссылка не собирается" in broken.text
+    assert dynamic_sources.list_sources() == before
+
+
+def test_settings_backups_list_and_restore_roundtrip():
+    created = dynamic_sources.save_source(
+        {
+            "name": "Для отката",
+            "product": "recording",
+            "level": "number",
+            "example_url": opensearch_example("backup-view"),
+            "sample_value": "",
+            "minutes_before": 2,
+            "minutes_after": 90,
+        }
+    )
+    delete_response = request(
+        "POST",
+        "/settings/source/delete",
+        data={"csrf_token": webapp.app.state.csrf_token, "source_id": created["id"]},
+    )
+    assert delete_response.status_code == 303
+    assert dynamic_sources.list_sources() == []
+
+    page = request("GET", "/settings")
+    assert "Резервные копии" in page.text
+    backup_name = page.text.split('name="backup_name" value="', 1)[1].split('"', 1)[0]
+
+    restore_response = request(
+        "POST",
+        "/settings/backup/restore",
+        data={"csrf_token": webapp.app.state.csrf_token, "backup_name": backup_name},
+    )
+
+    assert restore_response.status_code == 303
+    assert [item["name"] for item in dynamic_sources.list_sources()] == ["Для отката"]
+
+    traversal = request(
+        "POST",
+        "/settings/backup/restore",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "backup_name": "../../diagnostic_sources.json",
+        },
+    )
+    assert traversal.status_code == 400
+
+
+def test_settings_import_toml_renders_report(monkeypatch, tmp_path):
+    from core import config as config_module
+
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "[services.zapis]",
+                'url = "https://grafana.example.local/d/example/find-call-in-logs'
+                '?orgId=000&var-phone=9835623921&var-second_phone=9994579778'
+                '&from=2026-09-03T11:00:00.000Z&to=2026-09-03T12:00:00.000Z"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config_module, "CONFIG_PATH", config_path)
+
+    response = request(
+        "POST",
+        "/settings/import-toml",
+        data={"csrf_token": webapp.app.state.csrf_token, "product": "recording"},
+    )
+
+    assert response.status_code == 200
+    assert "Отчёт о переносе" in response.text
+    assert "Добавлено блоков: 1" in response.text
+    assert [item["name"] for item in dynamic_sources.list_sources()] == [
+        "Grafana / find-call-in-logs"
+    ]
+    assert dynamic_sources.list_sources()[0]["strategy"] == "national"

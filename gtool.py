@@ -377,7 +377,14 @@ def prompt_product():
 
 
 def product_open_arg(product_key):
-    modules = resolve_product_modules(product_key)
+    try:
+        modules = resolve_product_modules(product_key)
+    except ValueError:
+        print(
+            f"Продукт «{product_key}» настраивается только в веб-интерфейсе: "
+            "откройте страницу «Настройки источников»"
+        )
+        return None
     if not modules:
         print(f"Для продукта {product_title(product_key)} пока нет настроенных сервисов")
         return None
