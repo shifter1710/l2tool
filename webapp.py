@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import json
 import os
 import secrets
 import shutil
@@ -9,9 +10,10 @@ import threading
 import webbrowser
 from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.background import BackgroundTask
@@ -19,15 +21,27 @@ from starlette.datastructures import UploadFile
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from core import history
+from core.dynamic_sources import (
+    LEVELS,
+    build_product_links,
+    delete_source,
+    import_sources,
+    is_managed,
+    list_sources,
+    load_store,
+    product_groups,
+    save_source,
+)
 from core.lost_calls_table import TableFormatError, process_table
 from core.products import available_products, product_title, resolve_product_modules
+from core.utils import normalize_uuid
 from gtool import MODULE_TITLES, RunResult, run_ticket
-
 
 ROOT_DIR = Path(__file__).resolve().parent
 LOCAL_HOSTS = ["127.0.0.1", "localhost"]
 MAX_TICKET_LENGTH = 200_000
 MAX_UPLOAD_SIZE = 25 * 1024 * 1024
+MAX_CONFIG_UPLOAD_SIZE = 2 * 1024 * 1024
 ALLOWED_TABLE_SUFFIXES = {".xlsx", ".xlsm", ".csv", ".tsv"}
 SECONDARY_MODULES = {
     "mgw": ["recording_mgw"],
@@ -79,7 +93,7 @@ async def secure_local_responses(request: Request, call_next):
         response = await call_next(request)
     response.headers["Cache-Control"] = "no-store"
     response.headers["Content-Security-Policy"] = (
-        "default-src 'self'; style-src 'self'; img-src 'self' data:; "
+        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
         "frame-ancestors 'none'; form-action 'self'; base-uri 'none'"
     )
     response.headers["Referrer-Policy"] = "no-referrer"
@@ -90,14 +104,20 @@ async def secure_local_responses(request: Request, call_next):
 
 
 def product_options():
-    return [
-        {
-            "key": key,
-            "title": product_title(key),
-            "enabled": bool(resolve_product_modules(key)),
-        }
-        for key in available_products()
-    ]
+    options = []
+    for key in available_products():
+        try:
+            managed = is_managed(key)
+        except ValueError:
+            managed = False
+        options.append(
+            {
+                "key": key,
+                "title": product_title(key),
+                "enabled": managed or bool(resolve_product_modules(key)),
+            }
+        )
+    return options
 
 
 def page_context(request: Request, **values):
@@ -111,9 +131,11 @@ def page_context(request: Request, **values):
             "ticket_text": "",
             "save_history": False,
             "corrections": {},
+            "dynamic_product": False,
         },
         "result": None,
         "secondary_result": None,
+        "has_uuid_level": False,
         "error": None,
     }
     context.update(values)
@@ -145,10 +167,72 @@ def parse_window(form):
 def validate_product(product):
     if product not in available_products():
         raise ValueError("Неизвестный продукт")
+    if is_managed(product):
+        return []
     modules = resolve_product_modules(product)
     if not modules:
         raise ValueError(f"Для продукта «{product_title(product)}» пока нет настроенных сервисов")
     return modules
+
+
+def has_uuid_sources(product):
+    try:
+        return is_managed(product) and bool(list_sources(product=product, level="uuid"))
+    except ValueError:
+        return False
+
+
+def run_dynamic_ticket(
+    text,
+    product,
+    level,
+    window,
+    *,
+    parse_text=None,
+    call_uuid=None,
+    save_history=False,
+    input_file="web",
+):
+    if level == "uuid":
+        call_uuid = normalize_uuid(call_uuid)
+    parsed = run_ticket(
+        text,
+        open_arg="",
+        window=window,
+        input_file=input_file,
+        save_history=False,
+        write_diagnostics=False,
+        parse_text=parse_text,
+    )
+    if parsed.errors:
+        return parsed
+
+    parsed.ctx["call_uuid"] = call_uuid
+    links, titles, errors = build_product_links(
+        product,
+        level,
+        parsed.ctx,
+        call_uuid=call_uuid,
+    )
+    parsed.ctx["service_titles"] = titles
+    if not links and not errors:
+        errors = [f"Для уровня «{LEVELS[level]}» ещё не добавлены диагностические блоки"]
+    status = "partial" if links and errors else "failed" if errors or not links else "success"
+    if save_history and status == "success":
+        history.save_ticket_history(
+            ctx=parsed.ctx,
+            input_file=input_file,
+            raw_ticket=text,
+            links_by_module=links,
+        )
+    return RunResult(
+        parsed.ctx,
+        list(links),
+        links,
+        parsed.lines,
+        errors,
+        status,
+    )
 
 
 def build_corrected_text(ticket_text, corrections):
@@ -158,6 +242,16 @@ def build_corrected_text(ticket_text, corrections):
         if corrections.get(field_name)
     ]
     return "\n".join([*correction_lines, ticket_text])
+
+
+def normalize_datetime_picker(value):
+    try:
+        selected = datetime.fromisoformat(value)
+    except ValueError as error:
+        raise ValueError("Выберите корректные дату и время в календаре") from error
+    if selected.tzinfo is not None:
+        raise ValueError("Дата и время из календаря должны быть локальными")
+    return selected.strftime("%d.%m.%Y %H:%M")
 
 
 def format_value(value):
@@ -175,6 +269,96 @@ def event_value(ctx):
     if ctx.get("event_datetimes"):
         return ", ".join(format_value(value) for value in ctx["event_datetimes"])
     return format_value(ctx.get("event_time") or ctx.get("event_date"))
+
+
+def phone_values(ctx, field_name):
+    values = ctx.get(f"{field_name}_values") or []
+    return [value for value in values if value] or [ctx.get(field_name)]
+
+
+def utc_offset_label(ctx):
+    timezone_name = ctx.get("tz")
+    if not timezone_name:
+        return None
+
+    try:
+        timezone = ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        return None
+
+    reference = ctx.get("event_time")
+    if not reference and ctx.get("event_datetimes"):
+        reference = ctx["event_datetimes"][0]
+    if not reference and ctx.get("event_time_range"):
+        reference = ctx["event_time_range"][0]
+    if not reference and ctx.get("event_date"):
+        reference = datetime.combine(ctx["event_date"], datetime.min.time())
+    if not reference:
+        reference = datetime.now(timezone)
+
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=timezone)
+    else:
+        reference = reference.astimezone(timezone)
+
+    offset = reference.utcoffset()
+    if offset is None:
+        return None
+
+    total_minutes = int(offset.total_seconds() / 60)
+    sign = "+" if total_minutes >= 0 else "−"
+    absolute_minutes = abs(total_minutes)
+    hours, minutes = divmod(absolute_minutes, 60)
+    if minutes:
+        return f"{sign}{hours}:{minutes:02d}"
+    return f"{sign}{hours}"
+
+
+def parsed_fields(ctx):
+    msisdn = ctx.get("msisdn")
+    phone_a_values = phone_values(ctx, "phone_a")
+    phone_b_values = phone_values(ctx, "phone_b")
+
+    client_side = None
+    if msisdn and msisdn in phone_a_values:
+        client_side = "phone_a"
+    elif msisdn and msisdn in phone_b_values:
+        client_side = "phone_b"
+
+    fields = [
+        {
+            "label": "Номер А",
+            "value": ", ".join(value for value in phone_a_values if value) or "—",
+            "is_client": client_side == "phone_a",
+        },
+        {
+            "label": "Номер Б",
+            "value": ", ".join(value for value in phone_b_values if value) or "—",
+            "is_client": client_side == "phone_b",
+        },
+    ]
+    if msisdn and not client_side:
+        fields.insert(
+            0,
+            {
+                "label": "Номер клиента",
+                "value": format_value(msisdn),
+                "is_client": True,
+                "unmatched": True,
+            },
+        )
+
+    fields.extend(
+        [
+            {"label": "Дата и время", "value": event_value(ctx)},
+            {
+                "label": "Регион",
+                "value": format_value(ctx.get("region")),
+                "utc_offset": utc_offset_label(ctx),
+            },
+        ]
+    )
+    return fields
 
 
 def result_view(result: RunResult, title):
@@ -197,18 +381,13 @@ def result_view(result: RunResult, title):
             "partial": "Частичный результат",
             "failed": "Нужна проверка",
         }.get(result.status, result.status),
-        "fields": [
-            ("Номер клиента", format_value(ctx.get("msisdn"))),
-            ("Номер А", format_value(ctx.get("phone_a"))),
-            ("Номер Б", format_value(ctx.get("phone_b"))),
-            ("Дата и время", event_value(ctx)),
-            ("Регион", format_value(ctx.get("region"))),
-            ("Часовой пояс", format_value(ctx.get("tz"))),
-        ],
+        "fields": parsed_fields(ctx),
         "services": [
             {
                 "key": module_name,
-                "title": MODULE_TITLES.get(module_name, module_name),
+                "title": ctx.get("service_titles", {}).get(
+                    module_name, MODULE_TITLES.get(module_name, module_name)
+                ),
                 "links": links,
             }
             for module_name, links in result.links_by_module.items()
@@ -227,9 +406,135 @@ def render_index(request, *, status_code=200, **values):
     )
 
 
+def render_settings(request, *, status_code=200, overrides=None, **values):
+    try:
+        products = product_groups(overrides=overrides)
+    except (OSError, ValueError) as error:
+        products = []
+        values.setdefault(
+            "error",
+            f"{error}. Проверьте файл diagnostic_sources.json или удалите его.",
+        )
+        status_code = max(status_code, 400)
+    context = {
+        "request": request,
+        "csrf_token": app.state.csrf_token,
+        "products": products,
+        "product_options": [
+            {"key": key, "title": product_title(key)} for key in available_products()
+        ],
+        "levels": LEVELS,
+        "draft": None,
+        "error": None,
+        "message": None,
+    }
+    context.update(values)
+    return templates.TemplateResponse(
+        request=request,
+        name="settings.html",
+        context=context,
+        status_code=status_code,
+    )
+
+
 @app.get("/")
 async def index(request: Request):
     return render_index(request)
+
+
+@app.get("/settings")
+async def settings(request: Request):
+    message = None
+    if request.query_params.get("saved"):
+        message = "Диагностический блок сохранён и уже используется"
+    elif request.query_params.get("deleted"):
+        message = "Диагностический блок удалён"
+    elif request.query_params.get("imported") is not None:
+        added = request.query_params.get("imported", "0")
+        skipped = request.query_params.get("skipped", "0")
+        message = f"Импортировано блоков: {added}. Уже существовало: {skipped}"
+    return render_settings(request, message=message)
+
+
+@app.post("/settings/import")
+async def settings_import(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    upload = form_data.get("config_file")
+    if not isinstance(upload, UploadFile) or not upload.filename:
+        return render_settings(request, error="Выберите JSON-файл конфигурации", status_code=400)
+
+    try:
+        if Path(upload.filename).suffix.lower() != ".json":
+            raise ValueError("Поддерживается файл diagnostic_sources.json")
+        content = await upload.read(MAX_CONFIG_UPLOAD_SIZE + 1)
+        if len(content) > MAX_CONFIG_UPLOAD_SIZE:
+            raise ValueError("Файл конфигурации превышает 2 МБ")
+        result = import_sources(content.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as error:
+        return render_settings(request, error=str(error), status_code=400)
+    finally:
+        await upload.close()
+    return RedirectResponse(
+        f"/settings?imported={result['added']}&skipped={result['skipped']}",
+        status_code=303,
+    )
+
+
+@app.get("/settings/export")
+async def settings_export():
+    try:
+        store = load_store()
+    except (OSError, ValueError) as error:
+        return PlainTextResponse(
+            f"{error}. Проверьте файл diagnostic_sources.json или удалите его.",
+            status_code=400,
+        )
+    content = json.dumps(store, ensure_ascii=False, indent=2) + "\n"
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="diagnostic_sources.json"'},
+    )
+
+
+@app.post("/settings/source")
+async def settings_save_source(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    source_id = form_text(form_data, "source_id") or None
+    values = {
+        "name": form_text(form_data, "name"),
+        "product": form_text(form_data, "product"),
+        "level": form_text(form_data, "level"),
+        "example_url": form_text(form_data, "example_url"),
+        "sample_value": form_text(form_data, "sample_value"),
+        "minutes_before": form_text(form_data, "minutes_before", "2"),
+        "minutes_after": form_text(form_data, "minutes_after", "90"),
+    }
+    try:
+        source = save_source(values, source_id=source_id)
+    except (OSError, ValueError) as error:
+        return render_settings(
+            request,
+            overrides={source_id: values} if source_id else None,
+            draft=values if not source_id else None,
+            error=str(error),
+            status_code=400,
+        )
+    return RedirectResponse(f"/settings?saved={source['id']}", status_code=303)
+
+
+@app.post("/settings/source/delete")
+async def settings_delete_source(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    source_id = form_text(form_data, "source_id")
+    try:
+        delete_source(source_id)
+    except (OSError, ValueError) as error:
+        return render_settings(request, error=str(error), status_code=400)
+    return RedirectResponse("/settings?deleted=1", status_code=303)
 
 
 @app.post("/analyze")
@@ -244,6 +549,8 @@ async def analyze(request: Request):
         field_name: form_text(form_data, f"override_{field_name}")
         for field_name, _label in CORRECTION_FIELDS
     }
+    picker_value = form_text(form_data, "override_event_datetime_picker")
+    corrections["event_datetime_picker"] = picker_value
     form = {
         "product": product,
         "window": form_text(form_data, "window", "60"),
@@ -259,16 +566,30 @@ async def analyze(request: Request):
             raise ValueError("Текст заявки превышает 200 000 символов")
         window = parse_window(form_data)
         modules = validate_product(product)
+        form["dynamic_product"] = is_managed(product)
+        if picker_value:
+            corrections["event_datetime"] = normalize_datetime_picker(picker_value)
         effective_text = build_corrected_text(ticket_text, corrections)
-        result = run_ticket(
-            ticket_text,
-            open_arg=",".join(modules),
-            window=window,
-            input_file="web",
-            save_history=save_history,
-            write_diagnostics=False,
-            parse_text=effective_text,
-        )
+        if is_managed(product):
+            result = run_dynamic_ticket(
+                ticket_text,
+                product,
+                "number",
+                window,
+                input_file="web",
+                save_history=save_history,
+                parse_text=effective_text,
+            )
+        else:
+            result = run_ticket(
+                ticket_text,
+                open_arg=",".join(modules),
+                window=window,
+                input_file="web",
+                save_history=save_history,
+                write_diagnostics=False,
+                parse_text=effective_text,
+            )
     except (OSError, ValueError) as error:
         return render_index(request, form=form, error=str(error), status_code=400)
 
@@ -277,6 +598,7 @@ async def analyze(request: Request):
         form=form,
         result=result_view(result, "Первичная диагностика"),
         effective_ticket_text=effective_text,
+        has_uuid_level=has_uuid_sources(product) or product == "recording",
     )
 
 
@@ -295,6 +617,7 @@ async def secondary(request: Request):
         "ticket_text": effective_text,
         "save_history": False,
         "corrections": {},
+        "dynamic_product": False,
     }
 
     primary_result = None
@@ -303,28 +626,47 @@ async def secondary(request: Request):
             raise ValueError("Текст заявки отсутствует или слишком велик")
         window = parse_window(form_data)
         primary_modules = validate_product(product)
-        if product != "recording":
-            raise ValueError("Вторичная UUID-диагностика доступна только для продукта «Запись»")
-        if mode not in SECONDARY_MODULES:
-            raise ValueError("Неизвестный режим вторичной диагностики")
-
-        primary_result = run_ticket(
-            effective_text,
-            open_arg=",".join(primary_modules),
-            window=window,
-            input_file="web-secondary",
-            save_history=False,
-            write_diagnostics=False,
-        )
-        secondary_result = run_ticket(
-            effective_text,
-            open_arg=",".join(SECONDARY_MODULES[mode]),
-            window=window,
-            input_file="web-secondary",
-            save_history=False,
-            write_diagnostics=False,
-            call_uuid=call_uuid,
-        )
+        form["dynamic_product"] = is_managed(product)
+        if is_managed(product):
+            if not has_uuid_sources(product):
+                raise ValueError("Для этого продукта не настроен поиск по UUID")
+            primary_result = run_dynamic_ticket(
+                effective_text,
+                product,
+                "number",
+                window,
+                input_file="web-secondary",
+            )
+            secondary_result = run_dynamic_ticket(
+                effective_text,
+                product,
+                "uuid",
+                window,
+                input_file="web-secondary",
+                call_uuid=call_uuid,
+            )
+        else:
+            if product != "recording":
+                raise ValueError("Вторичная UUID-диагностика доступна только для продукта «Запись»")
+            if mode not in SECONDARY_MODULES:
+                raise ValueError("Неизвестный режим вторичной диагностики")
+            primary_result = run_ticket(
+                effective_text,
+                open_arg=",".join(primary_modules),
+                window=window,
+                input_file="web-secondary",
+                save_history=False,
+                write_diagnostics=False,
+            )
+            secondary_result = run_ticket(
+                effective_text,
+                open_arg=",".join(SECONDARY_MODULES[mode]),
+                window=window,
+                input_file="web-secondary",
+                save_history=False,
+                write_diagnostics=False,
+                call_uuid=call_uuid,
+            )
     except (OSError, ValueError) as error:
         return render_index(
             request,
@@ -337,6 +679,7 @@ async def secondary(request: Request):
             error=str(error),
             effective_ticket_text=effective_text,
             secondary_form={"call_uuid": call_uuid, "mode": mode},
+            has_uuid_level=has_uuid_sources(product) or product == "recording",
             status_code=400,
         )
 
@@ -347,6 +690,7 @@ async def secondary(request: Request):
         secondary_result=result_view(secondary_result, "Вторичная диагностика по UUID"),
         effective_ticket_text=effective_text,
         secondary_form={"call_uuid": call_uuid, "mode": mode},
+        has_uuid_level=has_uuid_sources(product) or product == "recording",
     )
 
 
