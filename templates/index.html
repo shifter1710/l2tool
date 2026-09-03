@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>l2tool — локальная диагностика</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="l2tool — на главную">
+        <span class="brand-mark">L2</span>
+        <span>
+          <strong>l2tool</strong>
+          <small>рабочее место диагностики</small>
+        </span>
+      </a>
+      <div class="local-badge"><span></span> Только на этом компьютере</div>
+    </header>
+
+    <main class="shell">
+      <section class="hero">
+        <p class="eyebrow">Новая диагностика</p>
+        <h1>От заявки до нужных логов<br>за один проход</h1>
+        <p class="lead">Вставьте текст заявки, проверьте распознанные данные и откройте готовые ссылки на Grafana и OpenSearch.</p>
+      </section>
+
+      {% if error %}
+        <div class="alert alert-error" role="alert">
+          <strong>Не удалось выполнить операцию</strong>
+          <span>{{ error }}</span>
+        </div>
+      {% endif %}
+
+      <div class="workspace-grid">
+        <section class="panel primary-panel">
+          <div class="panel-heading">
+            <div>
+              <span class="step">01</span>
+              <h2>Исходные данные</h2>
+            </div>
+            <p>Текст обрабатывается локально и не отправляется во внешние сервисы.</p>
+          </div>
+
+          <form method="post" action="/analyze#result" class="ticket-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="form-row">
+              <label>
+                <span>Продукт</span>
+                <select name="product">
+                  {% for product in products %}
+                    <option value="{{ product.key }}" {% if not product.enabled %}disabled{% endif %} {% if form.product == product.key %}selected{% endif %}>
+                      {{ product.title }}{% if not product.enabled %} — скоро{% endif %}
+                    </option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label class="window-field">
+                <span>Окно, минут</span>
+                <input type="number" name="window" min="0" max="1440" value="{{ form.window }}">
+              </label>
+            </div>
+
+            <label class="ticket-field">
+              <span>Текст заявки</span>
+              <textarea name="ticket_text" required maxlength="200000" placeholder="Номер клиента (msisdn): ...&#10;Дата и время проблемного звонка: ...&#10;Местонахождение абонента: ...">{{ form.ticket_text }}</textarea>
+            </label>
+
+            <div class="form-actions">
+              <label class="check-field">
+                <input type="checkbox" name="save_history" value="1" {% if form.save_history %}checked{% endif %}>
+                <span>Сохранить успешный результат в локальную историю</span>
+              </label>
+              <button type="submit">Разобрать заявку <span aria-hidden="true">→</span></button>
+            </div>
+          </form>
+        </section>
+
+        <aside class="side-stack">
+          <section class="panel info-panel">
+            <span class="step">Как это работает</span>
+            <ol>
+              <li><strong>Разбор</strong><span>Номера, время и регион</span></li>
+              <li><strong>Проверка</strong><span>Исправление найденных полей</span></li>
+              <li><strong>Переход</strong><span>Готовые диагностические ссылки</span></li>
+            </ol>
+          </section>
+
+          <section class="privacy-card">
+            <span class="shield">✓</span>
+            <div>
+              <strong>Локальный режим</strong>
+              <p>Сервис слушает только 127.0.0.1. Кэширование страниц отключено.</p>
+            </div>
+          </section>
+
+          <section class="panel batch-panel">
+            <span class="step">Пакетная обработка</span>
+            <h3>Потерянные звонки</h3>
+            <p>Загрузите XLSX, XLSM, CSV или TSV. Готовая таблица с диагностическими ссылками сразу скачается обратно.</p>
+            <form method="post" action="/batch" enctype="multipart/form-data" class="batch-form">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <label class="file-field">
+                <span>Таблица, до 25 МБ</span>
+                <input type="file" name="table_file" accept=".xlsx,.xlsm,.csv,.tsv" required>
+              </label>
+              <button type="submit" class="secondary-button">Обработать и скачать</button>
+            </form>
+          </section>
+        </aside>
+      </div>
+
+      {% if result %}
+        <section class="results" id="result">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Результат</p>
+              <h2>{{ result.title }}</h2>
+            </div>
+            <span class="status status-{{ result.status }}">{{ result.status_title }}</span>
+          </div>
+
+          <div class="result-grid">
+            <section class="panel result-panel parsed-panel">
+              <div class="panel-heading compact-heading">
+                <div><span class="step">02</span><h3>Распознанные данные</h3></div>
+              </div>
+              <dl class="parsed-list">
+                {% for label, value in result.fields %}
+                  <div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>
+                {% endfor %}
+              </dl>
+
+              {% if result.warnings %}
+                <div class="warning-list">
+                  {% for warning in result.warnings %}<p>{{ warning }}</p>{% endfor %}
+                </div>
+              {% endif %}
+            </section>
+
+            <section class="panel result-panel links-panel">
+              <div class="panel-heading compact-heading">
+                <div><span class="step">03</span><h3>Диагностические ссылки</h3></div>
+              </div>
+              {% if result.services %}
+                <div class="service-list">
+                  {% for service in result.services %}
+                    <article class="service-card">
+                      <div><span class="service-dot"></span><strong>{{ service.title }}</strong></div>
+                      {% for link in service.links %}
+                        <a href="{{ link }}" target="_blank" rel="noreferrer noopener">Открыть{% if service.links|length > 1 %} · {{ loop.index }}{% endif %}<span>↗</span></a>
+                      {% endfor %}
+                    </article>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <p class="empty-state">Ссылки пока не сформированы. Проверьте поля слева и внесите поправки ниже.</p>
+              {% endif %}
+            </section>
+          </div>
+
+          {% if result.history %}
+            <section class="history-strip">
+              <strong>Найдены похожие заявки в локальной истории</strong>
+              {% for number, paths in result.history.items() %}
+                <span>{{ number }} · {{ paths|length }}</span>
+              {% endfor %}
+            </section>
+          {% endif %}
+
+          <div class="followup-grid {% if form.product != 'recording' %}single-column{% endif %}">
+            <section class="panel followup-panel">
+              <span class="step">Поправить разбор</span>
+              <h3>Если что-то распознано неверно</h3>
+              <p>Заполните только те поля, которые нужно заменить. Исходный текст останется без изменений.</p>
+              <form method="post" action="/analyze#result" class="correction-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="product" value="{{ form.product }}">
+                <input type="hidden" name="window" value="{{ form.window }}">
+                {% if form.save_history %}<input type="hidden" name="save_history" value="1">{% endif %}
+                <textarea name="ticket_text" class="hidden-control" aria-hidden="true">{{ form.ticket_text }}</textarea>
+                <div class="correction-grid">
+                  <label><span>Номер клиента</span><input name="override_msisdn" value="{{ form.corrections.msisdn|default('') }}" placeholder="79991234567"></label>
+                  <label><span>Номер А</span><input name="override_phone_a" value="{{ form.corrections.phone_a|default('') }}" placeholder="79991234567"></label>
+                  <label><span>Номер Б</span><input name="override_phone_b" value="{{ form.corrections.phone_b|default('') }}" placeholder="79991234567"></label>
+                  <label><span>Дата и время</span><input name="override_event_datetime" value="{{ form.corrections.event_datetime|default('') }}" placeholder="03.09.2026 14:30"></label>
+                  <label><span>Регион</span><input name="override_region" value="{{ form.corrections.region|default('') }}" placeholder="Красноярский край"></label>
+                </div>
+                <button type="submit" class="secondary-button">Пересобрать результат</button>
+              </form>
+            </section>
+
+            {% if form.product == 'recording' %}
+              <section class="panel followup-panel uuid-panel">
+                <span class="step">Вторичная диагностика</span>
+                <h3>UUID звонка уже найден?</h3>
+                <p>Этот шаг запускается отдельно и не смешивается с первичной проверкой продукта «Запись».</p>
+                <form method="post" action="/secondary#secondary-result" class="uuid-form">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="product" value="{{ form.product }}">
+                  <input type="hidden" name="window" value="{{ form.window }}">
+                  <textarea name="effective_ticket_text" class="hidden-control" aria-hidden="true">{{ effective_ticket_text }}</textarea>
+                  <label><span>UUID звонка</span><input name="call_uuid" required value="{{ secondary_form.call_uuid|default('') if secondary_form else '' }}" placeholder="12345678-1234-5678-1234-567812345678"></label>
+                  <label><span>Глубина проверки</span>
+                    <select name="secondary_mode">
+                      <option value="mgw" {% if secondary_form and secondary_form.mode == 'mgw' %}selected{% endif %}>Только MGW</option>
+                      <option value="pipeline" {% if secondary_form and secondary_form.mode == 'pipeline' %}selected{% endif %}>Вся цепочка: MGW → VSS/CRS → CRS → Collector</option>
+                    </select>
+                  </label>
+                  <button type="submit">Запустить второй этап <span>→</span></button>
+                </form>
+              </section>
+            {% endif %}
+          </div>
+        </section>
+      {% endif %}
+
+      {% if secondary_result %}
+        <section class="secondary-results" id="secondary-result">
+          <div class="section-heading">
+            <div><p class="eyebrow">Этап 2</p><h2>{{ secondary_result.title }}</h2></div>
+            <span class="status status-{{ secondary_result.status }}">{{ secondary_result.status_title }}</span>
+          </div>
+          {% if secondary_result.warnings %}
+            <div class="alert alert-warning">
+              <strong>Есть замечания</strong>
+              {% for warning in secondary_result.warnings %}<span>{{ warning }}</span>{% endfor %}
+            </div>
+          {% endif %}
+          <div class="service-list secondary-service-list">
+            {% for service in secondary_result.services %}
+              <article class="service-card">
+                <div><span class="service-dot"></span><strong>{{ service.title }}</strong></div>
+                {% for link in service.links %}<a href="{{ link }}" target="_blank" rel="noreferrer noopener">Открыть{% if service.links|length > 1 %} · {{ loop.index }}{% endif %}<span>↗</span></a>{% endfor %}
+              </article>
+            {% else %}
+              <p class="empty-state">Ссылки второго этапа не сформированы.</p>
+            {% endfor %}
+          </div>
+        </section>
+      {% endif %}
+    </main>
+  </body>
+</html>

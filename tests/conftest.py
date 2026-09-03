@@ -23,6 +23,9 @@ def isolated_config(monkeypatch, tmp_path):
                 "",
                 "[services.myconnect_call]",
                 'url = "https://dashboards.example.local/app/data-explorer/discover#?_a=(metadata:(indexPattern:myconnect-example,view:discover))"',
+                "",
+                "[grafana.recording]",
+                'loki_datasource_uid = "loki-example"',
             ]
         ),
         encoding="utf-8",
