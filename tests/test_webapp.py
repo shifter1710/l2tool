@@ -111,7 +111,7 @@ def test_settings_page_lists_editable_sources():
     assert response.text.count("Поиск по UUID") >= 5
     assert "product-recording" in response.text
     assert "product-secretary" in response.text
-    assert "styles.css?v=20260904-3" in response.text
+    assert "styles.css?v=20260904-4" in response.text
     assert 'class="config-level config-level-number"' in response.text
     assert 'class="config-level level-number"' not in response.text
     assert 'action="/settings/import"' in response.text
@@ -440,6 +440,58 @@ def test_history_matches_render_dates_and_paths(monkeypatch):
     assert "<time datetime=\"2026-08-14\">2026-08-14</time>" in response.text
     assert "history/2026/09/2026-09-03_79991234567_ab12cd34.yaml" in response.text
     assert "history/2026/08/2026-08-14_79991234567_ff00ff00.yaml" in response.text
+
+
+def test_analyze_returns_partial_fragment_for_xhr():
+    response = request(
+        "POST",
+        "/analyze",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "product": "recording",
+            "window": "60",
+            "ticket_text": valid_ticket(),
+        },
+        headers={"X-Requested-With": "XMLHttpRequest"},
+    )
+
+    assert response.status_code == 200
+    assert "<!doctype html>" not in response.text.lower()
+    assert "<html" not in response.text
+    assert "<body" not in response.text
+    assert 'id="result"' in response.text
+    assert "Первичная диагностика" in response.text
+    assert 'id="result-zone"' not in response.text
+
+
+def test_analyze_xhr_error_returns_fragment_with_alert():
+    response = request(
+        "POST",
+        "/analyze",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "product": "recording",
+            "window": "60",
+            "ticket_text": "",
+        },
+        headers={"X-Requested-With": "XMLHttpRequest"},
+    )
+
+    assert response.status_code == 400
+    assert "<!doctype html>" not in response.text.lower()
+    assert "alert-error" in response.text
+    assert "Вставьте текст заявки" in response.text
+
+
+def test_xhr_without_csrf_token_is_rejected():
+    response = request(
+        "POST",
+        "/analyze",
+        data={"ticket_text": valid_ticket()},
+        headers={"X-Requested-With": "XMLHttpRequest"},
+    )
+
+    assert response.status_code == 403
 
 
 def test_theme_and_copy_script_is_served_locally():

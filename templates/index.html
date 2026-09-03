@@ -1,36 +1,4 @@
-{% macro service_icon(platform) %}
-  {%- if platform == "grafana" -%}
-    <svg class="service-icon service-icon--grafana" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><g fill="currentColor"><rect x="1.5" y="8" width="3" height="6.5" rx="1"/><rect x="6.5" y="4.5" width="3" height="10" rx="1"/><rect x="11.5" y="1" width="3" height="13.5" rx="1"/></g></svg>
-  {%- elif platform == "opensearch" -%}
-    <svg class="service-icon service-icon--opensearch" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="7" cy="7" r="4.75" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10.6 10.6 15 15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-  {%- else -%}
-    <span class="service-dot" aria-hidden="true"></span>
-  {%- endif -%}
-{% endmacro %}
-
-{% macro service_grid(services, extra_class="") %}
-  <div class="service-list {{ extra_class }}">
-    {% for service in services %}
-      <article class="service-card">
-        <div class="service-title">{{ service_icon(service.platform) }}<strong>{{ service.title }}</strong></div>
-        {% for link in service.links %}
-          <div class="link-group">
-            <div class="link-row">
-              <a class="open-link" href="{{ link }}" target="_blank" rel="noreferrer noopener">Открыть{% if service.links|length > 1 %} · {{ loop.index }}{% endif %}<span aria-hidden="true">↗</span></a>
-              <button class="copy-link" type="button" data-copy-link="{{ link }}" aria-label="Копировать ссылку {{ service.title }}{% if service.links|length > 1 %}, вариант {{ loop.index }}{% endif %}">
-                <span data-copy-label aria-live="polite">Копировать</span>
-              </button>
-            </div>
-            <details class="url-details">
-              <summary>Показать URL</summary>
-              <code>{{ link }}</code>
-            </details>
-          </div>
-        {% endfor %}
-      </article>
-    {% endfor %}
-  </div>
-{% endmacro %}
+{% from "_results.html" import error_alert %}
 <!doctype html>
 <html lang="ru">
   <head>
@@ -40,7 +8,7 @@
     <title>l2tool — локальная диагностика</title>
     <link rel="icon" href="{{ url_for('static', path='/favicon.svg') }}" type="image/svg+xml">
     <script src="{{ url_for('static', path='/app.js') }}" defer></script>
-    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260904-3">
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260904-4">
   </head>
   <body>
     <header class="topbar">
@@ -68,12 +36,7 @@
         <p class="lead">Вставьте текст заявки, проверьте распознанные данные и откройте готовые ссылки на Grafana и OpenSearch.</p>
       </section>
 
-      {% if error %}
-        <div class="alert alert-error" role="alert">
-          <strong>Не удалось выполнить операцию</strong>
-          <span>{{ error }}</span>
-        </div>
-      {% endif %}
+      {{ error_alert(error) }}
 
       <div class="workspace-grid">
         <section class="panel primary-panel">
@@ -159,145 +122,9 @@
         </aside>
       </div>
 
-      {% if result %}
-        <section class="results" id="result">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">Результат</p>
-              <h2>{{ result.title }}</h2>
-            </div>
-            <span class="status status-{{ result.status }}">{{ result.status_title }}</span>
-          </div>
-
-          <div class="result-grid">
-            <section class="panel result-panel parsed-panel">
-              <div class="panel-heading compact-heading">
-                <div><span class="step">02</span><h3>Распознанные данные</h3></div>
-              </div>
-              <dl class="parsed-list">
-                {% for field in result.fields %}
-                  <div {% if field.unmatched %}class="client-unmatched"{% endif %}>
-                    <dt>{{ field.label }}</dt>
-                    <dd>
-                      <span>{{ field.value }}</span>
-                      {% if field.is_client %}<span class="client-badge">Клиент</span>{% endif %}
-                      {% if field.utc_offset %}<span class="timezone-badge" title="Смещение региона относительно UTC">{{ field.utc_offset }}</span>{% endif %}
-                    </dd>
-                  </div>
-                {% endfor %}
-              </dl>
-
-              {% if result.warnings %}
-                <div class="warning-list">
-                  {% for warning in result.warnings %}<p>{{ warning }}</p>{% endfor %}
-                </div>
-              {% endif %}
-            </section>
-
-            <section class="panel result-panel links-panel">
-              <div class="panel-heading compact-heading">
-                <div><span class="step">03</span><h3>Диагностические ссылки</h3></div>
-                {% if result.services %}
-                  <button class="copy-link copy-all" type="button" data-copy-all>
-                    <span data-copy-label>Скопировать все ссылки</span>
-                  </button>
-                {% endif %}
-              </div>
-              {% if result.services %}
-                {{ service_grid(result.services) }}
-              {% else %}
-                <p class="empty-state">Ссылки пока не сформированы. Проверьте поля слева и внесите поправки ниже.</p>
-              {% endif %}
-            </section>
-          </div>
-
-          {% if result.history %}
-            <section class="history-strip">
-              <strong>Найдены похожие заявки в локальной истории</strong>
-              <ul class="history-list">
-                {% for item in result.history %}
-                  <li>
-                    <span class="history-number">{{ item.number }}</span>
-                    <ul class="history-entries">
-                      {% for entry in item.entries %}
-                        <li>{% if entry.date %}<time datetime="{{ entry.date }}">{{ entry.date }}</time> · {% endif %}<code>{{ entry.path }}</code></li>
-                      {% endfor %}
-                    </ul>
-                  </li>
-                {% endfor %}
-              </ul>
-            </section>
-          {% endif %}
-
-          <div class="followup-grid {% if not has_uuid_level %}single-column{% endif %}">
-            <section class="panel followup-panel">
-              <span class="step">Поправить разбор</span>
-              <h3>Если что-то распознано неверно</h3>
-              <p>Заполните только те поля, которые нужно заменить. Исходный текст останется без изменений.</p>
-              <form method="post" action="/analyze#result" class="correction-form">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <input type="hidden" name="product" value="{{ form.product }}">
-                <input type="hidden" name="window" value="{{ form.window }}">
-                {% if form.save_history %}<input type="hidden" name="save_history" value="1">{% endif %}
-                <textarea name="ticket_text" class="hidden-control" aria-hidden="true">{{ form.ticket_text }}</textarea>
-                <div class="correction-grid">
-                  <label><span>Номер клиента</span><input name="override_msisdn" value="{{ form.corrections.msisdn|default('') }}" placeholder="79991234567"></label>
-                  <label><span>Номер А</span><input name="override_phone_a" value="{{ form.corrections.phone_a|default('') }}" placeholder="79991234567"></label>
-                  <label><span>Номер Б</span><input name="override_phone_b" value="{{ form.corrections.phone_b|default('') }}" placeholder="79991234567"></label>
-                  <label><span>Регион</span><input name="override_region" value="{{ form.corrections.region|default('') }}" placeholder="Красноярский край"></label>
-                  <label><span>Дата и время вручную</span><input name="override_event_datetime" value="{{ form.corrections.event_datetime|default('') }}" placeholder="03.09.2026 14:30"></label>
-                </div>
-                <p class="field-hint">Календарь уточнения времени — в основной форме выше.</p>
-                <button type="submit" class="secondary-button">Пересобрать результат</button>
-              </form>
-            </section>
-
-            {% if has_uuid_level %}
-              <section class="panel followup-panel uuid-panel">
-                <span class="step">Вторичная диагностика</span>
-                <h3>UUID звонка уже найден?</h3>
-                <p>Этот шаг запускается отдельно и не смешивается с первичной проверкой продукта «Запись».</p>
-                <form method="post" action="/secondary#secondary-result" class="uuid-form">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                  <input type="hidden" name="product" value="{{ form.product }}">
-                  <input type="hidden" name="window" value="{{ form.window }}">
-                  <textarea name="effective_ticket_text" class="hidden-control" aria-hidden="true">{{ effective_ticket_text }}</textarea>
-                  <label><span>UUID звонка</span><input name="call_uuid" required value="{{ secondary_form.call_uuid|default('') if secondary_form else '' }}" placeholder="12345678-1234-5678-1234-567812345678"></label>
-                  {% if form.product == 'recording' and not form.dynamic_product %}
-                    <label><span>Глубина проверки прежнего профиля</span>
-                      <select name="secondary_mode">
-                        <option value="mgw" {% if secondary_form and secondary_form.mode == 'mgw' %}selected{% endif %}>Только MGW</option>
-                        <option value="pipeline" {% if secondary_form and secondary_form.mode == 'pipeline' %}selected{% endif %}>Вся цепочка: MGW → VSS/CRS → CRS → Collector</option>
-                      </select>
-                    </label>
-                  {% endif %}
-                  <button type="submit">Запустить второй этап <span>→</span></button>
-                </form>
-              </section>
-            {% endif %}
-          </div>
-        </section>
-      {% endif %}
-
-      {% if secondary_result %}
-        <section class="secondary-results" id="secondary-result">
-          <div class="section-heading">
-            <div><p class="eyebrow">Этап 2</p><h2>{{ secondary_result.title }}</h2></div>
-            <span class="status status-{{ secondary_result.status }}">{{ secondary_result.status_title }}</span>
-          </div>
-          {% if secondary_result.warnings %}
-            <div class="alert alert-warning">
-              <strong>Есть замечания</strong>
-              {% for warning in secondary_result.warnings %}<span>{{ warning }}</span>{% endfor %}
-            </div>
-          {% endif %}
-          {% if secondary_result.services %}
-            {{ service_grid(secondary_result.services, "secondary-service-list") }}
-          {% else %}
-            <p class="empty-state">Ссылки второго этапа не сформированы.</p>
-          {% endif %}
-        </section>
-      {% endif %}
+      <div id="result-zone">
+        {% include "_results.html" %}
+      </div>
     </main>
   </body>
 </html>

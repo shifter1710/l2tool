@@ -2,6 +2,7 @@
 examples/*.txt
 !examples/*.example.txt
 tickets/
+notes/
 history/
 cases/
 *.ticket.txt

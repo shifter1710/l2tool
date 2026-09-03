@@ -139,6 +139,7 @@ def page_context(request: Request, **values):
         "secondary_result": None,
         "has_uuid_level": False,
         "error": None,
+        "partial": False,
     }
     context.update(values)
     return context
@@ -429,13 +430,17 @@ def result_view(result: RunResult, title):
     }
 
 
-def render_index(request, *, status_code=200, **values):
+def render_index(request, *, status_code=200, partial=False, **values):
     return templates.TemplateResponse(
         request=request,
-        name="index.html",
-        context=page_context(request, **values),
+        name="_results.html" if partial else "index.html",
+        context=page_context(request, partial=partial, **values),
         status_code=status_code,
     )
+
+
+def wants_fragment(request: Request):
+    return request.headers.get("x-requested-with") == "XMLHttpRequest"
 
 
 def render_settings(request, *, status_code=200, overrides=None, **values):
@@ -573,6 +578,7 @@ async def settings_delete_source(request: Request):
 async def analyze(request: Request):
     form_data = await request.form()
     validate_csrf(form_data)
+    partial = wants_fragment(request)
 
     product = form_text(form_data, "product", "recording")
     ticket_text = form_text(form_data, "ticket_text")
@@ -623,7 +629,13 @@ async def analyze(request: Request):
                 parse_text=effective_text,
             )
     except (OSError, ValueError) as error:
-        return render_index(request, form=form, error=str(error), status_code=400)
+        return render_index(
+            request,
+            form=form,
+            error=str(error),
+            status_code=400,
+            partial=partial,
+        )
 
     return render_index(
         request,
@@ -631,6 +643,7 @@ async def analyze(request: Request):
         result=result_view(result, "Первичная диагностика"),
         effective_ticket_text=effective_text,
         has_uuid_level=has_uuid_sources(product) or product == "recording",
+        partial=partial,
     )
 
 
@@ -638,6 +651,7 @@ async def analyze(request: Request):
 async def secondary(request: Request):
     form_data = await request.form()
     validate_csrf(form_data)
+    partial = wants_fragment(request)
 
     product = form_text(form_data, "product", "recording")
     effective_text = form_text(form_data, "effective_ticket_text")
@@ -713,6 +727,7 @@ async def secondary(request: Request):
             secondary_form={"call_uuid": call_uuid, "mode": mode},
             has_uuid_level=has_uuid_sources(product) or product == "recording",
             status_code=400,
+            partial=partial,
         )
 
     return render_index(
@@ -723,6 +738,7 @@ async def secondary(request: Request):
         effective_ticket_text=effective_text,
         secondary_form={"call_uuid": call_uuid, "mode": mode},
         has_uuid_level=has_uuid_sources(product) or product == "recording",
+        partial=partial,
     )
 
 

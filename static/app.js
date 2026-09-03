@@ -9,6 +9,7 @@
     "/secondary": "Запускаем второй этап…",
     "/batch": "Обрабатываем таблицу…",
   };
+  const fetchActions = new Set(["/analyze", "/secondary"]);
 
   function storedTheme() {
     try {
@@ -119,6 +120,46 @@
     button.disabled = false;
   }
 
+  function skeletonMarkup() {
+    return (
+      '<div class="result-skeleton" aria-hidden="true">' +
+      '<div class="skeleton-line skeleton-heading"></div>' +
+      '<div class="skeleton-grid">' +
+      '<div class="skeleton-panel">' +
+      '<div class="skeleton-line"></div><div class="skeleton-line"></div>' +
+      '<div class="skeleton-line short"></div>' +
+      "</div>" +
+      '<div class="skeleton-panel">' +
+      '<div class="skeleton-card"></div><div class="skeleton-card"></div>' +
+      "</div></div></div>"
+    );
+  }
+
+  async function submitViaFetch(form, zone) {
+    zone.setAttribute("aria-busy", "true");
+    zone.innerHTML = skeletonMarkup();
+    try {
+      const response = await fetch(form.getAttribute("action") || form.action, {
+        method: "POST",
+        body: new FormData(form),
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+      });
+      const contentType = response.headers.get("content-type") || "";
+      if (!response.ok || !contentType.includes("text/html")) {
+        form.submit();
+        return;
+      }
+      zone.innerHTML = await response.text();
+    } catch (_error) {
+      // Сеть или сервер недоступны — отправляем форму обычным путём.
+      form.submit();
+      return;
+    }
+    zone.removeAttribute("aria-busy");
+    resetPending(form);
+    scrollIntoFeedback();
+  }
+
   let draftHint = null;
   let draftTimer = 0;
 
@@ -179,36 +220,6 @@
       applyTheme(nextTheme);
     });
 
-    document.querySelectorAll("[data-copy-link]").forEach((button) => {
-      button.addEventListener("click", async () => {
-        try {
-          await copyText(button.dataset.copyLink || "");
-          flashCopyResult(button, true, "Скопировано");
-        } catch (_error) {
-          flashCopyResult(button, false);
-        }
-      });
-    });
-
-    document.addEventListener("click", async (event) => {
-      const button = event.target.closest("[data-copy-all]");
-      if (!button) return;
-      const scope = button.closest(".links-panel") || document;
-      const links = Array.from(scope.querySelectorAll("[data-copy-link]"))
-        .map((element) => element.dataset.copyLink)
-        .filter(Boolean);
-      if (!links.length) {
-        flashCopyResult(button, false);
-        return;
-      }
-      try {
-        await copyText(links.join("\n"));
-        flashCopyResult(button, true, `Скопировано: ${links.length}`);
-      } catch (_error) {
-        flashCopyResult(button, false);
-      }
-    });
-
     const ticketField = document.querySelector(
       '.ticket-form textarea[name="ticket_text"]',
     );
@@ -227,6 +238,36 @@
     });
   });
 
+  document.addEventListener("click", async (event) => {
+    const copyAllButton = event.target.closest("[data-copy-all]");
+    if (copyAllButton) {
+      const scope = copyAllButton.closest(".links-panel") || document;
+      const links = Array.from(scope.querySelectorAll("[data-copy-link]"))
+        .map((element) => element.dataset.copyLink)
+        .filter(Boolean);
+      if (!links.length) {
+        flashCopyResult(copyAllButton, false);
+        return;
+      }
+      try {
+        await copyText(links.join("\n"));
+        flashCopyResult(copyAllButton, true, `Скопировано: ${links.length}`);
+      } catch (_error) {
+        flashCopyResult(copyAllButton, false);
+      }
+      return;
+    }
+
+    const button = event.target.closest("[data-copy-link]");
+    if (!button) return;
+    try {
+      await copyText(button.dataset.copyLink || "");
+      flashCopyResult(button, true, "Скопировано");
+    } catch (_error) {
+      flashCopyResult(button, false);
+    }
+  });
+
   document.addEventListener(
     "submit",
     (event) => {
@@ -241,6 +282,11 @@
         return;
       }
       markPending(form);
+      if (!fetchActions.has(formPath(form)) || !window.fetch) return;
+      const zone = document.getElementById("result-zone");
+      if (!zone) return;
+      event.preventDefault();
+      submitViaFetch(form, zone);
     },
     true,
   );
