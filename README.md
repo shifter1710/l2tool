@@ -376,4 +376,6 @@ python -m ruff check .
 ```
 
 При изменении архитектуры (слои, потоки данных, хранилища) обновляйте
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Крупные задумки ведутся по
+задачам из [docs/tasks/](docs/tasks), правила ветвления — в
+[CONTRIBUTING.md](CONTRIBUTING.md).

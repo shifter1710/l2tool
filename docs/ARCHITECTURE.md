@@ -384,10 +384,25 @@ flowchart TB
 История успешных заявок выключена по умолчанию и включается галочкой;
 `--dry-run` в CLI отключает и историю, и диагностику парсера.
 
-## 13. Тесты и CI
+## 13. Тесты, CI и ветки
 
 - `tests/` — pytest по всем слоям: парсер, история, экспорт, ссылки сервисов,
   динамические источники, веб-маршруты (`TestClient` + `httpx`), таблицы.
 - CI (`.github/workflows/ci.yml`): Python 3.12 → `ruff check .` → `pytest -q`.
 - Локально: `python -m pip install -r requirements-dev.txt`,
   затем `python -m pytest -q` и `python -m ruff check .`.
+- Ветки (`CONTRIBUTING.md`): `feature/*` и `temp/*` → PR в `dev`;
+  перед выпуском `dev` вливается в `stage` (полная проверка), из `stage` —
+  merge в `main` с тегом `vX.Y.Z`. Релизный workflow
+  (`.github/workflows/release.yml`) на тег прогоняет тесты и публикует
+  GitHub Release с исходниками.
+- Текущие крупные задачи и их ветки — в `docs/tasks/`.
+
+```mermaid
+flowchart LR
+    f["feature/имя"] -->|"PR"| d["dev"]
+    t["temp/имя"] -->|"PR или удаление"| d
+    d -->|"merge перед выпуском"| s["stage"]
+    s -->|"merge + тег vX.Y.Z"| m["main"]
+    m -->|"тег"| rel["GitHub Release<br/>(release.yml: тесты + публикация)"]
+```
