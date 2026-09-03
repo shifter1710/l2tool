@@ -2,7 +2,6 @@ import json
 import re
 from urllib.parse import parse_qsl, quote_plus, urlencode, urlsplit, urlunsplit
 
-
 _PHONE_FILTER = re.compile(r"(?P<prefix>\|=\s*)`\+?\d{10,11}`")
 
 
@@ -89,7 +88,13 @@ def _build_explore_url(url, transform, *, time_from=None, time_to=None):
         raise ValueError("Copied Grafana Explore URL must contain a time range")
 
     return urlunsplit(
-        (parts.scheme, parts.netloc, parts.path, urlencode(params, quote_via=quote_plus), parts.fragment)
+        (
+            parts.scheme,
+            parts.netloc,
+            parts.path,
+            urlencode(params, quote_via=quote_plus),
+            parts.fragment,
+        )
     )
 
 
@@ -158,7 +163,10 @@ def build_explore_url_from_dashboard(
         "range": {"from": time_from, "to": time_to},
         "panelsState": {"logs": {"visualisationType": "logs"}},
     }
-    params = {"schemaVersion": "1", "panes": json.dumps({"A": pane}, separators=(",", ":")), "orgId": org_id}
-    return urlunsplit(
-        (dashboard.scheme, dashboard.netloc, "/explore", urlencode(params, quote_via=quote_plus), "")
-    )
+    params = {
+        "schemaVersion": "1",
+        "panes": json.dumps({"A": pane}, separators=(",", ":")),
+        "orgId": org_id,
+    }
+    explore_url = urlencode(params, quote_via=quote_plus)
+    return urlunsplit((dashboard.scheme, dashboard.netloc, "/explore", explore_url, ""))

@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -78,7 +79,8 @@ def test_format_opensearch_periods():
 
 
 def test_format_links_uses_human_readable_titles():
-    assert format_links({"zapis": ["https://example.test/a"], "bff": ["https://example.test/b"]}) == [
+    links = format_links({"zapis": ["https://example.test/a"], "bff": ["https://example.test/b"]})
+    assert links == [
         "[Grafana / find-call-in-logs]",
         "\033]8;;https://example.test/a\033\\https://example.test/a\033]8;;\033\\",
         "[BFF / OpenSearch]",
@@ -107,14 +109,12 @@ def test_resolve_modules_removes_duplicates_without_reordering():
 
 
 def test_resolve_modules_rejects_unknown_module():
-    with pytest.raises(
-        ValueError,
-        match=(
-            "Unknown service: bad. Available: "
-            "zapis, sip_stack, bff, secretary, myconnect, myconnect_call, noise"
-            ", recording_mgw, recording_vss_crs, recording_crs, recording_collector"
-        ),
-    ):
+    expected = re.escape(
+        "Unknown service: bad. Available: "
+        "zapis, sip_stack, bff, secretary, myconnect, myconnect_call, noise"
+        ", recording_mgw, recording_vss_crs, recording_crs, recording_collector"
+    )
+    with pytest.raises(ValueError, match=expected):
         gtool.resolve_modules("bad")
 
 
@@ -265,7 +265,8 @@ def test_warnings_are_grouped_after_history_before_links(monkeypatch, tmp_path):
 def test_cli_main_prints_generated_links(monkeypatch, tmp_path, capsys):
     ticket_path = tmp_path / "ticket.txt"
     ticket_path.write_text(
-        "Номер клиента (msisdn): +7 (999) 123-45-67\nДата и время проблемного звонка: 06.05.2026 10:30",
+        "Номер клиента (msisdn): +7 (999) 123-45-67\n"
+        "Дата и время проблемного звонка: 06.05.2026 10:30",
         encoding="utf-8",
     )
 
@@ -399,7 +400,10 @@ def test_cli_product_skips_input(monkeypatch, tmp_path):
     selected_open_args = []
 
     monkeypatch.setattr("builtins.input", lambda prompt: pytest.fail("input should not be called"))
-    monkeypatch.setattr("sys.argv", ["gtool.py", "--file", str(ticket_path), "--product", "recording"])
+    monkeypatch.setattr(
+        "sys.argv",
+        ["gtool.py", "--file", str(ticket_path), "--product", "recording"],
+    )
     monkeypatch.setattr(gtool, "open_links", lambda links: None)
     monkeypatch.setattr(
         gtool,

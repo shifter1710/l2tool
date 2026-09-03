@@ -255,7 +255,8 @@ def test_run_ticket_treats_empty_service_result_as_partial(monkeypatch, tmp_path
 def test_cli_no_history_does_not_save_or_open_links(monkeypatch, tmp_path, capsys):
     ticket_path = tmp_path / "ticket.txt"
     ticket_path.write_text(
-        "Номер клиента (msisdn): +7 (999) 123-45-67\nДата и время проблемного звонка: 06.05.2026 10:30",
+        "Номер клиента (msisdn): +7 (999) 123-45-67\n"
+        "Дата и время проблемного звонка: 06.05.2026 10:30",
         encoding="utf-8",
     )
     opened = []
@@ -323,7 +324,8 @@ def test_cli_normal_run_saves_history_without_opening_links(monkeypatch, tmp_pat
 def test_cli_dry_run_does_not_save_or_open(monkeypatch, tmp_path, capsys):
     ticket_path = tmp_path / "ticket.txt"
     ticket_path.write_text(
-        "Номер клиента (msisdn): +7 (999) 123-45-67\nДата и время проблемного звонка: 06.05.2026 10:30",
+        "Номер клиента (msisdn): +7 (999) 123-45-67\n"
+        "Дата и время проблемного звонка: 06.05.2026 10:30",
         encoding="utf-8",
     )
     opened = []
