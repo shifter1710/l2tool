@@ -9,7 +9,7 @@
     <title>Диагностика заявки — l2tool</title>
     <link rel="icon" href="{{ url_for('static', path='/favicon.svg') }}" type="image/svg+xml">
     <script src="{{ url_for('static', path='/app.js') }}" defer></script>
-    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260904-5">
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260904-6">
   </head>
   <body>
     <a class="skip-link" href="#ticket-form">Перейти к форме</a>
@@ -32,97 +32,67 @@
     </header>
 
     <main class="shell{% if result %} shell-compact{% endif %}">
-      <section class="hero">
-        <p class="eyebrow">Новая диагностика</p>
-        <h1>От заявки до нужных логов<br>за один проход</h1>
-        <p class="lead">Вставьте текст заявки, проверьте распознанные данные и откройте готовые ссылки на Grafana и OpenSearch.</p>
-      </section>
+      <h1 class="visually-hidden">Диагностика заявки</h1>
 
       {{ error_alert(error) }}
 
-      <div class="workspace-grid">
-        <section class="panel primary-panel">
-          <div class="panel-heading">
-            <div>
-              <span class="step">01</span>
-              <h2>Исходные данные</h2>
-            </div>
-            <p>Текст обрабатывается локально и не отправляется во внешние сервисы.</p>
+      <section class="panel primary-panel">
+        <form method="post" action="/analyze#result" class="ticket-form" id="ticket-form" tabindex="-1">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <div class="form-row">
+            <label>
+              <span>Продукт</span>
+              <select name="product">
+                {% for product in products %}
+                  <option value="{{ product.key }}" {% if not product.enabled %}disabled{% endif %} {% if form.product == product.key %}selected{% endif %}>
+                    {{ product.title }}{% if not product.enabled %} — скоро{% endif %}
+                  </option>
+                {% endfor %}
+              </select>
+            </label>
+            <label class="window-field">
+              <span>Окно, минут</span>
+              <input type="number" name="window" min="0" max="1440" value="{{ form.window }}">
+            </label>
           </div>
 
-          <form method="post" action="/analyze#result" class="ticket-form" id="ticket-form" tabindex="-1">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <div class="form-row">
-              <label>
-                <span>Продукт</span>
-                <select name="product">
-                  {% for product in products %}
-                    <option value="{{ product.key }}" {% if not product.enabled %}disabled{% endif %} {% if form.product == product.key %}selected{% endif %}>
-                      {{ product.title }}{% if not product.enabled %} — скоро{% endif %}
-                    </option>
-                  {% endfor %}
-                </select>
-              </label>
-              <label class="window-field">
-                <span>Окно, минут</span>
-                <input type="number" name="window" min="0" max="1440" value="{{ form.window }}">
-              </label>
-            </div>
+          <label class="ticket-field">
+            <span>Текст заявки</span>
+            <textarea name="ticket_text" required maxlength="200000" placeholder="Номер клиента (msisdn): ...&#10;Дата и время проблемного звонка: ...&#10;Местонахождение абонента: ...">{{ form.ticket_text }}</textarea>
+          </label>
 
-            <label class="datetime-override">
-              <span>Уточнить дату и время звонка <em>необязательно</em></span>
-              <input type="datetime-local" name="override_event_datetime_picker" step="60" value="{{ form.corrections.event_datetime_picker|default('') }}">
-              <small>Если выбрать значение, оно будет приоритетнее даты и времени из текста заявки.</small>
+          <label class="datetime-override">
+            <span>Уточнить дату и время звонка <em>необязательно</em></span>
+            <input type="datetime-local" name="override_event_datetime_picker" step="60" value="{{ form.corrections.event_datetime_picker|default('') }}">
+            <small>Если выбрать значение, оно будет приоритетнее даты и времени из текста заявки.</small>
+          </label>
+
+          <div class="form-actions">
+            <label class="check-field">
+              <input type="checkbox" name="save_history" value="1" {% if form.save_history %}checked{% endif %}>
+              <span>Сохранить успешный результат в локальную историю</span>
             </label>
+            <button type="submit">Разобрать заявку <span aria-hidden="true">→</span></button>
+          </div>
+        </form>
+      </section>
 
-            <label class="ticket-field">
-              <span>Текст заявки</span>
-              <textarea name="ticket_text" required maxlength="200000" placeholder="Номер клиента (msisdn): ...&#10;Дата и время проблемного звонка: ...&#10;Местонахождение абонента: ...">{{ form.ticket_text }}</textarea>
-            </label>
+      <p class="local-note"><span class="shield" aria-hidden="true">✓</span> Локальный режим: сервис слушает только 127.0.0.1, кэширование страниц отключено.</p>
 
-            <div class="form-actions">
-              <label class="check-field">
-                <input type="checkbox" name="save_history" value="1" {% if form.save_history %}checked{% endif %}>
-                <span>Сохранить успешный результат в локальную историю</span>
-              </label>
-              <button type="submit">Разобрать заявку <span aria-hidden="true">→</span></button>
-            </div>
-          </form>
-        </section>
-
-        <aside class="side-stack">
-          <section class="panel info-panel">
-            <span class="step">Как это работает</span>
-            <ol>
-              <li><strong>Разбор</strong><span>Номера, время и регион</span></li>
-              <li><strong>Проверка</strong><span>Исправление найденных полей</span></li>
-              <li><strong>Переход</strong><span>Готовые диагностические ссылки</span></li>
-            </ol>
-          </section>
-
-          <section class="privacy-card">
-            <span class="shield">✓</span>
-            <div>
-              <strong>Локальный режим</strong>
-              <p>Сервис слушает только 127.0.0.1. Кэширование страниц отключено.</p>
-            </div>
-          </section>
-
-          <section class="panel batch-panel">
-            <span class="step">Пакетная обработка</span>
-            <h3>Потерянные звонки</h3>
-            <p>Загрузите XLSX, XLSM, CSV или TSV. Готовая таблица с диагностическими ссылками сразу скачается обратно.</p>
-            <form method="post" action="/batch" enctype="multipart/form-data" class="batch-form">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <label class="file-field">
-                <span>Таблица, до 25 МБ</span>
-                <input type="file" name="table_file" accept=".xlsx,.xlsm,.csv,.tsv" required>
-              </label>
-              <button type="submit" class="secondary-button">Обработать и скачать</button>
-            </form>
-          </section>
-        </aside>
-      </div>
+      <details class="panel batch-panel">
+        <summary>
+          <strong>Пакетная обработка · потерянные звонки</strong>
+          <span class="batch-hint">XLSX, XLSM, CSV или TSV до 25 МБ — готовая таблица со ссылками скачается обратно</span>
+        </summary>
+        <form method="post" action="/batch" enctype="multipart/form-data" class="batch-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <label class="file-field">
+            <span>Таблица, до 25 МБ</span>
+            <input type="file" name="table_file" accept=".xlsx,.xlsm,.csv,.tsv" required>
+          </label>
+          <button type="submit" class="secondary-button">Обработать и скачать</button>
+        </form>
+      </details>
 
       <div id="result-zone" aria-live="polite">
         {% include "_results.html" %}
