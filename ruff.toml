@@ -1,0 +1,23 @@
+target-version = "py310"
+line-length = 100
+
+[lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "C4",  # flake8-comprehensions
+    "RUF", # ruff-specific
+]
+ignore = [
+    # Проект на русском: кириллица в строках и комментариях — норма.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+[lint.isort]
+known-first-party = ["core", "modules", "services", "tests"]

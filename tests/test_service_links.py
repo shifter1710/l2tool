@@ -1,5 +1,6 @@
-import pytest
 from urllib.parse import unquote
+
+import pytest
 
 from core import config
 from modules import bff_logs_opensearch, find_call_in_logs

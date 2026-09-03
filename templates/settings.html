@@ -1,0 +1,124 @@
+{% macro source_fields(values, product_options, levels) %}
+  <div class="source-edit-grid">
+    <label><span>Название блока</span><input name="name" required maxlength="80" value="{{ values.name|default('') }}" placeholder="Например, BFF · OpenSearch"></label>
+    <label><span>Продукт</span><select name="product" required>{% for option in product_options %}<option value="{{ option.key }}" {% if values.product|default('recording') == option.key %}selected{% endif %}>{{ option.title }}</option>{% endfor %}</select></label>
+    <label><span>Уровень</span><select name="level" required>{% for key, title in levels.items() %}<option value="{{ key }}" {% if values.level|default('number') == key %}selected{% endif %}>{{ title }}</option>{% endfor %}</select></label>
+    <label><span>Значение из примера <small>необязательно</small></span><input name="sample_value" value="{{ values.sample_value|default('') }}" placeholder="Номер или UUID из ссылки"></label>
+  </div>
+  <label class="url-field"><span>Пример готовой ссылки</span><textarea name="example_url" required spellcheck="false" placeholder="Вставьте полную ссылку из Grafana или OpenSearch">{{ values.example_url|default('') }}</textarea></label>
+  <div class="window-fields">
+    <label><span>Минут до события</span><input type="number" name="minutes_before" min="0" max="1440" value="{{ values.minutes_before|default(2) }}"></label>
+    <label><span>Минут после события</span><input type="number" name="minutes_after" min="0" max="1440" value="{{ values.minutes_after|default(90) }}"></label>
+  </div>
+{% endmacro %}
+
+{% macro render_source(source, csrf_token, product_options, levels) %}
+  <article class="panel source-card is-configured">
+    <header class="source-card-header">
+      <div><span class="platform-badge platform-{{ source.platform }}">{{ 'Grafana' if source.platform == 'grafana' else 'OpenSearch' }}</span><h3>{{ source.name }}</h3></div>
+      <span class="source-status">Активен</span>
+    </header>
+    <dl class="parsed-source">
+      <div><dt>Сервер</dt><dd>{{ source.host }}</dd></div>
+      {% if source.index_pattern %}<div><dt>Представление</dt><dd>{{ source.index_pattern }}</dd></div>{% endif %}
+      <div><dt>Подстановка</dt><dd>{% if source.level == 'uuid' %}{{ 'UUID без дефисов' if source.strategy == 'compact_uuid' else 'UUID целиком' }}{% elif source.replacements|length > 1 %}номер А + номер Б{% else %}{{ {'raw':'полный номер', 'national':'номер без 7', 'hash16':'хеш номера'}[source.strategy]|default('номер') }}{% endif %}</dd></div>
+    </dl>
+    <form method="post" action="/settings/source" class="source-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="source_id" value="{{ source.id }}">
+      {{ source_fields(source, product_options, levels) }}
+      <div class="source-actions"><button type="submit">Сохранить изменения</button></div>
+    </form>
+    <form method="post" action="/settings/source/delete" class="delete-source-form" data-confirm-delete="{{ source.name }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="source_id" value="{{ source.id }}">
+      <button type="submit" class="danger-button">Удалить блок</button>
+    </form>
+  </article>
+{% endmacro %}
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>Источники диагностики — l2tool</title>
+    <script src="{{ url_for('static', path='/app.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260903-4">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="l2tool — на главную"><span class="brand-mark">L2</span><span><strong>l2tool</strong><small>настройка источников</small></span></a>
+      <div class="topbar-actions">
+        <a class="nav-link" href="/">К диагностике</a>
+        <div class="local-badge"><span></span> Локальные настройки</div>
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Включить тёмную тему" aria-pressed="false"><span class="theme-icon" aria-hidden="true">☾</span><span data-theme-label>Тёмная тема</span></button>
+      </div>
+    </header>
+
+    <main class="shell settings-shell">
+      <section class="settings-hero">
+        <p class="eyebrow">Конструктор диагностики</p>
+        <h1>Свои диагностические блоки</h1>
+        <p class="lead">Добавляйте любое количество блоков и называйте их так, как удобно команде. l2tool разбирает пример ссылки и при диагностике заменяет найденный номер или UUID и временной диапазон.</p>
+      </section>
+
+      {% if message %}<div class="alert alert-success" role="status"><strong>Готово</strong><span>{{ message }}</span></div>{% endif %}
+      {% if error %}<div class="alert alert-error" role="alert"><strong>Не удалось сохранить</strong><span>{{ error }}</span></div>{% endif %}
+
+      <section class="panel add-source-panel">
+        <div class="panel-heading"><div><span class="step">+</span><h2>Добавить блок</h2></div></div>
+        <p>Откройте в Grafana или OpenSearch нужный поиск с тестовым номером либо UUID и вставьте сюда получившуюся ссылку.</p>
+        <form method="post" action="/settings/source" class="source-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          {{ source_fields(draft or {}, product_options, levels) }}
+          <div class="source-actions"><button type="submit">Распознать и добавить</button></div>
+        </form>
+      </section>
+
+      <section class="panel import-config-panel">
+        <div>
+          <p class="eyebrow">Готовая конфигурация</p>
+          <h2>Добавить блоки из файла</h2>
+          <p>Выберите <code>diagnostic_sources.json</code>. Импорт добавит новые блоки, сохранит текущие и пропустит точные дубликаты.</p>
+        </div>
+        <form method="post" action="/settings/import" enctype="multipart/form-data" class="import-config-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <label><span>JSON-файл</span><input type="file" name="config_file" accept="application/json,.json" required></label>
+          <div class="import-actions">
+            <a href="/settings/export" class="download-config">Скачать текущий</a>
+            <button type="submit">Проверить и добавить</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="config-notice">
+        <span class="shield">✓</span>
+        <div><strong>Без захардкоженных сервисов</strong><p>Название, принадлежность к продукту и уровень задаются здесь. Данные хранятся только локально в diagnostic_sources.json.</p></div>
+      </section>
+
+      <div class="product-config-list">
+        {% for product in products %}
+          <section class="product-config product-{{ product.key }}">
+            <header class="product-config-header">
+              <div class="product-monogram">{{ product.title[:1] }}</div>
+              <div><p>Продукт</p><h2>{{ product.title }}</h2><span>{{ 'Пользовательская конфигурация активна' if product.managed else 'Добавьте первый блок, чтобы заменить прежний профиль' }}</span></div>
+            </header>
+            <div class="product-levels">
+              {% for level in product.levels %}
+                <section class="config-level config-level-{{ level.key }}">
+                  <header class="level-header"><span class="level-number">{{ loop.index }}</span><div><h3>{{ level.title }}</h3><p>{{ 'Формируется из номеров заявки' if level.key == 'number' else 'Запускается после получения UUID звонка' }}</p></div></header>
+                  {% if level.sources %}
+                    <div class="source-grid">{% for source in level.sources %}{{ render_source(source, csrf_token, product_options, levels) }}{% endfor %}</div>
+                  {% else %}
+                    <div class="level-empty"><strong>Блоков пока нет</strong><span>Создайте блок в форме выше и выберите этот продукт и уровень.</span></div>
+                  {% endif %}
+                </section>
+              {% endfor %}
+            </div>
+          </section>
+        {% endfor %}
+      </div>
+    </main>
+  </body>
+</html>

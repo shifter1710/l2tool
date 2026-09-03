@@ -188,7 +188,8 @@ def format_loki_retention_warning(ctx, now=None):
 
     if event_date and (current.date() - event_date).days > LOKI_RETENTION_DAYS:
         return [
-            "[WARN] Loki хранит логи только 5 дней. По Grafana/Loki данные могут быть уже недоступны."
+            "[WARN] Loki хранит логи только 5 дней. "
+            "По Grafana/Loki данные могут быть уже недоступны."
         ]
 
     return []
@@ -493,7 +494,12 @@ def main():
         help=f"Services: {','.join(MODULES)} or all",
     )
     ap.add_argument("--product", choices=available_products(), help="Product profile")
-    ap.add_argument("--window", type=int, default=DEFAULT_WINDOW, help="Window in minutes for Grafana")
+    ap.add_argument(
+        "--window",
+        type=int,
+        default=DEFAULT_WINDOW,
+        help="Window in minutes for Grafana",
+    )
     ap.add_argument("--export-case", help="Path to write parsed case JSON")
     ap.add_argument(
         "--call-uuid",

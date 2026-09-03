@@ -5,7 +5,6 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from uuid import uuid4
 
-
 HISTORY_ROOT = Path("history")
 INDEX_NAME = "index.json"
 
@@ -46,7 +45,7 @@ def find_matches(ctx, history_root=HISTORY_ROOT):
     return {
         number: index[number]
         for number in ticket_numbers(ctx)
-        if number in index and index[number]
+        if index.get(number)
     }
 
 

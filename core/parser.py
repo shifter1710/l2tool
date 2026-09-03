@@ -340,7 +340,10 @@ def parse(text: str, now: datetime | None = None):
 
     general_problem = bool(
         datetime_raw
-        and (DATE_RANGE_PATTERN.search(datetime_raw) or GENERAL_PROBLEM_PATTERN.search(datetime_raw))
+        and (
+            DATE_RANGE_PATTERN.search(datetime_raw)
+            or GENERAL_PROBLEM_PATTERN.search(datetime_raw)
+        )
     )
     event_date_source = "explicit" if event_date else None
     if general_problem:

@@ -3,9 +3,10 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="color-scheme" content="light">
+    <meta name="color-scheme" content="light dark">
     <title>l2tool — локальная диагностика</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
+    <script src="{{ url_for('static', path='/app.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260903-4">
   </head>
   <body>
     <header class="topbar">
@@ -16,7 +17,14 @@
           <small>рабочее место диагностики</small>
         </span>
       </a>
-      <div class="local-badge"><span></span> Только на этом компьютере</div>
+      <div class="topbar-actions">
+        <a class="nav-link" href="/settings">Настройки источников</a>
+        <div class="local-badge"><span></span> Только на этом компьютере</div>
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Включить тёмную тему" aria-pressed="false">
+          <span class="theme-icon" aria-hidden="true">☾</span>
+          <span data-theme-label>Тёмная тема</span>
+        </button>
+      </div>
     </header>
 
     <main class="shell">
@@ -61,6 +69,12 @@
                 <input type="number" name="window" min="0" max="1440" value="{{ form.window }}">
               </label>
             </div>
+
+            <label class="datetime-override">
+              <span>Уточнить дату и время звонка <em>необязательно</em></span>
+              <input type="datetime-local" name="override_event_datetime_picker" step="60" value="{{ form.corrections.event_datetime_picker|default('') }}">
+              <small>Если выбрать значение, оно будет приоритетнее даты и времени из текста заявки.</small>
+            </label>
 
             <label class="ticket-field">
               <span>Текст заявки</span>
@@ -127,8 +141,15 @@
                 <div><span class="step">02</span><h3>Распознанные данные</h3></div>
               </div>
               <dl class="parsed-list">
-                {% for label, value in result.fields %}
-                  <div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>
+                {% for field in result.fields %}
+                  <div {% if field.unmatched %}class="client-unmatched"{% endif %}>
+                    <dt>{{ field.label }}</dt>
+                    <dd>
+                      <span>{{ field.value }}</span>
+                      {% if field.is_client %}<span class="client-badge">Клиент</span>{% endif %}
+                      {% if field.utc_offset %}<span class="timezone-badge" title="Смещение региона относительно UTC">{{ field.utc_offset }}</span>{% endif %}
+                    </dd>
+                  </div>
                 {% endfor %}
               </dl>
 
@@ -147,9 +168,14 @@
                 <div class="service-list">
                   {% for service in result.services %}
                     <article class="service-card">
-                      <div><span class="service-dot"></span><strong>{{ service.title }}</strong></div>
+                      <div class="service-title"><span class="service-dot"></span><strong>{{ service.title }}</strong></div>
                       {% for link in service.links %}
-                        <a href="{{ link }}" target="_blank" rel="noreferrer noopener">Открыть{% if service.links|length > 1 %} · {{ loop.index }}{% endif %}<span>↗</span></a>
+                        <div class="link-row">
+                          <a class="open-link" href="{{ link }}" target="_blank" rel="noreferrer noopener">Открыть{% if service.links|length > 1 %} · {{ loop.index }}{% endif %}<span>↗</span></a>
+                          <button class="copy-link" type="button" data-copy-link="{{ link }}" aria-label="Копировать ссылку {{ service.title }}{% if service.links|length > 1 %}, вариант {{ loop.index }}{% endif %}">
+                            <span data-copy-label aria-live="polite">Копировать</span>
+                          </button>
+                        </div>
                       {% endfor %}
                     </article>
                   {% endfor %}
@@ -169,7 +195,7 @@
             </section>
           {% endif %}
 
-          <div class="followup-grid {% if form.product != 'recording' %}single-column{% endif %}">
+          <div class="followup-grid {% if not has_uuid_level %}single-column{% endif %}">
             <section class="panel followup-panel">
               <span class="step">Поправить разбор</span>
               <h3>Если что-то распознано неверно</h3>
@@ -184,14 +210,19 @@
                   <label><span>Номер клиента</span><input name="override_msisdn" value="{{ form.corrections.msisdn|default('') }}" placeholder="79991234567"></label>
                   <label><span>Номер А</span><input name="override_phone_a" value="{{ form.corrections.phone_a|default('') }}" placeholder="79991234567"></label>
                   <label><span>Номер Б</span><input name="override_phone_b" value="{{ form.corrections.phone_b|default('') }}" placeholder="79991234567"></label>
-                  <label><span>Дата и время</span><input name="override_event_datetime" value="{{ form.corrections.event_datetime|default('') }}" placeholder="03.09.2026 14:30"></label>
                   <label><span>Регион</span><input name="override_region" value="{{ form.corrections.region|default('') }}" placeholder="Красноярский край"></label>
+                  <label><span>Дата и время вручную</span><input name="override_event_datetime" value="{{ form.corrections.event_datetime|default('') }}" placeholder="03.09.2026 14:30"></label>
+                  <label>
+                    <span>Или выбрать в календаре</span>
+                    <input type="datetime-local" name="override_event_datetime_picker" step="60" value="{{ form.corrections.event_datetime_picker|default('') }}">
+                    <small class="field-hint">Значение календаря имеет приоритет.</small>
+                  </label>
                 </div>
                 <button type="submit" class="secondary-button">Пересобрать результат</button>
               </form>
             </section>
 
-            {% if form.product == 'recording' %}
+            {% if has_uuid_level %}
               <section class="panel followup-panel uuid-panel">
                 <span class="step">Вторичная диагностика</span>
                 <h3>UUID звонка уже найден?</h3>
@@ -202,12 +233,14 @@
                   <input type="hidden" name="window" value="{{ form.window }}">
                   <textarea name="effective_ticket_text" class="hidden-control" aria-hidden="true">{{ effective_ticket_text }}</textarea>
                   <label><span>UUID звонка</span><input name="call_uuid" required value="{{ secondary_form.call_uuid|default('') if secondary_form else '' }}" placeholder="12345678-1234-5678-1234-567812345678"></label>
-                  <label><span>Глубина проверки</span>
-                    <select name="secondary_mode">
-                      <option value="mgw" {% if secondary_form and secondary_form.mode == 'mgw' %}selected{% endif %}>Только MGW</option>
-                      <option value="pipeline" {% if secondary_form and secondary_form.mode == 'pipeline' %}selected{% endif %}>Вся цепочка: MGW → VSS/CRS → CRS → Collector</option>
-                    </select>
-                  </label>
+                  {% if form.product == 'recording' and not form.dynamic_product %}
+                    <label><span>Глубина проверки прежнего профиля</span>
+                      <select name="secondary_mode">
+                        <option value="mgw" {% if secondary_form and secondary_form.mode == 'mgw' %}selected{% endif %}>Только MGW</option>
+                        <option value="pipeline" {% if secondary_form and secondary_form.mode == 'pipeline' %}selected{% endif %}>Вся цепочка: MGW → VSS/CRS → CRS → Collector</option>
+                      </select>
+                    </label>
+                  {% endif %}
                   <button type="submit">Запустить второй этап <span>→</span></button>
                 </form>
               </section>
@@ -231,8 +264,13 @@
           <div class="service-list secondary-service-list">
             {% for service in secondary_result.services %}
               <article class="service-card">
-                <div><span class="service-dot"></span><strong>{{ service.title }}</strong></div>
-                {% for link in service.links %}<a href="{{ link }}" target="_blank" rel="noreferrer noopener">Открыть{% if service.links|length > 1 %} · {{ loop.index }}{% endif %}<span>↗</span></a>{% endfor %}
+                <div class="service-title"><span class="service-dot"></span><strong>{{ service.title }}</strong></div>
+                {% for link in service.links %}
+                  <div class="link-row">
+                    <a class="open-link" href="{{ link }}" target="_blank" rel="noreferrer noopener">Открыть{% if service.links|length > 1 %} · {{ loop.index }}{% endif %}<span>↗</span></a>
+                    <button class="copy-link" type="button" data-copy-link="{{ link }}" aria-label="Копировать ссылку {{ service.title }}{% if service.links|length > 1 %}, вариант {{ loop.index }}{% endif %}"><span data-copy-label aria-live="polite">Копировать</span></button>
+                  </div>
+                {% endfor %}
               </article>
             {% else %}
               <p class="empty-state">Ссылки второго этапа не сформированы.</p>

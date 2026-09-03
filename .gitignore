@@ -17,6 +17,7 @@ __pycache__/
 .venv/
 config.toml
 config.yaml
+diagnostic_sources*.json
 parser_issues/
 parser_issues.jsonl
 .codex/

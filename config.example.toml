@@ -18,6 +18,8 @@ minutes_before = 2
 minutes_after = 90
 
 [services.bff]
+time_from = "now-5d"
+time_to = "now"
 minutes_before = 2
 minutes_after = 90
 

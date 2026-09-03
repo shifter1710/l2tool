@@ -14,7 +14,6 @@ from core.time_windows import fmt_utc
 from modules import find_call_in_logs, sip_stack_opensearch
 from services.loki_explore import build_explore_url_from_dashboard
 
-
 OUTPUT_HEADERS = (
     "Номер пользователя",
     "Номер другой стороны",
@@ -373,7 +372,7 @@ def build_mgw_links(ctx, event_time):
     ]
 
 
-def build_links(row, window=None):
+def build_links(row):
     user_phone = normalize_phone(row.user_phone)
     other_phone = normalize_phone(row.other_phone)
     event_time = parse_utc_datetime(row.call_start)
@@ -436,7 +435,6 @@ def write_clean_workbook(
     output_path,
     *,
     sheet_title,
-    window=60,
     dropped_count=0,
 ):
     from openpyxl import Workbook
@@ -469,7 +467,7 @@ def write_clean_workbook(
     link_count = 0
 
     for output_row, source_row in enumerate(rows, start=2):
-        links_by_service, row_warnings = build_links(source_row, window)
+        links_by_service, row_warnings = build_links(source_row)
         values = (
             phone_text(source_row.user_phone),
             phone_text(source_row.other_phone),
@@ -540,6 +538,7 @@ def write_clean_workbook(
     for column_letter, width in zip(
         "ABCDEFGH",
         (22, 22, 24, 28, 23, 18, 20, 18),
+        strict=True,
     ):
         sheet.column_dimensions[column_letter].width = width
 
@@ -571,12 +570,8 @@ def process_table(
     output_path=None,
     *,
     sheet_name=None,
-    window=60,
     now=None,
 ):
-    if window < 0:
-        raise ValueError("Окно поиска не может быть отрицательным")
-
     input_path = Path(input_path)
     output_path = Path(output_path) if output_path else default_output_path(input_path)
     if input_path.resolve() == output_path.resolve():
@@ -588,6 +583,5 @@ def process_table(
         rows,
         output_path,
         sheet_title=f"{source_title} — очищено",
-        window=window,
         dropped_count=dropped_count,
     )
