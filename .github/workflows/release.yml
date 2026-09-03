@@ -1,0 +1,52 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: python -m ruff check .
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          body: |
+            l2tool — локальный инструмент диагностики заявок L2: веб-интерфейс
+            и CLI. Разбирает текст заявки и формирует готовые ссылки на Grafana
+            и OpenSearch; всё работает только на вашем компьютере.
+
+            ## Запуск
+
+            1. Скачайте и распакуйте **Source code** (zip) в разделе Assets ниже.
+            2. Linux / macOS: `./start.sh` · Windows: `start.bat`
+            3. Нужен Python 3.10+. При первом запуске скрипт сам создаст
+               окружение, установит зависимости и откроет
+               `http://127.0.0.1:8765`.
+
+            Дальнейшая настройка — в [README](https://github.com/shifter1710/l2tool/blob/main/README.md).
