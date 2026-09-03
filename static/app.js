@@ -145,7 +145,8 @@
         headers: { "X-Requested-With": "XMLHttpRequest" },
       });
       const contentType = response.headers.get("content-type") || "";
-      if (!response.ok || !contentType.includes("text/html")) {
+      if (!contentType.includes("text/html")) {
+        // Например, JSON-ответ CSRF-отказа — уходим в обычную отправку.
         form.submit();
         return;
       }
@@ -157,6 +158,9 @@
     }
     zone.removeAttribute("aria-busy");
     resetPending(form);
+    if (zone.querySelector("#result")) {
+      document.querySelector("main.shell")?.classList.add("shell-compact");
+    }
     scrollIntoFeedback();
   }
 
