@@ -3,6 +3,28 @@
   {% for name, _hex in product_colors.items() %}<option value="{{ name }}" {% if current == name %}selected{% endif %}>{{ name }}</option>{% endfor %}
 {% endmacro %}
 
+{% macro runbook_step_row(index, step, source_options) %}
+  <div class="runbook-step-row">
+    <span class="runbook-step-index" aria-hidden="true">{{ index }}</span>
+    <label><span>Блок источника</span>
+      <select name="step_source_{{ index }}">
+        <option value="">Без ссылки — просто текст</option>
+        {% for option in source_options %}
+          <option value="{{ option.id }}" {% if step and step.source == option.id %}selected{% endif %}>{{ option.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label><span>Что искать</span><input name="step_note_{{ index }}" maxlength="500" value="{{ step.note if step else '' }}" placeholder="Например, проверить приход звонка в конвейер"></label>
+  </div>
+{% endmacro %}
+
+{% macro runbook_steps_field(steps, source_options, limit) %}
+  {% set existing = steps if steps else [] %}
+  {% set empty_rows = [[limit - existing|length, 3]|min, 0]|max %}
+  {% for step in existing %}{{ runbook_step_row(loop.index, step, source_options) }}{% endfor %}
+  {% for _ in range(empty_rows) %}{{ runbook_step_row(existing|length + loop.index, none, source_options) }}{% endfor %}
+{% endmacro %}
+
 {% macro source_fields(values, product_options, levels) %}
   <div class="source-edit-grid">
     <label><span>Название блока</span><input name="name" required maxlength="80" value="{{ values.name|default('') }}" placeholder="Например, BFF · OpenSearch"></label>
@@ -90,7 +112,7 @@
     <title>Источники диагностики — l2tool</title>
     <link rel="icon" href="{{ url_for('static', path='/favicon.svg') }}" type="image/svg+xml">
     <script src="{{ url_for('static', path='/app.js') }}" defer></script>
-    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260904-7">
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260904-8">
   </head>
   <body>
     <a class="skip-link" href="#add-source">Перейти к форме</a>
@@ -182,6 +204,65 @@
           <label><span>Цвет монограммы</span><select name="color">{{ color_options(product_draft.color if product_draft and not product_draft.original_key else none) }}</select></label>
           <button type="submit" class="secondary-button">Добавить продукт</button>
         </form>
+      </section>
+
+      <section class="panel runbook-settings-panel" id="runbook" tabindex="-1">
+        <div class="panel-heading"><div><span class="step">R</span><h2>Ранбук «куда смотреть»</h2></div><p>Кейсы «симптом → шаги» показываются свёрнутой панелью на главной. Шаг ссылается на диагностический блок по его названию; если блока нет в настройках, шаг показывается текстом. Содержимое хранится локально в runbook.json.</p></div>
+
+        <form method="post" action="/settings/runbook" class="runbook-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <p class="eyebrow">Новый кейс</p>
+          <div class="runbook-case-fields">
+            <label><span>Симптом</span><input name="symptom" required maxlength="200" value="{{ runbook_draft.symptom|default('') }}" placeholder="Запись есть, транскрипта нет"></label>
+            <label><span>Ключ <small>латиница и дефис, необязательно</small></span><input name="case_key" pattern="[a-z0-9][a-z0-9-]*" value="{{ runbook_draft.id|default('') }}" placeholder="no-transcript"></label>
+          </div>
+          <p class="eyebrow">Шаги по порядку</p>
+          {{ runbook_steps_field(runbook_draft.steps if runbook_draft else [], runbook_source_options, runbook_step_limit) }}
+          <div class="source-actions"><button type="submit">Добавить кейс</button></div>
+        </form>
+
+        {% if runbook_cases %}
+          <div class="runbook-case-list">
+            {% for case in runbook_cases %}
+              <details class="runbook-case">
+                <summary class="source-card-header">
+                  <div><h3>{{ case.symptom }}</h3><code>{{ case.id }}</code></div>
+                  <span class="source-summary">{{ case.steps|length }} {{ 'шаг' if case.steps|length == 1 else 'шагов' }}</span>
+                  <svg class="source-chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3 6l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </summary>
+                <form method="post" action="/settings/runbook" class="runbook-form">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="case_id" value="{{ case.id }}">
+                  <div class="runbook-case-fields">
+                    <label><span>Симптом</span><input name="symptom" required maxlength="200" value="{{ case.symptom }}"></label>
+                  </div>
+                  <p class="eyebrow">Шаги по порядку</p>
+                  {{ runbook_steps_field(case.steps, runbook_source_options, runbook_step_limit) }}
+                  <div class="source-actions">
+                    <button type="submit">Сохранить изменения</button>
+                    <button type="submit" formaction="/settings/runbook/delete" class="danger-button" data-confirm-delete="{{ case.symptom }}">Удалить кейс</button>
+                  </div>
+                </form>
+              </details>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="empty-state">Кейсов пока нет: добавьте первый выше или импортируйте готовый runbook.json.</p>
+        {% endif %}
+
+        <div class="toml-import">
+          <p class="eyebrow">Готовый файл</p>
+          <h3>Заменить ранбук из файла</h3>
+          <p>Выберите <code>runbook.json</code>. Файл проверяется целиком: при любой ошибке текущий ранбук остаётся без изменений, а перед заменой сохраняется копия в бэкапы.</p>
+          <form method="post" action="/settings/runbook/import" enctype="multipart/form-data" class="import-config-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label><span>JSON-файл</span><input type="file" name="runbook_file" accept="application/json,.json" required></label>
+            <div class="import-actions">
+              <a href="/settings/runbook/export" class="download-config">Скачать текущий</a>
+              <button type="submit" class="secondary-button">Проверить и заменить</button>
+            </div>
+          </form>
+        </div>
       </section>
 
       <section class="panel import-config-panel">

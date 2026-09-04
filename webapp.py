@@ -21,10 +21,11 @@ from starlette.background import BackgroundTask
 from starlette.datastructures import UploadFile
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from core import history, reference_codes
+from core import history, reference_codes, runbook
 from core.dynamic_sources import (
     LEVELS,
     build_product_links,
+    build_source_links,
     create_product,
     delete_product,
     delete_source,
@@ -149,6 +150,7 @@ def page_context(request: Request, **values):
         "result": None,
         "secondary_result": None,
         "reference_hints": [],
+        "runbook_cases": runbook.load_store(),
         "has_uuid_level": False,
         "error": None,
         "partial": False,
@@ -457,13 +459,33 @@ def wants_fragment(request: Request):
     return request.headers.get("x-requested-with") == "XMLHttpRequest"
 
 
+def runbook_source_options():
+    """Блоки источников для выпадающих списков шагов ранбука."""
+    try:
+        sources = list_sources()
+    except (OSError, ValueError):
+        return []
+    return [
+        {
+            "id": source["id"],
+            "label": (
+                f"{source['name']} · {product_title(source['product'])} · "
+                f"{LEVELS.get(source['level'], source['level'])}"
+            ),
+        }
+        for source in sources
+    ]
+
+
 def render_settings(request, *, status_code=200, overrides=None, **values):
     products = []
     catalog = []
     backups = []
+    source_options = []
     try:
         products = product_groups(overrides=overrides)
         catalog = list_products()
+        source_options = runbook_source_options()
     except (OSError, ValueError) as error:
         values.setdefault(
             "error",
@@ -485,6 +507,10 @@ def render_settings(request, *, status_code=200, overrides=None, **values):
         "product_colors": PRODUCT_COLORS,
         "backups": backups,
         "levels": LEVELS,
+        "runbook_cases": runbook.load_store(),
+        "runbook_source_options": source_options,
+        "runbook_step_limit": runbook.MAX_STEPS,
+        "runbook_draft": None,
         "draft": None,
         "preview": None,
         "import_report": None,
@@ -536,6 +562,12 @@ async def settings(request: Request):
         message = "Продукт удалён"
     elif params.get("restored"):
         message = "Настройки восстановлены из резервной копии"
+    elif params.get("runbook_saved"):
+        message = "Кейс ранбука сохранён"
+    elif params.get("runbook_deleted"):
+        message = "Кейс ранбука удалён"
+    elif params.get("runbook_imported") is not None:
+        message = f"Ранбук заменён: кейсов — {params.get('runbook_imported', '0')}"
     elif params.get("imported") is not None:
         added = params.get("imported", "0")
         skipped = params.get("skipped", "0")
@@ -838,6 +870,175 @@ def _reference_rows():
         for group, codes in reference_codes.load_store().items()
         for code, text in codes.items()
     ]
+def parse_case_steps(form_data):
+    steps = []
+    for index in range(1, runbook.MAX_STEPS + 1):
+        note = form_text(form_data, f"step_note_{index}")
+        source = form_text(form_data, f"step_source_{index}")
+        if not note and not source:
+            continue
+        steps.append({"source": source or None, "note": note})
+    return steps
+
+
+def runbook_step_views(case, ticket_text, window):
+    """Шаги кейса: ссылки строятся по данным заявки, без заявки — подсказка."""
+    ctx = None
+    parse_error = None
+    if ticket_text:
+        parsed = run_ticket(
+            ticket_text,
+            open_arg="",
+            window=window,
+            input_file="web-runbook",
+            save_history=False,
+            write_diagnostics=False,
+        )
+        if parsed.errors:
+            parse_error = parsed.errors[0]
+        else:
+            ctx = parsed.ctx
+    try:
+        sources = {source["id"]: source for source in list_sources()}
+    except (OSError, ValueError):
+        sources = {}
+
+    steps = []
+    for index, step in enumerate(case["steps"], start=1):
+        view = {
+            "index": index,
+            "note": step["note"],
+            "source_name": None,
+            "links": [],
+            "hint": None,
+        }
+        source = sources.get(step["source"]) if step["source"] else None
+        if step["source"]:
+            if source is None:
+                view["hint"] = "Блок источника не найден в настройках — шаг без ссылки"
+            else:
+                view["source_name"] = source["name"]
+                if parse_error:
+                    view["hint"] = parse_error
+                elif ctx is None:
+                    view["hint"] = "Сначала разберите заявку — ссылка построится по её данным"
+                else:
+                    try:
+                        view["links"] = build_source_links(source, ctx)
+                    except (KeyError, TypeError, ValueError) as error:
+                        view["hint"] = str(error)
+        steps.append(view)
+    return steps
+
+
+def render_runbook(request, *, status_code=200, case=None, steps=None, error=None):
+    return templates.TemplateResponse(
+        request=request,
+        name="runbook.html",
+        context={
+            "request": request,
+            "csrf_token": app.state.csrf_token,
+            "case": case,
+            "steps": steps or [],
+            "error": error,
+        },
+        status_code=status_code,
+    )
+
+
+@app.post("/runbook")
+async def runbook_page(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    case_id = form_text(form_data, "case_id")
+    ticket_text = form_text(form_data, "effective_ticket_text") or form_text(
+        form_data, "ticket_text"
+    )
+    if len(ticket_text) > MAX_TICKET_LENGTH:
+        return render_runbook(
+            request,
+            status_code=400,
+            error="Текст заявки отсутствует или слишком велик",
+        )
+    case = runbook.find_case(case_id)
+    if case is None:
+        return render_runbook(
+            request,
+            status_code=404,
+            error="Кейс ранбука не найден — возможно, он был удалён",
+        )
+    try:
+        window = parse_window(form_data)
+    except ValueError as error:
+        return render_runbook(request, status_code=400, case=case, error=str(error))
+    return render_runbook(
+        request,
+        case=case,
+        steps=runbook_step_views(case, ticket_text, window),
+    )
+
+
+@app.post("/settings/runbook")
+async def settings_save_runbook_case(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    case_id = form_text(form_data, "case_id") or None
+    values = {
+        "id": form_text(form_data, "case_key") or case_id,
+        "symptom": form_text(form_data, "symptom"),
+        "steps": parse_case_steps(form_data),
+    }
+    try:
+        runbook.save_case(values, case_id=case_id)
+    except (OSError, ValueError) as error:
+        return render_settings(
+            request,
+            error=str(error),
+            status_code=400,
+            runbook_draft=values,
+        )
+    return RedirectResponse("/settings?runbook_saved=1", status_code=303)
+
+
+@app.post("/settings/runbook/delete")
+async def settings_delete_runbook_case(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    try:
+        runbook.delete_case(form_text(form_data, "case_id"))
+    except (OSError, ValueError) as error:
+        return render_settings(request, error=str(error), status_code=400)
+    return RedirectResponse("/settings?runbook_deleted=1", status_code=303)
+
+
+@app.post("/settings/runbook/import")
+async def settings_import_runbook(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    upload = form_data.get("runbook_file")
+    if not isinstance(upload, UploadFile) or not upload.filename:
+        return render_settings(request, error="Выберите JSON-файл ранбука", status_code=400)
+    try:
+        if Path(upload.filename).suffix.lower() != ".json":
+            raise ValueError("Поддерживается файл runbook.json")
+        content = await upload.read(runbook.MAX_FILE_SIZE + 1)
+        if len(content) > runbook.MAX_FILE_SIZE:
+            raise ValueError("Файл ранбука превышает 256 КБ")
+        count = runbook.import_store(content.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as error:
+        return render_settings(request, error=str(error), status_code=400)
+    finally:
+        await upload.close()
+    return RedirectResponse(f"/settings?runbook_imported={count}", status_code=303)
+
+
+@app.get("/settings/runbook/export")
+async def settings_export_runbook():
+    return Response(
+        content=runbook.export_store(),
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="runbook.json"'},
+    )
 
 
 @app.post("/analyze")

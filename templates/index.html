@@ -9,7 +9,7 @@
     <title>Диагностика заявки — l2tool</title>
     <link rel="icon" href="{{ url_for('static', path='/favicon.svg') }}" type="image/svg+xml">
     <script src="{{ url_for('static', path='/app.js') }}" defer></script>
-    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260904-7">
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260904-8">
   </head>
   <body>
     <a class="skip-link" href="#ticket-form">Перейти к форме</a>
@@ -76,6 +76,30 @@
           </div>
         </form>
       </section>
+
+      {% if runbook_cases %}
+        <details class="panel runbook-panel">
+          <summary>
+            <strong>Куда смотреть?</strong>
+            <span class="batch-hint">Ранбук: выберите симптом — получите список диагностических блоков и что в них искать</span>
+          </summary>
+          <ul class="runbook-case-list">
+            {% for item in runbook_cases %}
+              <li>
+                <form method="post" action="/runbook" class="runbook-case-form">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="case_id" value="{{ item.id }}">
+                  <input type="hidden" name="product" value="{{ form.product }}">
+                  <input type="hidden" name="window" value="{{ form.window }}">
+                  <textarea name="effective_ticket_text" class="hidden-control" aria-hidden="true">{{ effective_ticket_text|default(form.ticket_text) }}</textarea>
+                  <button type="submit" class="secondary-button">{{ item.symptom }}<span aria-hidden="true"> →</span></button>
+                </form>
+              </li>
+            {% endfor %}
+          </ul>
+          <p class="field-hint">Ссылки в шагах строятся по данным последнего разбора заявки. Кейсы редактируются на странице настроек.</p>
+        </details>
+      {% endif %}
 
       <p class="local-note"><span class="shield" aria-hidden="true">✓</span> Локальный режим: сервис слушает только 127.0.0.1, кэширование страниц отключено.</p>
 
