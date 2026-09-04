@@ -395,6 +395,44 @@ button span { margin-left: var(--space-2); }
 .batch-form { display: grid; gap: var(--space-3); padding: var(--space-4); border-top: 1px solid var(--soft-line); }
 .file-field input { height: auto; padding: 8px; font-size: var(--text-2xs); }
 
+/* Runbook: панель на главной и страница кейса */
+.runbook-panel { margin-top: var(--space-3); padding: 0; overflow: hidden; }
+.runbook-panel > summary { display: flex; flex-wrap: wrap; gap: 4px var(--space-4); align-items: baseline; padding: var(--space-3) var(--space-4); cursor: pointer; list-style: none; }
+.runbook-panel > summary::-webkit-details-marker { display: none; }
+.runbook-panel > summary strong { font-size: var(--text-sm); }
+.runbook-panel > summary::after { content: "▾"; margin-left: auto; color: var(--muted); font-size: var(--text-2xs); }
+.runbook-panel[open] > summary::after { content: "▴"; }
+.runbook-case-list { margin: 0; padding: var(--space-4); list-style: none; border-top: 1px solid var(--soft-line); display: grid; gap: var(--space-2); }
+.runbook-case-form { display: flex; }
+.runbook-case-form .secondary-button { text-align: left; width: 100%; }
+.runbook-panel .field-hint { margin: 0; padding: 0 var(--space-4) var(--space-3); }
+
+.runbook-steps-panel { margin-top: var(--space-4); }
+.runbook-steps { margin: 0; padding: 0 var(--space-4) var(--space-4); list-style: none; display: grid; gap: var(--space-3); }
+.runbook-step { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--subtle-panel); }
+.runbook-step-note { display: grid; gap: 4px; }
+.runbook-step-note p { margin: 0; font-size: var(--text-sm); }
+.runbook-step-source { font-size: var(--text-xs); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.runbook-step-hint { margin: 0; color: var(--muted); font-size: var(--text-xs); }
+
+/* Ранбук на странице настроек */
+.runbook-settings-panel { display: grid; gap: var(--space-3); }
+.runbook-form { display: grid; gap: var(--space-2); }
+.runbook-case-fields { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: var(--space-2); }
+.runbook-step-row { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-2); align-items: end; }
+.runbook-step-index { align-self: end; padding-bottom: 10px; color: var(--muted); font-size: var(--text-xs); font-weight: 700; }
+.runbook-case { border: 1px solid var(--soft-line); border-radius: var(--radius-sm); }
+.runbook-case > summary { display: flex; gap: var(--space-2); align-items: center; padding: var(--space-2) var(--space-3); cursor: pointer; list-style: none; }
+.runbook-case > summary::-webkit-details-marker { display: none; }
+.runbook-case > summary::after { content: "▾"; margin-left: auto; color: var(--muted); font-size: var(--text-2xs); }
+.runbook-case[open] > summary::after { content: "▴"; }
+.runbook-case form { padding: var(--space-3); border-top: 1px solid var(--soft-line); }
+@media (max-width: 720px) {
+  .runbook-case-fields { grid-template-columns: 1fr; }
+  .runbook-step-row { grid-template-columns: auto 1fr; }
+  .runbook-step-row label:last-child { grid-column: 2; }
+}
+
 /* -- Алерты и статусы -------------------------------------------------- */
 
 .alert {
