@@ -1,6 +1,8 @@
 # sensitive / local ticket data
 examples/*.txt
 !examples/*.example.txt
+runbook.json
+!runbook.example.json
 tickets/
 notes/
 history/
