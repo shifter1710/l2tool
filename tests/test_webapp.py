@@ -957,3 +957,167 @@ def test_settings_import_toml_renders_report(monkeypatch, tmp_path):
         "Grafana / find-call-in-logs"
     ]
     assert dynamic_sources.list_sources()[0]["strategy"] == "national"
+
+
+def write_reference_store(data):
+    from core import reference_codes
+
+    reference_codes.write_store(data)
+
+
+def test_analyze_shows_reference_hints_without_javascript():
+    write_reference_store({"Decision": {"10": "Абонент вне зоны покрытия"}})
+    ticket = valid_ticket() + "\nКод решения: Decision 10"
+
+    response = request(
+        "POST",
+        "/analyze",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "product": "recording",
+            "window": "60",
+            "ticket_text": ticket,
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Расшифровка кодов" in response.text
+    assert "Абонент вне зоны покрытия" in response.text
+    assert "Decision 10" in response.text
+
+
+def test_analyze_deduplicates_reference_hints_in_text_order():
+    write_reference_store({"Decision": {"10": "Вне покрытия", "20": "Перегрузка"}})
+    ticket = valid_ticket() + "\nDecision 20, затем Decision 10 и снова Decision 20"
+
+    response = request(
+        "POST",
+        "/analyze",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "product": "recording",
+            "window": "60",
+            "ticket_text": ticket,
+        },
+    )
+
+    assert response.status_code == 200
+    hints = re.search(r'<ul class="reference-hints">(.*?)</ul>', response.text, re.DOTALL)
+    assert hints
+    assert hints.group(1).count("Decision 20") == 1
+    assert hints.group(1).count("Decision 10") == 1
+    assert hints.group(1).index("Decision 20") < hints.group(1).index("Decision 10")
+
+
+def test_analyze_without_codes_or_reference_hides_block():
+    response = request(
+        "POST",
+        "/analyze",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "product": "recording",
+            "window": "60",
+            "ticket_text": valid_ticket(),
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Расшифровка кодов" not in response.text
+
+
+def test_reference_page_lists_codes_and_links_from_settings():
+    write_reference_store({"Decision": {"10": "Вне покрытия"}})
+
+    page = request("GET", "/reference")
+    settings_page = request("GET", "/settings")
+
+    assert page.status_code == 200
+    assert "Справочник кодов" in page.text
+    assert "Группа" in page.text
+    assert "Код" in page.text
+    assert "Расшифровка" in page.text
+    assert "Вне покрытия" in page.text
+    assert 'action="/reference/import"' in page.text
+    assert "/reference/export" in page.text
+    assert settings_page.status_code == 200
+    assert 'href="/reference"' in settings_page.text
+
+
+def test_reference_page_survives_broken_store():
+    from core import reference_codes
+
+    reference_codes.write_store({"Decision": {"10": "ok"}})
+    reference_codes.STORE_PATH.write_text("{broken", encoding="utf-8")
+
+    page = request("GET", "/reference")
+
+    assert page.status_code == 200
+    assert "empty-state" in page.text
+
+
+def test_reference_import_replaces_and_export_roundtrips():
+    payload = json.dumps(
+        {"Reason": {"42": "Перегрузка MGW"}}, ensure_ascii=False
+    ).encode()
+    import_response = request(
+        "POST",
+        "/reference/import",
+        data={"csrf_token": webapp.app.state.csrf_token},
+        files={"reference_file": ("reference_codes.json", payload, "application/json")},
+    )
+    export_response = request("GET", "/reference/export")
+
+    assert import_response.status_code == 303
+    assert "imported=1" in import_response.headers["location"]
+    assert export_response.status_code == 200
+    assert export_response.json() == {"Reason": {"42": "Перегрузка MGW"}}
+    assert "reference_codes.json" in export_response.headers["content-disposition"]
+
+    page = request("GET", import_response.headers["location"])
+    assert "Перегрузка MGW" in page.text
+    assert "записей — 1" in page.text
+
+
+def test_reference_import_rejects_invalid_file_without_replacing():
+    write_reference_store({"Decision": {"10": "Вне покрытия"}})
+    response = request(
+        "POST",
+        "/reference/import",
+        data={"csrf_token": webapp.app.state.csrf_token},
+        files={
+            "reference_file": (
+                "reference_codes.json",
+                b'{"Decision": {"10": ""}}',
+                "application/json",
+            ),
+        },
+    )
+    export_response = request("GET", "/reference/export")
+
+    assert response.status_code == 400
+    assert "Расшифровка кода" in response.text
+    assert export_response.json() == {"Decision": {"10": "Вне покрытия"}}
+
+
+def test_reference_import_rejects_oversized_file():
+    padding = b'{"Decision": {"1": "' + b"x" * (256 * 1024) + b'"}}'
+    response = request(
+        "POST",
+        "/reference/import",
+        data={"csrf_token": webapp.app.state.csrf_token},
+        files={"reference_file": ("reference_codes.json", padding, "application/json")},
+    )
+
+    assert response.status_code == 400
+    assert "256 КБ" in response.text
+
+
+def test_reference_import_requires_csrf_token():
+    response = request(
+        "POST",
+        "/reference/import",
+        data={},
+        files={"reference_file": ("reference_codes.json", b"{}", "application/json")},
+    )
+
+    assert response.status_code == 403

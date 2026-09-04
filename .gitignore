@@ -1,6 +1,8 @@
 # sensitive / local ticket data
 examples/*.txt
 !examples/*.example.txt
+reference_codes.json
+!reference_codes.example.json
 tickets/
 notes/
 history/

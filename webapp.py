@@ -21,7 +21,7 @@ from starlette.background import BackgroundTask
 from starlette.datastructures import UploadFile
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from core import history
+from core import history, reference_codes
 from core.dynamic_sources import (
     LEVELS,
     build_product_links,
@@ -148,6 +148,7 @@ def page_context(request: Request, **values):
         },
         "result": None,
         "secondary_result": None,
+        "reference_hints": [],
         "has_uuid_level": False,
         "error": None,
         "partial": False,
@@ -758,6 +759,87 @@ async def settings_import_toml(request: Request):
     return render_settings(request, import_report=report)
 
 
+@app.get("/reference")
+async def reference_page(request: Request):
+    params = request.query_params
+    message = None
+    if params.get("imported"):
+        message = f"Справочник заменён: записей — {params.get('imported')}"
+    rows = _reference_rows()
+    return templates.TemplateResponse(
+        request=request,
+        name="reference.html",
+        context={
+            "request": request,
+            "csrf_token": app.state.csrf_token,
+            "rows": rows,
+            "message": message,
+            "error": None,
+        },
+    )
+
+
+@app.post("/reference/import")
+async def reference_import(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    upload = form_data.get("reference_file")
+    if not isinstance(upload, UploadFile) or not upload.filename:
+        return templates.TemplateResponse(
+            request=request,
+            name="reference.html",
+            context={
+                "request": request,
+                "csrf_token": app.state.csrf_token,
+                "rows": _reference_rows(),
+                "message": None,
+                "error": "Выберите JSON-файл справочника",
+            },
+            status_code=400,
+        )
+
+    try:
+        if Path(upload.filename).suffix.lower() != ".json":
+            raise ValueError("Поддерживается файл reference_codes.json")
+        content = await upload.read(reference_codes.MAX_FILE_SIZE + 1)
+        if len(content) > reference_codes.MAX_FILE_SIZE:
+            raise ValueError("Файл справочника превышает 256 КБ")
+        count = reference_codes.import_store(content.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as error:
+        return templates.TemplateResponse(
+            request=request,
+            name="reference.html",
+            context={
+                "request": request,
+                "csrf_token": app.state.csrf_token,
+                "rows": _reference_rows(),
+                "message": None,
+                "error": str(error),
+            },
+            status_code=400,
+        )
+    finally:
+        await upload.close()
+    return RedirectResponse(f"/reference?imported={count}", status_code=303)
+
+
+@app.get("/reference/export")
+async def reference_export():
+    return Response(
+        content=reference_codes.export_store(),
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="reference_codes.json"'},
+    )
+
+
+def _reference_rows():
+    return [
+        {"group": group, "code": code, "text": text}
+        for group, codes in reference_codes.load_store().items()
+        for code, text in codes.items()
+    ]
+
+
 @app.post("/analyze")
 async def analyze(request: Request):
     form_data = await request.form()
@@ -826,6 +908,7 @@ async def analyze(request: Request):
         form=form,
         result=result_view(result, "Первичная диагностика"),
         effective_ticket_text=effective_text,
+        reference_hints=reference_codes.find_codes(effective_text),
         has_uuid_level=has_uuid_sources(product) or product == "recording",
         partial=partial,
     )
@@ -920,6 +1003,7 @@ async def secondary(request: Request):
         result=result_view(primary_result, "Первичная диагностика"),
         secondary_result=result_view(secondary_result, "Вторичная диагностика по UUID"),
         effective_ticket_text=effective_text,
+        reference_hints=reference_codes.find_codes(effective_text),
         secondary_form={"call_uuid": call_uuid, "mode": mode},
         has_uuid_level=has_uuid_sources(product) or product == "recording",
         partial=partial,

@@ -95,6 +95,19 @@
       </section>
     </div>
 
+    {% if reference_hints %}
+      <section class="panel reference-panel">
+        <div class="panel-heading compact-heading">
+          <div><span class="step">i</span><h3>Расшифровка кодов</h3></div>
+        </div>
+        <ul class="reference-hints">
+          {% for hint in reference_hints %}
+            <li><code>{{ hint.group }} {{ hint.code }}</code> — {{ hint.text }}</li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+
     {% if result.services %}
       <div class="print-links">
         <h3>Все ссылки списком</h3>
