@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 import secrets
 import shutil
 import tempfile
@@ -20,22 +21,35 @@ from starlette.background import BackgroundTask
 from starlette.datastructures import UploadFile
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from core import history
+from core import history, reference_codes, runbook
 from core.dynamic_sources import (
     LEVELS,
     build_product_links,
+    build_source_links,
+    create_product,
+    delete_product,
     delete_source,
+    duplicate_source,
+    import_services_from_config,
     import_sources,
     is_managed,
+    list_products,
     list_sources,
     load_store,
+    move_source,
+    preview_source,
     product_groups,
     save_source,
+    set_product_sources_enabled,
+    set_source_enabled,
+    update_product,
 )
 from core.lost_calls_table import TableFormatError, process_table
-from core.products import available_products, product_title, resolve_product_modules
+from core.products import PRODUCT_COLORS, available_products, product_title, resolve_product_modules
+from core.source_backups import list_backups, restore_backup
 from core.utils import normalize_uuid
 from gtool import MODULE_TITLES, RunResult, run_ticket
+from services.registry import SERVICES
 
 ROOT_DIR = Path(__file__).resolve().parent
 LOCAL_HOSTS = ["127.0.0.1", "localhost"]
@@ -135,8 +149,11 @@ def page_context(request: Request, **values):
         },
         "result": None,
         "secondary_result": None,
+        "reference_hints": [],
+        "runbook_cases": runbook.load_store(),
         "has_uuid_level": False,
         "error": None,
+        "partial": False,
     }
     context.update(values)
     return context
@@ -177,7 +194,9 @@ def validate_product(product):
 
 def has_uuid_sources(product):
     try:
-        return is_managed(product) and bool(list_sources(product=product, level="uuid"))
+        return is_managed(product) and bool(
+            list_sources(product=product, level="uuid", enabled_only=True)
+        )
     except ValueError:
         return False
 
@@ -361,6 +380,34 @@ def parsed_fields(ctx):
     return fields
 
 
+HISTORY_DATE_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}")
+
+
+def service_platforms():
+    platforms = {name: definition.platform for name, definition in SERVICES.items()}
+    try:
+        platforms.update(
+            {source["id"]: source["platform"] for source in list_sources()}
+        )
+    except (OSError, ValueError):
+        pass
+    return platforms
+
+
+def history_view(matches):
+    items = []
+    for number, paths in matches.items():
+        entries = []
+        for path in paths:
+            name = str(path).replace("\\", "/").rsplit("/", 1)[-1]
+            prefix = HISTORY_DATE_PREFIX.match(name)
+            entries.append(
+                {"date": prefix.group(0) if prefix else "", "path": str(path)}
+            )
+        items.append({"number": str(number), "entries": entries})
+    return items
+
+
 def result_view(result: RunResult, title):
     warnings = []
     for line in result.lines:
@@ -373,6 +420,7 @@ def result_view(result: RunResult, title):
             warnings.append(message)
 
     ctx = result.ctx
+    platforms = service_platforms()
     return {
         "title": title,
         "status": result.status,
@@ -388,34 +436,66 @@ def result_view(result: RunResult, title):
                 "title": ctx.get("service_titles", {}).get(
                     module_name, MODULE_TITLES.get(module_name, module_name)
                 ),
+                "platform": platforms.get(module_name),
                 "links": links,
             }
             for module_name, links in result.links_by_module.items()
         ],
         "warnings": warnings,
-        "history": history.find_matches(ctx),
+        "history": history_view(history.find_matches(ctx)),
     }
 
 
-def render_index(request, *, status_code=200, **values):
+def render_index(request, *, status_code=200, partial=False, **values):
     return templates.TemplateResponse(
         request=request,
-        name="index.html",
-        context=page_context(request, **values),
+        name="_results.html" if partial else "index.html",
+        context=page_context(request, partial=partial, **values),
         status_code=status_code,
     )
 
 
+def wants_fragment(request: Request):
+    return request.headers.get("x-requested-with") == "XMLHttpRequest"
+
+
+def runbook_source_options():
+    """Блоки источников для выпадающих списков шагов ранбука."""
+    try:
+        sources = list_sources()
+    except (OSError, ValueError):
+        return []
+    return [
+        {
+            "id": source["id"],
+            "label": (
+                f"{source['name']} · {product_title(source['product'])} · "
+                f"{LEVELS.get(source['level'], source['level'])}"
+            ),
+        }
+        for source in sources
+    ]
+
+
 def render_settings(request, *, status_code=200, overrides=None, **values):
+    products = []
+    catalog = []
+    backups = []
+    source_options = []
     try:
         products = product_groups(overrides=overrides)
+        catalog = list_products()
+        source_options = runbook_source_options()
     except (OSError, ValueError) as error:
-        products = []
         values.setdefault(
             "error",
             f"{error}. Проверьте файл diagnostic_sources.json или удалите его.",
         )
         status_code = max(status_code, 400)
+    try:
+        backups = list_backups()
+    except (OSError, ValueError):
+        backups = []
     context = {
         "request": request,
         "csrf_token": app.state.csrf_token,
@@ -423,8 +503,17 @@ def render_settings(request, *, status_code=200, overrides=None, **values):
         "product_options": [
             {"key": key, "title": product_title(key)} for key in available_products()
         ],
+        "catalog": catalog,
+        "product_colors": PRODUCT_COLORS,
+        "backups": backups,
         "levels": LEVELS,
+        "runbook_cases": runbook.load_store(),
+        "runbook_source_options": source_options,
+        "runbook_step_limit": runbook.MAX_STEPS,
+        "runbook_draft": None,
         "draft": None,
+        "preview": None,
+        "import_report": None,
         "error": None,
         "message": None,
     }
@@ -444,14 +533,44 @@ async def index(request: Request):
 
 @app.get("/settings")
 async def settings(request: Request):
+    params = request.query_params
     message = None
-    if request.query_params.get("saved"):
+    if params.get("saved"):
         message = "Диагностический блок сохранён и уже используется"
-    elif request.query_params.get("deleted"):
+    elif params.get("deleted"):
         message = "Диагностический блок удалён"
-    elif request.query_params.get("imported") is not None:
-        added = request.query_params.get("imported", "0")
-        skipped = request.query_params.get("skipped", "0")
+    elif params.get("duplicated"):
+        message = "Блок скопирован — отредактируйте копию под новую задачу"
+    elif params.get("toggled"):
+        enabled = params.get("toggled") == "1"
+        state = (
+            "включён и участвует в диагностике"
+            if enabled
+            else "выключен и не попадает в диагностику"
+        )
+        message = f"Блок {state}"
+    elif params.get("moved"):
+        message = "Порядок блоков изменён"
+    elif params.get("bulk"):
+        state = "включены" if params.get("bulk") == "1" else "выключены"
+        message = f"Блоки продукта {state}"
+    elif params.get("product_created"):
+        message = "Продукт добавлен — теперь выбирайте его в формах блоков"
+    elif params.get("product_updated"):
+        message = "Продукт обновлён"
+    elif params.get("product_deleted"):
+        message = "Продукт удалён"
+    elif params.get("restored"):
+        message = "Настройки восстановлены из резервной копии"
+    elif params.get("runbook_saved"):
+        message = "Кейс ранбука сохранён"
+    elif params.get("runbook_deleted"):
+        message = "Кейс ранбука удалён"
+    elif params.get("runbook_imported") is not None:
+        message = f"Ранбук заменён: кейсов — {params.get('runbook_imported', '0')}"
+    elif params.get("imported") is not None:
+        added = params.get("imported", "0")
+        skipped = params.get("skipped", "0")
         message = f"Импортировано блоков: {added}. Уже существовало: {skipped}"
     return render_settings(request, message=message)
 
@@ -503,15 +622,7 @@ async def settings_save_source(request: Request):
     form_data = await request.form()
     validate_csrf(form_data)
     source_id = form_text(form_data, "source_id") or None
-    values = {
-        "name": form_text(form_data, "name"),
-        "product": form_text(form_data, "product"),
-        "level": form_text(form_data, "level"),
-        "example_url": form_text(form_data, "example_url"),
-        "sample_value": form_text(form_data, "sample_value"),
-        "minutes_before": form_text(form_data, "minutes_before", "2"),
-        "minutes_after": form_text(form_data, "minutes_after", "90"),
-    }
+    values = source_form_values(form_data)
     try:
         source = save_source(values, source_id=source_id)
     except (OSError, ValueError) as error:
@@ -537,10 +648,404 @@ async def settings_delete_source(request: Request):
     return RedirectResponse("/settings?deleted=1", status_code=303)
 
 
+@app.post("/settings/source/toggle")
+async def settings_toggle_source(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    source_id = form_text(form_data, "source_id")
+    enabled = form_text(form_data, "enabled") == "1"
+    try:
+        set_source_enabled(source_id, enabled)
+    except (OSError, ValueError) as error:
+        return render_settings(request, error=str(error), status_code=400)
+    state = "1" if enabled else "0"
+    return RedirectResponse(f"/settings?toggled={state}#source-{source_id}", status_code=303)
+
+
+@app.post("/settings/source/move")
+async def settings_move_source(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    source_id = form_text(form_data, "source_id")
+    direction = form_text(form_data, "direction", "up")
+    try:
+        move_source(source_id, direction)
+    except (OSError, ValueError) as error:
+        return render_settings(request, error=str(error), status_code=400)
+    return RedirectResponse(f"/settings?moved=1#source-{source_id}", status_code=303)
+
+
+@app.post("/settings/source/duplicate")
+async def settings_duplicate_source(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    source_id = form_text(form_data, "source_id")
+    try:
+        copy = duplicate_source(source_id)
+    except (OSError, ValueError) as error:
+        return render_settings(request, error=str(error), status_code=400)
+    return RedirectResponse(f"/settings?duplicated=1#source-{copy['id']}", status_code=303)
+
+
+def source_form_values(form_data):
+    return {
+        "name": form_text(form_data, "name"),
+        "product": form_text(form_data, "product"),
+        "level": form_text(form_data, "level"),
+        "example_url": form_text(form_data, "example_url"),
+        "sample_value": form_text(form_data, "sample_value"),
+        "minutes_before": form_text(form_data, "minutes_before", "2"),
+        "minutes_after": form_text(form_data, "minutes_after", "90"),
+    }
+
+
+@app.post("/settings/source/preview")
+async def settings_preview_source(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    source_id = form_text(form_data, "source_id") or None
+    values = source_form_values(form_data)
+    preview = preview_source(values, form_text(form_data, "preview_value"))
+    return render_settings(
+        request,
+        status_code=200 if not preview["error"] else 400,
+        overrides={source_id: values} if source_id else None,
+        draft=values if not source_id else None,
+        preview={**preview, "name": values["name"], "value": form_text(form_data, "preview_value")},
+    )
+
+
+@app.post("/settings/product")
+async def settings_save_product(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    original_key = form_text(form_data, "product_key")
+    values = {
+        "key": form_text(form_data, "key"),
+        "title": form_text(form_data, "title"),
+        "color": form_text(form_data, "color"),
+    }
+    try:
+        if original_key:
+            update_product(original_key, values["title"], values["color"], new_key=values["key"])
+            return RedirectResponse("/settings?product_updated=1", status_code=303)
+        create_product(values["key"], values["title"], values["color"])
+        return RedirectResponse("/settings?product_created=1", status_code=303)
+    except (OSError, ValueError) as error:
+        return render_settings(
+            request,
+            error=str(error),
+            status_code=400,
+            product_draft={**values, "original_key": original_key},
+        )
+
+
+@app.post("/settings/product/delete")
+async def settings_delete_product(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    product_key = form_text(form_data, "product_key")
+    try:
+        delete_product(product_key)
+    except (OSError, ValueError) as error:
+        return render_settings(request, error=str(error), status_code=400)
+    return RedirectResponse("/settings?product_deleted=1", status_code=303)
+
+
+@app.post("/settings/product/toggle-all")
+async def settings_toggle_all_sources(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    product_key = form_text(form_data, "product_key")
+    enabled = form_text(form_data, "enabled") == "1"
+    try:
+        set_product_sources_enabled(product_key, enabled)
+    except (OSError, ValueError) as error:
+        return render_settings(request, error=str(error), status_code=400)
+    state = "1" if enabled else "0"
+    return RedirectResponse(f"/settings?bulk={state}", status_code=303)
+
+
+@app.post("/settings/backup/restore")
+async def settings_restore_backup(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    name = form_text(form_data, "backup_name")
+    try:
+        restore_backup(name)
+    except (OSError, ValueError) as error:
+        return render_settings(request, error=str(error), status_code=400)
+    return RedirectResponse("/settings?restored=1", status_code=303)
+
+
+@app.post("/settings/import-toml")
+async def settings_import_toml(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    product = form_text(form_data, "product")
+    sample_value = form_text(form_data, "sample_value")
+    try:
+        report = import_services_from_config(product, sample_value=sample_value)
+    except (OSError, ValueError) as error:
+        return render_settings(request, error=str(error), status_code=400)
+    return render_settings(request, import_report=report)
+
+
+@app.get("/reference")
+async def reference_page(request: Request):
+    params = request.query_params
+    message = None
+    if params.get("imported"):
+        message = f"Справочник заменён: записей — {params.get('imported')}"
+    rows = _reference_rows()
+    return templates.TemplateResponse(
+        request=request,
+        name="reference.html",
+        context={
+            "request": request,
+            "csrf_token": app.state.csrf_token,
+            "rows": rows,
+            "message": message,
+            "error": None,
+        },
+    )
+
+
+@app.post("/reference/import")
+async def reference_import(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    upload = form_data.get("reference_file")
+    if not isinstance(upload, UploadFile) or not upload.filename:
+        return templates.TemplateResponse(
+            request=request,
+            name="reference.html",
+            context={
+                "request": request,
+                "csrf_token": app.state.csrf_token,
+                "rows": _reference_rows(),
+                "message": None,
+                "error": "Выберите JSON-файл справочника",
+            },
+            status_code=400,
+        )
+
+    try:
+        if Path(upload.filename).suffix.lower() != ".json":
+            raise ValueError("Поддерживается файл reference_codes.json")
+        content = await upload.read(reference_codes.MAX_FILE_SIZE + 1)
+        if len(content) > reference_codes.MAX_FILE_SIZE:
+            raise ValueError("Файл справочника превышает 256 КБ")
+        count = reference_codes.import_store(content.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as error:
+        return templates.TemplateResponse(
+            request=request,
+            name="reference.html",
+            context={
+                "request": request,
+                "csrf_token": app.state.csrf_token,
+                "rows": _reference_rows(),
+                "message": None,
+                "error": str(error),
+            },
+            status_code=400,
+        )
+    finally:
+        await upload.close()
+    return RedirectResponse(f"/reference?imported={count}", status_code=303)
+
+
+@app.get("/reference/export")
+async def reference_export():
+    return Response(
+        content=reference_codes.export_store(),
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="reference_codes.json"'},
+    )
+
+
+def _reference_rows():
+    return [
+        {"group": group, "code": code, "text": text}
+        for group, codes in reference_codes.load_store().items()
+        for code, text in codes.items()
+    ]
+def parse_case_steps(form_data):
+    steps = []
+    for index in range(1, runbook.MAX_STEPS + 1):
+        note = form_text(form_data, f"step_note_{index}")
+        source = form_text(form_data, f"step_source_{index}")
+        if not note and not source:
+            continue
+        steps.append({"source": source or None, "note": note})
+    return steps
+
+
+def runbook_step_views(case, ticket_text, window):
+    """Шаги кейса: ссылки строятся по данным заявки, без заявки — подсказка."""
+    ctx = None
+    parse_error = None
+    if ticket_text:
+        parsed = run_ticket(
+            ticket_text,
+            open_arg="",
+            window=window,
+            input_file="web-runbook",
+            save_history=False,
+            write_diagnostics=False,
+        )
+        if parsed.errors:
+            parse_error = parsed.errors[0]
+        else:
+            ctx = parsed.ctx
+    try:
+        sources = {source["id"]: source for source in list_sources()}
+    except (OSError, ValueError):
+        sources = {}
+
+    steps = []
+    for index, step in enumerate(case["steps"], start=1):
+        view = {
+            "index": index,
+            "note": step["note"],
+            "source_name": None,
+            "links": [],
+            "hint": None,
+        }
+        source = sources.get(step["source"]) if step["source"] else None
+        if step["source"]:
+            if source is None:
+                view["hint"] = "Блок источника не найден в настройках — шаг без ссылки"
+            else:
+                view["source_name"] = source["name"]
+                if parse_error:
+                    view["hint"] = parse_error
+                elif ctx is None:
+                    view["hint"] = "Сначала разберите заявку — ссылка построится по её данным"
+                else:
+                    try:
+                        view["links"] = build_source_links(source, ctx)
+                    except (KeyError, TypeError, ValueError) as error:
+                        view["hint"] = str(error)
+        steps.append(view)
+    return steps
+
+
+def render_runbook(request, *, status_code=200, case=None, steps=None, error=None):
+    return templates.TemplateResponse(
+        request=request,
+        name="runbook.html",
+        context={
+            "request": request,
+            "csrf_token": app.state.csrf_token,
+            "case": case,
+            "steps": steps or [],
+            "error": error,
+        },
+        status_code=status_code,
+    )
+
+
+@app.post("/runbook")
+async def runbook_page(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    case_id = form_text(form_data, "case_id")
+    ticket_text = form_text(form_data, "effective_ticket_text") or form_text(
+        form_data, "ticket_text"
+    )
+    if len(ticket_text) > MAX_TICKET_LENGTH:
+        return render_runbook(
+            request,
+            status_code=400,
+            error="Текст заявки отсутствует или слишком велик",
+        )
+    case = runbook.find_case(case_id)
+    if case is None:
+        return render_runbook(
+            request,
+            status_code=404,
+            error="Кейс ранбука не найден — возможно, он был удалён",
+        )
+    try:
+        window = parse_window(form_data)
+    except ValueError as error:
+        return render_runbook(request, status_code=400, case=case, error=str(error))
+    return render_runbook(
+        request,
+        case=case,
+        steps=runbook_step_views(case, ticket_text, window),
+    )
+
+
+@app.post("/settings/runbook")
+async def settings_save_runbook_case(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    case_id = form_text(form_data, "case_id") or None
+    values = {
+        "id": form_text(form_data, "case_key") or case_id,
+        "symptom": form_text(form_data, "symptom"),
+        "steps": parse_case_steps(form_data),
+    }
+    try:
+        runbook.save_case(values, case_id=case_id)
+    except (OSError, ValueError) as error:
+        return render_settings(
+            request,
+            error=str(error),
+            status_code=400,
+            runbook_draft=values,
+        )
+    return RedirectResponse("/settings?runbook_saved=1", status_code=303)
+
+
+@app.post("/settings/runbook/delete")
+async def settings_delete_runbook_case(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    try:
+        runbook.delete_case(form_text(form_data, "case_id"))
+    except (OSError, ValueError) as error:
+        return render_settings(request, error=str(error), status_code=400)
+    return RedirectResponse("/settings?runbook_deleted=1", status_code=303)
+
+
+@app.post("/settings/runbook/import")
+async def settings_import_runbook(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    upload = form_data.get("runbook_file")
+    if not isinstance(upload, UploadFile) or not upload.filename:
+        return render_settings(request, error="Выберите JSON-файл ранбука", status_code=400)
+    try:
+        if Path(upload.filename).suffix.lower() != ".json":
+            raise ValueError("Поддерживается файл runbook.json")
+        content = await upload.read(runbook.MAX_FILE_SIZE + 1)
+        if len(content) > runbook.MAX_FILE_SIZE:
+            raise ValueError("Файл ранбука превышает 256 КБ")
+        count = runbook.import_store(content.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as error:
+        return render_settings(request, error=str(error), status_code=400)
+    finally:
+        await upload.close()
+    return RedirectResponse(f"/settings?runbook_imported={count}", status_code=303)
+
+
+@app.get("/settings/runbook/export")
+async def settings_export_runbook():
+    return Response(
+        content=runbook.export_store(),
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="runbook.json"'},
+    )
+
+
 @app.post("/analyze")
 async def analyze(request: Request):
     form_data = await request.form()
     validate_csrf(form_data)
+    partial = wants_fragment(request)
 
     product = form_text(form_data, "product", "recording")
     ticket_text = form_text(form_data, "ticket_text")
@@ -591,14 +1096,22 @@ async def analyze(request: Request):
                 parse_text=effective_text,
             )
     except (OSError, ValueError) as error:
-        return render_index(request, form=form, error=str(error), status_code=400)
+        return render_index(
+            request,
+            form=form,
+            error=str(error),
+            status_code=400,
+            partial=partial,
+        )
 
     return render_index(
         request,
         form=form,
         result=result_view(result, "Первичная диагностика"),
         effective_ticket_text=effective_text,
+        reference_hints=reference_codes.find_codes(effective_text),
         has_uuid_level=has_uuid_sources(product) or product == "recording",
+        partial=partial,
     )
 
 
@@ -606,6 +1119,7 @@ async def analyze(request: Request):
 async def secondary(request: Request):
     form_data = await request.form()
     validate_csrf(form_data)
+    partial = wants_fragment(request)
 
     product = form_text(form_data, "product", "recording")
     effective_text = form_text(form_data, "effective_ticket_text")
@@ -681,6 +1195,7 @@ async def secondary(request: Request):
             secondary_form={"call_uuid": call_uuid, "mode": mode},
             has_uuid_level=has_uuid_sources(product) or product == "recording",
             status_code=400,
+            partial=partial,
         )
 
     return render_index(
@@ -689,8 +1204,10 @@ async def secondary(request: Request):
         result=result_view(primary_result, "Первичная диагностика"),
         secondary_result=result_view(secondary_result, "Вторичная диагностика по UUID"),
         effective_ticket_text=effective_text,
+        reference_hints=reference_codes.find_codes(effective_text),
         secondary_form={"call_uuid": call_uuid, "mode": mode},
         has_uuid_level=has_uuid_sources(product) or product == "recording",
+        partial=partial,
     )
 
 

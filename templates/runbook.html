@@ -1,0 +1,67 @@
+{% from "_results.html" import error_alert %}
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <meta name="description" content="Проверочный маршрут по симптому: упорядоченные шаги с диагностическими ссылками по данным разобранной заявки.">
+    <title>Куда смотреть — l2tool</title>
+    <link rel="icon" href="{{ url_for('static', path='/favicon.svg') }}" type="image/svg+xml">
+    <script src="{{ url_for('static', path='/app.js') }}" defer></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260904-8">
+  </head>
+  <body>
+    <a class="skip-link" href="#runbook-steps">Перейти к шагам</a>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="l2tool — на главную"><span class="brand-mark">L2</span><span><strong>l2tool</strong><small>куда смотреть</small></span></a>
+      <div class="topbar-actions">
+        <a class="nav-link" href="/">К диагностике</a>
+        <a class="nav-link" href="/settings#runbook">Настройки источников</a>
+        <div class="local-badge"><span></span> Только на этом компьютере</div>
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Включить тёмную тему" aria-pressed="false"><span class="theme-icon" aria-hidden="true">☾</span><span data-theme-label>Тёмная тема</span></button>
+      </div>
+    </header>
+
+    <main class="shell">
+      <div class="section-heading">
+        <div><p class="eyebrow">Ранбук</p><h1>{{ case.symptom if case else "Кейс не найден" }}</h1></div>
+      </div>
+
+      {{ error_alert(error) }}
+
+      {% if case %}
+        <section class="panel runbook-steps-panel" id="runbook-steps" tabindex="-1">
+          <div class="panel-heading">
+            <div><span class="step">?</span><h2>Порядок проверки</h2></div>
+            <a class="nav-link" href="/#ticket-form">Разобрать другую заявку</a>
+          </div>
+          <ol class="runbook-steps">
+            {% for step in steps %}
+              <li class="runbook-step">
+                <div class="runbook-step-note">
+                  {% if step.source_name %}<strong class="runbook-step-source">{{ step.source_name }}</strong>{% endif %}
+                  <p>{{ step.note }}</p>
+                </div>
+                {% if step.links %}
+                  <div class="link-group">
+                    {% for link in step.links %}
+                      <div class="link-row">
+                        <a class="open-link" href="{{ link }}" target="_blank" rel="noreferrer noopener">Открыть{% if step.links|length > 1 %} · {{ loop.index }}{% endif %}<span aria-hidden="true">↗</span></a>
+                        <button class="copy-link" type="button" data-copy-link="{{ link }}" aria-label="Копировать ссылку, шаг {{ step.index }}{% if step.links|length > 1 %}, вариант {{ loop.index }}{% endif %}">
+                          <span data-copy-label aria-live="polite">Копировать</span>
+                        </button>
+                      </div>
+                    {% endfor %}
+                  </div>
+                {% elif step.hint %}
+                  <p class="runbook-step-hint">{{ step.hint }}</p>
+                {% endif %}
+              </li>
+            {% endfor %}
+          </ol>
+        </section>
+      {% endif %}
+    </main>
+  </body>
+</html>

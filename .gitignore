@@ -1,7 +1,12 @@
 # sensitive / local ticket data
 examples/*.txt
 !examples/*.example.txt
+reference_codes.json
+!reference_codes.example.json
+runbook.json
+!runbook.example.json
 tickets/
+notes/
 history/
 cases/
 *.ticket.txt
@@ -18,6 +23,7 @@ __pycache__/
 config.toml
 config.yaml
 diagnostic_sources*.json
+backups/
 parser_issues/
 parser_issues.jsonl
 .codex/

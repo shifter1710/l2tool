@@ -732,3 +732,13 @@ def test_run_ticket_rejects_invalid_call_uuid(monkeypatch):
             call_uuid='broken" |~ ".*"',
             write_diagnostics=False,
         )
+
+
+def test_product_open_arg_reports_web_only_product(capsys):
+    assert gtool.product_open_arg("zapis-msk") is None
+    assert "веб-интерфейсе" in capsys.readouterr().out
+
+
+def test_product_open_arg_reports_product_without_services(capsys):
+    assert gtool.product_open_arg("assistant") is None
+    assert "нет настроенных сервисов" in capsys.readouterr().out

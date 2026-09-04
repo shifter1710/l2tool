@@ -84,6 +84,22 @@ def test_untrusted_host_is_rejected():
 
 
 def test_settings_page_lists_editable_sources():
+    save_response = request(
+        "POST",
+        "/settings/source",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "name": "Свёрнутый блок",
+            "product": "recording",
+            "level": "number",
+            "example_url": opensearch_example(),
+            "sample_value": "",
+            "minutes_before": "2",
+            "minutes_after": "90",
+        },
+    )
+    assert save_response.status_code == 303
+
     response = request("GET", "/settings")
 
     assert response.status_code == 200
@@ -95,11 +111,15 @@ def test_settings_page_lists_editable_sources():
     assert response.text.count("Поиск по UUID") >= 5
     assert "product-recording" in response.text
     assert "product-secretary" in response.text
-    assert "styles.css?v=20260903-4" in response.text
+    assert "styles.css?v=20260904-8" in response.text
     assert 'class="config-level config-level-number"' in response.text
     assert 'class="config-level level-number"' not in response.text
     assert 'action="/settings/import"' in response.text
     assert "Скачать текущий" in response.text
+    assert '<details class="panel source-card is-configured">' in response.text
+    assert 'formaction="/settings/source/delete"' in response.text
+    assert "data-confirm-delete=" in response.text
+    assert "Свёрнутый блок" in response.text
 
 
 def test_settings_levels_use_non_shrinking_vertical_layout():
@@ -343,6 +363,10 @@ def test_analyze_renders_parsed_values_and_links():
     assert "dashboards.example.local" in response.text
     assert "data-copy-link" in response.text
     assert "Копировать" in response.text
+    assert "Скопировать все ссылки" in response.text
+    assert 'class="url-details"' in response.text
+    assert "service-icon--grafana" in response.text
+    assert "service-icon--opensearch" in response.text
     assert re.search(
         r"Номер А.*?79991234567.*?client-badge.*?Клиент",
         response.text,
@@ -385,6 +409,88 @@ def test_client_number_falls_back_to_separate_row_when_it_matches_neither_side()
     assert response.status_code == 200
     assert "client-unmatched" in response.text
     assert "79990000001" in response.text
+
+
+def test_history_matches_render_dates_and_paths(monkeypatch):
+    monkeypatch.setattr(
+        webapp.history,
+        "find_matches",
+        lambda ctx, **_kwargs: {
+            "79991234567": [
+                "history/2026/09/2026-09-03_79991234567_ab12cd34.yaml",
+                "history/2026/08/2026-08-14_79991234567_ff00ff00.yaml",
+            ]
+        },
+    )
+    response = request(
+        "POST",
+        "/analyze",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "product": "recording",
+            "window": "60",
+            "ticket_text": valid_ticket(),
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Найдены похожие заявки в локальной истории" in response.text
+    assert "<time datetime=\"2026-09-03\">2026-09-03</time>" in response.text
+    assert "<time datetime=\"2026-08-14\">2026-08-14</time>" in response.text
+    assert "history/2026/09/2026-09-03_79991234567_ab12cd34.yaml" in response.text
+    assert "history/2026/08/2026-08-14_79991234567_ff00ff00.yaml" in response.text
+
+
+def test_analyze_returns_partial_fragment_for_xhr():
+    response = request(
+        "POST",
+        "/analyze",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "product": "recording",
+            "window": "60",
+            "ticket_text": valid_ticket(),
+        },
+        headers={"X-Requested-With": "XMLHttpRequest"},
+    )
+
+    assert response.status_code == 200
+    assert "<!doctype html>" not in response.text.lower()
+    assert "<html" not in response.text
+    assert "<body" not in response.text
+    assert 'id="result"' in response.text
+    assert "Первичная диагностика" in response.text
+    assert 'id="result-zone"' not in response.text
+
+
+def test_analyze_xhr_error_returns_fragment_with_alert():
+    response = request(
+        "POST",
+        "/analyze",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "product": "recording",
+            "window": "60",
+            "ticket_text": "",
+        },
+        headers={"X-Requested-With": "XMLHttpRequest"},
+    )
+
+    assert response.status_code == 400
+    assert "<!doctype html>" not in response.text.lower()
+    assert "alert-error" in response.text
+    assert "Вставьте текст заявки" in response.text
+
+
+def test_xhr_without_csrf_token_is_rejected():
+    response = request(
+        "POST",
+        "/analyze",
+        data={"ticket_text": valid_ticket()},
+        headers={"X-Requested-With": "XMLHttpRequest"},
+    )
+
+    assert response.status_code == 403
 
 
 def test_theme_and_copy_script_is_served_locally():
@@ -593,3 +699,711 @@ def test_settings_pages_survive_corrupted_store(monkeypatch, tmp_path):
     assert "diagnostic_sources.json" in settings_response.text
     assert export_response.status_code == 400
     assert "diagnostic_sources.json" in export_response.text
+
+
+def test_settings_products_section_and_crud():
+    response = request("GET", "/settings")
+
+    assert response.status_code == 200
+    assert "Продукты" in response.text
+    assert "Добавить продукт" in response.text
+
+    create_response = request(
+        "POST",
+        "/settings/product",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "key": "zapis-msk",
+            "title": "Запись МСК",
+            "color": "violet",
+        },
+    )
+    rename_response = request(
+        "POST",
+        "/settings/product",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "product_key": "zapis-msk",
+            "key": "zapis-spb",
+            "title": "Запись СПБ",
+            "color": "teal",
+        },
+    )
+    delete_response = request(
+        "POST",
+        "/settings/product/delete",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "product_key": "zapis-spb",
+        },
+    )
+
+    assert create_response.status_code == 303
+    assert rename_response.status_code == 303
+    assert delete_response.status_code == 303
+    assert dynamic_sources.list_sources() == []
+
+    forbidden = request(
+        "POST",
+        "/settings/product/delete",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "product_key": "recording",
+        },
+    )
+    assert forbidden.status_code == 303
+
+
+def test_settings_rejects_invalid_product_key():
+    response = request(
+        "POST",
+        "/settings/product",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "key": "Плохой Ключ",
+            "title": "Продукт",
+            "color": "",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "латиница" in response.text
+
+
+def test_settings_toggle_move_and_duplicate_source():
+    first = dynamic_sources.save_source(
+        {
+            "name": "Первый",
+            "product": "recording",
+            "level": "number",
+            "example_url": opensearch_example("first-view"),
+            "sample_value": "",
+            "minutes_before": 2,
+            "minutes_after": 90,
+        }
+    )
+    second = dynamic_sources.save_source(
+        {
+            "name": "Второй",
+            "product": "recording",
+            "level": "number",
+            "example_url": opensearch_example("second-view"),
+            "sample_value": "",
+            "minutes_before": 2,
+            "minutes_after": 90,
+        }
+    )
+
+    duplicate_response = request(
+        "POST",
+        "/settings/source/duplicate",
+        data={"csrf_token": webapp.app.state.csrf_token, "source_id": second["id"]},
+    )
+    move_response = request(
+        "POST",
+        "/settings/source/move",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "source_id": second["id"],
+            "direction": "up",
+        },
+    )
+    toggle_response = request(
+        "POST",
+        "/settings/source/toggle",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "source_id": first["id"],
+            "enabled": "0",
+        },
+    )
+    bulk_response = request(
+        "POST",
+        "/settings/product/toggle-all",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "product_key": "recording",
+            "enabled": "1",
+        },
+    )
+
+    assert duplicate_response.status_code == 303
+    assert move_response.status_code == 303
+    assert toggle_response.status_code == 303
+    assert bulk_response.status_code == 303
+    names = [item["name"] for item in dynamic_sources.list_sources()]
+    assert names == ["Второй", "Первый", "Второй (копия)"]
+    assert all(item["enabled"] for item in dynamic_sources.list_sources())
+
+    settings_page = request("GET", "/settings")
+    assert settings_page.text.count('class="source-status"') >= 3
+
+
+def test_settings_preview_builds_link_without_saving():
+    before = dynamic_sources.list_sources()
+
+    response = request(
+        "POST",
+        "/settings/source/preview",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "name": "Черновик BFF",
+            "product": "recording",
+            "level": "number",
+            "example_url": opensearch_example("preview-view"),
+            "sample_value": "",
+            "minutes_before": "2",
+            "minutes_after": "90",
+            "preview_value": "79991230001",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Проверка ссылки" in response.text
+    assert "msisdn:79991230001" in response.text
+    assert "Открыть в новой вкладке" in response.text
+    assert dynamic_sources.list_sources() == before
+
+    broken = request(
+        "POST",
+        "/settings/source/preview",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "name": "Сломанный",
+            "product": "recording",
+            "level": "number",
+            "example_url": "https://example.local/without-number",
+            "sample_value": "",
+            "preview_value": "79991230001",
+        },
+    )
+
+    assert broken.status_code == 400
+    assert "Ссылка не собирается" in broken.text
+    assert dynamic_sources.list_sources() == before
+
+
+def test_settings_backups_list_and_restore_roundtrip():
+    created = dynamic_sources.save_source(
+        {
+            "name": "Для отката",
+            "product": "recording",
+            "level": "number",
+            "example_url": opensearch_example("backup-view"),
+            "sample_value": "",
+            "minutes_before": 2,
+            "minutes_after": 90,
+        }
+    )
+    delete_response = request(
+        "POST",
+        "/settings/source/delete",
+        data={"csrf_token": webapp.app.state.csrf_token, "source_id": created["id"]},
+    )
+    assert delete_response.status_code == 303
+    assert dynamic_sources.list_sources() == []
+
+    page = request("GET", "/settings")
+    assert "Резервные копии" in page.text
+    backup_name = page.text.split('name="backup_name" value="', 1)[1].split('"', 1)[0]
+
+    restore_response = request(
+        "POST",
+        "/settings/backup/restore",
+        data={"csrf_token": webapp.app.state.csrf_token, "backup_name": backup_name},
+    )
+
+    assert restore_response.status_code == 303
+    assert [item["name"] for item in dynamic_sources.list_sources()] == ["Для отката"]
+
+    traversal = request(
+        "POST",
+        "/settings/backup/restore",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "backup_name": "../../diagnostic_sources.json",
+        },
+    )
+    assert traversal.status_code == 400
+
+
+def test_settings_import_toml_renders_report(monkeypatch, tmp_path):
+    from core import config as config_module
+
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "[services.zapis]",
+                'url = "https://grafana.example.local/d/example/find-call-in-logs'
+                '?orgId=000&var-phone=9835623921&var-second_phone=9994579778'
+                '&from=2026-09-03T11:00:00.000Z&to=2026-09-03T12:00:00.000Z"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config_module, "CONFIG_PATH", config_path)
+
+    response = request(
+        "POST",
+        "/settings/import-toml",
+        data={"csrf_token": webapp.app.state.csrf_token, "product": "recording"},
+    )
+
+    assert response.status_code == 200
+    assert "Отчёт о переносе" in response.text
+    assert "Добавлено блоков: 1" in response.text
+    assert [item["name"] for item in dynamic_sources.list_sources()] == [
+        "Grafana / find-call-in-logs"
+    ]
+    assert dynamic_sources.list_sources()[0]["strategy"] == "national"
+
+
+def write_reference_store(data):
+    from core import reference_codes
+
+    reference_codes.write_store(data)
+
+
+def test_analyze_shows_reference_hints_without_javascript():
+    write_reference_store({"Decision": {"10": "Абонент вне зоны покрытия"}})
+    ticket = valid_ticket() + "\nКод решения: Decision 10"
+
+    response = request(
+        "POST",
+        "/analyze",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "product": "recording",
+            "window": "60",
+            "ticket_text": ticket,
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Расшифровка кодов" in response.text
+    assert "Абонент вне зоны покрытия" in response.text
+    assert "Decision 10" in response.text
+
+
+def test_analyze_deduplicates_reference_hints_in_text_order():
+    write_reference_store({"Decision": {"10": "Вне покрытия", "20": "Перегрузка"}})
+    ticket = valid_ticket() + "\nDecision 20, затем Decision 10 и снова Decision 20"
+
+    response = request(
+        "POST",
+        "/analyze",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "product": "recording",
+            "window": "60",
+            "ticket_text": ticket,
+        },
+    )
+
+    assert response.status_code == 200
+    hints = re.search(r'<ul class="reference-hints">(.*?)</ul>', response.text, re.DOTALL)
+    assert hints
+    assert hints.group(1).count("Decision 20") == 1
+    assert hints.group(1).count("Decision 10") == 1
+    assert hints.group(1).index("Decision 20") < hints.group(1).index("Decision 10")
+
+
+def test_analyze_without_codes_or_reference_hides_block():
+    response = request(
+        "POST",
+        "/analyze",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "product": "recording",
+            "window": "60",
+            "ticket_text": valid_ticket(),
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Расшифровка кодов" not in response.text
+
+
+def test_reference_page_lists_codes_and_links_from_settings():
+    write_reference_store({"Decision": {"10": "Вне покрытия"}})
+
+    page = request("GET", "/reference")
+    settings_page = request("GET", "/settings")
+
+    assert page.status_code == 200
+    assert "Справочник кодов" in page.text
+    assert "Группа" in page.text
+    assert "Код" in page.text
+    assert "Расшифровка" in page.text
+    assert "Вне покрытия" in page.text
+    assert 'action="/reference/import"' in page.text
+    assert "/reference/export" in page.text
+    assert settings_page.status_code == 200
+    assert 'href="/reference"' in settings_page.text
+
+
+def test_reference_page_survives_broken_store():
+    from core import reference_codes
+
+    reference_codes.write_store({"Decision": {"10": "ok"}})
+    reference_codes.STORE_PATH.write_text("{broken", encoding="utf-8")
+
+    page = request("GET", "/reference")
+
+    assert page.status_code == 200
+    assert "empty-state" in page.text
+
+
+def test_reference_import_replaces_and_export_roundtrips():
+    payload = json.dumps(
+        {"Reason": {"42": "Перегрузка MGW"}}, ensure_ascii=False
+    ).encode()
+    import_response = request(
+        "POST",
+        "/reference/import",
+        data={"csrf_token": webapp.app.state.csrf_token},
+        files={"reference_file": ("reference_codes.json", payload, "application/json")},
+    )
+    export_response = request("GET", "/reference/export")
+
+    assert import_response.status_code == 303
+    assert "imported=1" in import_response.headers["location"]
+    assert export_response.status_code == 200
+    assert export_response.json() == {"Reason": {"42": "Перегрузка MGW"}}
+    assert "reference_codes.json" in export_response.headers["content-disposition"]
+
+    page = request("GET", import_response.headers["location"])
+    assert "Перегрузка MGW" in page.text
+    assert "записей — 1" in page.text
+
+
+def test_reference_import_rejects_invalid_file_without_replacing():
+    write_reference_store({"Decision": {"10": "Вне покрытия"}})
+    response = request(
+        "POST",
+        "/reference/import",
+        data={"csrf_token": webapp.app.state.csrf_token},
+        files={
+            "reference_file": (
+                "reference_codes.json",
+                b'{"Decision": {"10": ""}}',
+                "application/json",
+            ),
+        },
+    )
+    export_response = request("GET", "/reference/export")
+
+    assert response.status_code == 400
+    assert "Расшифровка кода" in response.text
+    assert export_response.json() == {"Decision": {"10": "Вне покрытия"}}
+
+
+def test_reference_import_rejects_oversized_file():
+    padding = b'{"Decision": {"1": "' + b"x" * (256 * 1024) + b'"}}'
+    response = request(
+        "POST",
+        "/reference/import",
+        data={"csrf_token": webapp.app.state.csrf_token},
+        files={"reference_file": ("reference_codes.json", padding, "application/json")},
+    )
+
+    assert response.status_code == 400
+    assert "256 КБ" in response.text
+
+
+def test_reference_import_requires_csrf_token():
+    response = request(
+        "POST",
+        "/reference/import",
+        data={},
+        files={"reference_file": ("reference_codes.json", b"{}", "application/json")},
+    )
+
+    assert response.status_code == 403
+
+
+def write_runbook_case(case):
+    from core import runbook
+
+    return runbook.save_case(case)
+
+
+def runbook_case(source_id=None, symptom="Запись есть, транскрипта нет"):
+    return {
+        "id": "no-transcript",
+        "symptom": symptom,
+        "steps": [
+            {"source": source_id, "note": "Проверить приход звонка в конвейер"},
+            {"source": None, "note": "Уточнить у абонента детали"},
+        ],
+    }
+
+
+def test_home_shows_collapsed_runbook_panel_with_case_buttons():
+    write_runbook_case(runbook_case())
+
+    response = request("GET", "/")
+
+    assert response.status_code == 200
+    assert "Куда смотреть?" in response.text
+    assert 'action="/runbook"' in response.text
+    assert "Запись есть, транскрипта нет" in response.text
+    assert 'name="case_id" value="no-transcript"' in response.text
+
+
+def test_home_hides_runbook_panel_when_store_is_empty():
+    response = request("GET", "/")
+
+    assert response.status_code == 200
+    assert "Куда смотреть?" not in response.text
+
+
+def test_runbook_renders_steps_with_links_from_last_ticket():
+    source = dynamic_sources.save_source(
+        {
+            "name": "BFF конвейер",
+            "product": "recording",
+            "level": "number",
+            "example_url": opensearch_example("runbook-view"),
+            "sample_value": "",
+            "minutes_before": 2,
+            "minutes_after": 90,
+        }
+    )
+    write_runbook_case(runbook_case(source_id=source["id"]))
+
+    response = request(
+        "POST",
+        "/runbook",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "case_id": "no-transcript",
+            "product": "recording",
+            "window": "60",
+            "effective_ticket_text": valid_ticket(),
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Порядок проверки" in response.text
+    assert "BFF конвейер" in response.text
+    assert "runbook-view" in response.text
+    assert "msisdn:79991234567" in response.text
+    assert "Уточнить у абонента" in response.text
+    assert 'class="open-link"' in response.text
+
+
+def test_runbook_without_ticket_shows_hint_instead_of_links():
+    source = dynamic_sources.save_source(
+        {
+            "name": "BFF конвейер",
+            "product": "recording",
+            "level": "number",
+            "example_url": opensearch_example("runbook-view"),
+            "sample_value": "",
+            "minutes_before": 2,
+            "minutes_after": 90,
+        }
+    )
+    write_runbook_case(runbook_case(source_id=source["id"]))
+
+    response = request(
+        "POST",
+        "/runbook",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "case_id": "no-transcript",
+            "product": "recording",
+            "window": "60",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Сначала разберите заявку" in response.text
+    assert 'class="open-link"' not in response.text
+
+
+def test_runbook_step_with_missing_source_is_text_without_link():
+    write_runbook_case(runbook_case(source_id="missing-block"))
+
+    response = request(
+        "POST",
+        "/runbook",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "case_id": "no-transcript",
+            "product": "recording",
+            "window": "60",
+            "effective_ticket_text": valid_ticket(),
+        },
+    )
+
+    assert response.status_code == 200
+    assert "не найден в настройках" in response.text
+    assert 'class="open-link"' not in response.text
+    assert "Проверить приход звонка" in response.text
+
+
+def test_runbook_unknown_case_returns_404():
+    response = request(
+        "POST",
+        "/runbook",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "case_id": "ghost",
+            "product": "recording",
+            "window": "60",
+        },
+    )
+
+    assert response.status_code == 404
+    assert "Кейс ранбука не найден" in response.text
+
+
+def test_runbook_requires_csrf_token():
+    write_runbook_case(runbook_case())
+
+    response = request(
+        "POST",
+        "/runbook",
+        data={"case_id": "no-transcript", "product": "recording", "window": "60"},
+    )
+
+    assert response.status_code == 403
+
+
+def test_settings_runbook_crud_from_site():
+    source = dynamic_sources.save_source(
+        {
+            "name": "BFF конвейер",
+            "product": "recording",
+            "level": "number",
+            "example_url": opensearch_example("runbook-view"),
+            "sample_value": "",
+            "minutes_before": 2,
+            "minutes_after": 90,
+        }
+    )
+    page = request("GET", "/settings")
+    assert 'id="runbook"' in page.text
+    assert "Ранбук «куда смотреть»" in page.text
+    assert source["name"] in page.text
+    assert "Без ссылки — просто текст" in page.text
+
+    create_response = request(
+        "POST",
+        "/settings/runbook",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "symptom": "Нет транскрипта",
+            "case_key": "no-transcript",
+            "step_source_1": source["id"],
+            "step_note_1": "Проверить конвейер",
+            "step_note_2": "Уточнить у абонента",
+        },
+    )
+    assert create_response.status_code == 303
+    cases = list(webapp.runbook.load_store())
+    assert len(cases) == 1
+    assert cases[0]["steps"][1]["source"] is None
+
+    update_response = request(
+        "POST",
+        "/settings/runbook",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "case_id": "no-transcript",
+            "symptom": "Транскрипта нет — обновлено",
+            "step_note_1": "Новый шаг",
+        },
+    )
+    assert update_response.status_code == 303
+    updated = webapp.runbook.load_store()[0]
+    assert updated["symptom"] == "Транскрипта нет — обновлено"
+    assert updated["steps"] == [{"source": None, "note": "Новый шаг"}]
+
+    delete_response = request(
+        "POST",
+        "/settings/runbook/delete",
+        data={"csrf_token": webapp.app.state.csrf_token, "case_id": "no-transcript"},
+    )
+    assert delete_response.status_code == 303
+    assert webapp.runbook.load_store() == []
+
+
+def test_settings_runbook_rejects_case_without_steps():
+    response = request(
+        "POST",
+        "/settings/runbook",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "symptom": "Пустой кейс",
+            "case_key": "empty-case",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "шаг" in response.text
+    assert webapp.runbook.load_store() == []
+
+
+def test_settings_runbook_import_and_export_roundtrip():
+    write_runbook_case(runbook_case())
+    export_response = request("GET", "/settings/runbook/export")
+
+    assert export_response.status_code == 200
+    assert export_response.json()[0]["id"] == "no-transcript"
+    assert "runbook.json" in export_response.headers["content-disposition"]
+
+    payload = json.dumps(
+        [dict(runbook_case(symptom="Другой симптом"), id="other-case")],
+        ensure_ascii=False,
+    ).encode()
+    import_response = request(
+        "POST",
+        "/settings/runbook/import",
+        data={"csrf_token": webapp.app.state.csrf_token},
+        files={"runbook_file": ("runbook.json", payload, "application/json")},
+    )
+
+    assert import_response.status_code == 303
+    assert "runbook_imported=1" in import_response.headers["location"]
+    assert [case["id"] for case in webapp.runbook.load_store()] == ["other-case"]
+
+
+def test_settings_runbook_import_rejects_invalid_file_without_replacing():
+    write_runbook_case(runbook_case())
+    response = request(
+        "POST",
+        "/settings/runbook/import",
+        data={"csrf_token": webapp.app.state.csrf_token},
+        files={"runbook_file": ("runbook.json", b"[{}]", "application/json")},
+    )
+
+    assert response.status_code == 400
+    assert "Кейс 1" in response.text
+    assert [case["id"] for case in webapp.runbook.load_store()] == ["no-transcript"]
+
+
+def test_settings_survives_broken_runbook_file():
+    webapp.runbook.STORE_PATH.write_text("{broken", encoding="utf-8")
+    webapp.runbook._LOAD_ERROR_LOGGED.clear()
+
+    home = request("GET", "/")
+    settings_page = request("GET", "/settings")
+    case_response = request(
+        "POST",
+        "/runbook",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "case_id": "no-transcript",
+            "product": "recording",
+            "window": "60",
+        },
+    )
+
+    assert home.status_code == 200
+    assert settings_page.status_code == 200
+    assert "empty-state" in settings_page.text
+    assert case_response.status_code == 404

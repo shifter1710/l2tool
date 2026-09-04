@@ -1,3 +1,30 @@
+{% macro color_options(current) %}
+  <option value="" {% if not current %}selected{% endif %}>По умолчанию</option>
+  {% for name, _hex in product_colors.items() %}<option value="{{ name }}" {% if current == name %}selected{% endif %}>{{ name }}</option>{% endfor %}
+{% endmacro %}
+
+{% macro runbook_step_row(index, step, source_options) %}
+  <div class="runbook-step-row">
+    <span class="runbook-step-index" aria-hidden="true">{{ index }}</span>
+    <label><span>Блок источника</span>
+      <select name="step_source_{{ index }}">
+        <option value="">Без ссылки — просто текст</option>
+        {% for option in source_options %}
+          <option value="{{ option.id }}" {% if step and step.source == option.id %}selected{% endif %}>{{ option.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label><span>Что искать</span><input name="step_note_{{ index }}" maxlength="500" value="{{ step.note if step else '' }}" placeholder="Например, проверить приход звонка в конвейер"></label>
+  </div>
+{% endmacro %}
+
+{% macro runbook_steps_field(steps, source_options, limit) %}
+  {% set existing = steps if steps else [] %}
+  {% set empty_rows = [[limit - existing|length, 3]|min, 0]|max %}
+  {% for step in existing %}{{ runbook_step_row(loop.index, step, source_options) }}{% endfor %}
+  {% for _ in range(empty_rows) %}{{ runbook_step_row(existing|length + loop.index, none, source_options) }}{% endfor %}
+{% endmacro %}
+
 {% macro source_fields(values, product_options, levels) %}
   <div class="source-edit-grid">
     <label><span>Название блока</span><input name="name" required maxlength="80" value="{{ values.name|default('') }}" placeholder="Например, BFF · OpenSearch"></label>
@@ -10,31 +37,70 @@
     <label><span>Минут до события</span><input type="number" name="minutes_before" min="0" max="1440" value="{{ values.minutes_before|default(2) }}"></label>
     <label><span>Минут после события</span><input type="number" name="minutes_after" min="0" max="1440" value="{{ values.minutes_after|default(90) }}"></label>
   </div>
+  <div class="preview-fields">
+    <label><span>Проверка: тестовый номер или UUID</span><input name="preview_value" placeholder="Например, 79991234567"></label>
+    <button type="submit" class="secondary-button" formaction="/settings/source/preview">Проверить ссылку</button>
+  </div>
 {% endmacro %}
 
-{% macro render_source(source, csrf_token, product_options, levels) %}
-  <article class="panel source-card is-configured">
-    <header class="source-card-header">
-      <div><span class="platform-badge platform-{{ source.platform }}">{{ 'Grafana' if source.platform == 'grafana' else 'OpenSearch' }}</span><h3>{{ source.name }}</h3></div>
-      <span class="source-status">Активен</span>
-    </header>
-    <dl class="parsed-source">
-      <div><dt>Сервер</dt><dd>{{ source.host }}</dd></div>
-      {% if source.index_pattern %}<div><dt>Представление</dt><dd>{{ source.index_pattern }}</dd></div>{% endif %}
-      <div><dt>Подстановка</dt><dd>{% if source.level == 'uuid' %}{{ 'UUID без дефисов' if source.strategy == 'compact_uuid' else 'UUID целиком' }}{% elif source.replacements|length > 1 %}номер А + номер Б{% else %}{{ {'raw':'полный номер', 'national':'номер без 7', 'hash16':'хеш номера'}[source.strategy]|default('номер') }}{% endif %}</dd></div>
-    </dl>
-    <form method="post" action="/settings/source" class="source-form">
+{% macro source_controls(source, csrf_token, first, last) %}
+  <div class="source-controls">
+    <form method="post" action="/settings/source/toggle" class="inline-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="source_id" value="{{ source.id }}">
-      {{ source_fields(source, product_options, levels) }}
-      <div class="source-actions"><button type="submit">Сохранить изменения</button></div>
+      <input type="hidden" name="enabled" value="{{ '0' if source.enabled|default(True) else '1' }}">
+      <button type="submit" class="quiet-button">{{ 'Выключить' if source.enabled|default(True) else 'Включить' }}</button>
     </form>
-    <form method="post" action="/settings/source/delete" class="delete-source-form" data-confirm-delete="{{ source.name }}">
+    <form method="post" action="/settings/source/move" class="inline-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="source_id" value="{{ source.id }}">
-      <button type="submit" class="danger-button">Удалить блок</button>
+      <input type="hidden" name="direction" value="up">
+      <button type="submit" class="quiet-button" {% if first %}disabled{% endif %}>Выше</button>
     </form>
-  </article>
+    <form method="post" action="/settings/source/move" class="inline-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="source_id" value="{{ source.id }}">
+      <input type="hidden" name="direction" value="down">
+      <button type="submit" class="quiet-button" {% if last %}disabled{% endif %}>Ниже</button>
+    </form>
+    <form method="post" action="/settings/source/duplicate" class="inline-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="source_id" value="{{ source.id }}">
+      <button type="submit" class="quiet-button">Дублировать</button>
+    </form>
+  </div>
+{% endmacro %}
+
+{% macro render_source(source, csrf_token, product_options, levels, first=False, last=False) %}
+  <div class="source-item" id="source-{{ source.id }}">
+    {{ source_controls(source, csrf_token, first, last) }}
+    <details class="panel source-card is-configured{% if not source.enabled|default(True) %} is-disabled{% endif %}">
+      <summary class="source-card-header">
+        <div>
+          <span class="platform-badge platform-{{ source.platform }}">{{ 'Grafana' if source.platform == 'grafana' else 'OpenSearch' }}</span>
+          <h3>{{ source.name }}</h3>
+        </div>
+        <span class="source-summary">
+          {% if source.level == 'uuid' %}{{ 'UUID без дефисов' if source.strategy == 'compact_uuid' else 'UUID целиком' }}{% elif source.replacements|length > 1 %}номер А + номер Б{% else %}{{ {'raw':'полный номер', 'national':'номер без 7', 'hash16':'хеш номера'}[source.strategy]|default('номер') }}{% endif %} · −{{ source.minutes_before }}/+{{ source.minutes_after }} мин
+        </span>
+        <span class="source-status">{{ 'Активен' if source.enabled|default(True) else 'Выключен' }}</span>
+        <svg class="source-chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3 6l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </summary>
+      <dl class="parsed-source">
+        <div><dt>Сервер</dt><dd>{{ source.host }}</dd></div>
+        {% if source.index_pattern %}<div><dt>Представление</dt><dd>{{ source.index_pattern }}</dd></div>{% endif %}
+      </dl>
+      <form method="post" action="/settings/source" class="source-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="source_id" value="{{ source.id }}">
+        {{ source_fields(source, product_options, levels) }}
+        <div class="source-actions">
+          <button type="submit">Сохранить изменения</button>
+          <button type="submit" formaction="/settings/source/delete" class="danger-button" data-confirm-delete="{{ source.name }}">Удалить блок</button>
+        </div>
+      </form>
+    </details>
+  </div>
 {% endmacro %}
 <!doctype html>
 <html lang="ru">
@@ -42,31 +108,51 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light dark">
+    <meta name="description" content="Редактор источников диагностики: продукты, свои ссылки Grafana и OpenSearch с подстановкой номера или UUID, резервные копии.">
     <title>Источники диагностики — l2tool</title>
-    <script src="{{ url_for('static', path='/app.js') }}"></script>
-    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260903-4">
+    <link rel="icon" href="{{ url_for('static', path='/favicon.svg') }}" type="image/svg+xml">
+    <script src="{{ url_for('static', path='/app.js') }}" defer></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260904-8">
   </head>
   <body>
+    <a class="skip-link" href="#add-source">Перейти к форме</a>
     <header class="topbar">
       <a class="brand" href="/" aria-label="l2tool — на главную"><span class="brand-mark">L2</span><span><strong>l2tool</strong><small>настройка источников</small></span></a>
       <div class="topbar-actions">
         <a class="nav-link" href="/">К диагностике</a>
+        <a class="nav-link" href="/reference">Справочник кодов</a>
         <div class="local-badge"><span></span> Локальные настройки</div>
         <button class="theme-toggle" type="button" data-theme-toggle aria-label="Включить тёмную тему" aria-pressed="false"><span class="theme-icon" aria-hidden="true">☾</span><span data-theme-label>Тёмная тема</span></button>
       </div>
     </header>
 
     <main class="shell settings-shell">
-      <section class="settings-hero">
-        <p class="eyebrow">Конструктор диагностики</p>
+      <div class="settings-header">
         <h1>Свои диагностические блоки</h1>
-        <p class="lead">Добавляйте любое количество блоков и называйте их так, как удобно команде. l2tool разбирает пример ссылки и при диагностике заменяет найденный номер или UUID и временной диапазон.</p>
-      </section>
+        <p>Добавляйте продукты и любое количество блоков, называйте их так, как удобно команде. l2tool разбирает пример ссылки и при диагностике заменяет найденный номер или UUID и временной диапазон.</p>
+      </div>
 
       {% if message %}<div class="alert alert-success" role="status"><strong>Готово</strong><span>{{ message }}</span></div>{% endif %}
       {% if error %}<div class="alert alert-error" role="alert"><strong>Не удалось сохранить</strong><span>{{ error }}</span></div>{% endif %}
 
-      <section class="panel add-source-panel">
+      {% if preview %}
+        <section class="panel preview-panel" id="preview" tabindex="-1">
+          <div class="panel-heading"><div><span class="step">?</span><h2>Проверка ссылки</h2></div></div>
+          {% if preview.error %}
+            <div class="alert alert-error" role="alert"><strong>Ссылка не собирается</strong><span>{{ preview.error }}</span></div>
+          {% else %}
+            <p class="preview-note">Блок «{{ preview.name or 'без названия' }}» со значением «{{ preview.value }}» и текущим временем даёт ссылк{{ 'у' if preview.links|length == 1 else 'и' }}:</p>
+            {% for link in preview.links %}
+              <div class="preview-link">
+                <code>{{ link }}</code>
+                <a href="{{ link }}" target="_blank" rel="noopener noreferrer">Открыть в новой вкладке</a>
+              </div>
+            {% endfor %}
+          {% endif %}
+        </section>
+      {% endif %}
+
+      <section class="panel add-source-panel" id="add-source" tabindex="-1">
         <div class="panel-heading"><div><span class="step">+</span><h2>Добавить блок</h2></div></div>
         <p>Откройте в Grafana или OpenSearch нужный поиск с тестовым номером либо UUID и вставьте сюда получившуюся ссылку.</p>
         <form method="post" action="/settings/source" class="source-form">
@@ -76,40 +162,201 @@
         </form>
       </section>
 
+      <section class="panel products-panel" id="products">
+        <div class="panel-heading"><div><span class="step">P</span><h2>Продукты</h2></div><p>Состав сервисов на сайте. Ключи встроенных продуктов менять нельзя — на них ссылается CLI.</p></div>
+        <div class="product-rows">
+          {% for product in catalog %}
+            {% set edit_draft = product_draft if product_draft and product_draft.original_key == product.key else none %}
+            <div class="product-row">
+              <div class="product-row-main">
+                <span class="product-monogram color-{{ product.color or 'green' }}">{{ product.title[:1] }}</span>
+                <div>
+                  <strong>{{ product.title }}</strong>
+                  <code>{{ product.key }}</code>
+                  <span class="product-row-meta">{{ 'Встроенный · ' if product.builtin }}{{ 'конфигурация из блоков' if product.managed else 'профиль config.toml' }} · блоков: {{ product.source_count }}</span>
+                </div>
+              </div>
+              <form method="post" action="/settings/product" class="product-edit-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="product_key" value="{{ product.key }}">
+                <label><span>Название</span><input name="title" required maxlength="80" value="{{ edit_draft.title if edit_draft else product.title }}"></label>
+                {% if product.builtin %}
+                  <label><span>Ключ <small>неизменен</small></span><input name="key" value="{{ product.key }}" readonly></label>
+                {% else %}
+                  <label><span>Ключ</span><input name="key" required value="{{ edit_draft.key if edit_draft else product.key }}" pattern="[a-z0-9][a-z0-9-]{0,39}"></label>
+                {% endif %}
+                <label><span>Цвет</span><select name="color">{{ color_options(edit_draft.color if edit_draft else product.color) }}</select></label>
+                <button type="submit" class="secondary-button">Сохранить</button>
+              </form>
+              <form method="post" action="/settings/product/delete" class="product-delete-form" data-confirm="Удалить продукт «{{ product.title }}»? Действие можно отменить откатом из резервной копии.">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="product_key" value="{{ product.key }}">
+                <button type="submit" class="danger-button" {% if product.source_count %}disabled title="Сначала удалите или перенесите блоки продукта"{% endif %}>Удалить</button>
+              </form>
+            </div>
+          {% endfor %}
+        </div>
+        <form method="post" action="/settings/product" class="product-add-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <p class="eyebrow">Новый продукт</p>
+          <label><span>Ключ <small>латиница, цифры, дефис</small></span><input name="key" required pattern="[a-z0-9][a-z0-9-]{0,39}" value="{{ product_draft.key if product_draft and not product_draft.original_key else '' }}" placeholder="zapis-msk"></label>
+          <label><span>Название</span><input name="title" required maxlength="80" value="{{ product_draft.title if product_draft and not product_draft.original_key else '' }}" placeholder="Запись МСК"></label>
+          <label><span>Цвет монограммы</span><select name="color">{{ color_options(product_draft.color if product_draft and not product_draft.original_key else none) }}</select></label>
+          <button type="submit" class="secondary-button">Добавить продукт</button>
+        </form>
+      </section>
+
+      <section class="panel runbook-settings-panel" id="runbook" tabindex="-1">
+        <div class="panel-heading"><div><span class="step">R</span><h2>Ранбук «куда смотреть»</h2></div><p>Кейсы «симптом → шаги» показываются свёрнутой панелью на главной. Шаг ссылается на диагностический блок по его названию; если блока нет в настройках, шаг показывается текстом. Содержимое хранится локально в runbook.json.</p></div>
+
+        <form method="post" action="/settings/runbook" class="runbook-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <p class="eyebrow">Новый кейс</p>
+          <div class="runbook-case-fields">
+            <label><span>Симптом</span><input name="symptom" required maxlength="200" value="{{ runbook_draft.symptom|default('') }}" placeholder="Запись есть, транскрипта нет"></label>
+            <label><span>Ключ <small>латиница и дефис, необязательно</small></span><input name="case_key" pattern="[a-z0-9][a-z0-9-]*" value="{{ runbook_draft.id|default('') }}" placeholder="no-transcript"></label>
+          </div>
+          <p class="eyebrow">Шаги по порядку</p>
+          {{ runbook_steps_field(runbook_draft.steps if runbook_draft else [], runbook_source_options, runbook_step_limit) }}
+          <div class="source-actions"><button type="submit">Добавить кейс</button></div>
+        </form>
+
+        {% if runbook_cases %}
+          <div class="runbook-case-list">
+            {% for case in runbook_cases %}
+              <details class="runbook-case">
+                <summary class="source-card-header">
+                  <div><h3>{{ case.symptom }}</h3><code>{{ case.id }}</code></div>
+                  <span class="source-summary">{{ case.steps|length }} {{ 'шаг' if case.steps|length == 1 else 'шагов' }}</span>
+                  <svg class="source-chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3 6l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </summary>
+                <form method="post" action="/settings/runbook" class="runbook-form">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="case_id" value="{{ case.id }}">
+                  <div class="runbook-case-fields">
+                    <label><span>Симптом</span><input name="symptom" required maxlength="200" value="{{ case.symptom }}"></label>
+                  </div>
+                  <p class="eyebrow">Шаги по порядку</p>
+                  {{ runbook_steps_field(case.steps, runbook_source_options, runbook_step_limit) }}
+                  <div class="source-actions">
+                    <button type="submit">Сохранить изменения</button>
+                    <button type="submit" formaction="/settings/runbook/delete" class="danger-button" data-confirm-delete="{{ case.symptom }}">Удалить кейс</button>
+                  </div>
+                </form>
+              </details>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="empty-state">Кейсов пока нет: добавьте первый выше или импортируйте готовый runbook.json.</p>
+        {% endif %}
+
+        <div class="toml-import">
+          <p class="eyebrow">Готовый файл</p>
+          <h3>Заменить ранбук из файла</h3>
+          <p>Выберите <code>runbook.json</code>. Файл проверяется целиком: при любой ошибке текущий ранбук остаётся без изменений, а перед заменой сохраняется копия в бэкапы.</p>
+          <form method="post" action="/settings/runbook/import" enctype="multipart/form-data" class="import-config-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label><span>JSON-файл</span><input type="file" name="runbook_file" accept="application/json,.json" required></label>
+            <div class="import-actions">
+              <a href="/settings/runbook/export" class="download-config">Скачать текущий</a>
+              <button type="submit" class="secondary-button">Проверить и заменить</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
       <section class="panel import-config-panel">
         <div>
           <p class="eyebrow">Готовая конфигурация</p>
           <h2>Добавить блоки из файла</h2>
           <p>Выберите <code>diagnostic_sources.json</code>. Импорт добавит новые блоки, сохранит текущие и пропустит точные дубликаты.</p>
+          <form method="post" action="/settings/import" enctype="multipart/form-data" class="import-config-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label><span>JSON-файл</span><input type="file" name="config_file" accept="application/json,.json" required></label>
+            <div class="import-actions">
+              <a href="/settings/export" class="download-config">Скачать текущий</a>
+              <button type="submit">Проверить и добавить</button>
+            </div>
+          </form>
         </div>
-        <form method="post" action="/settings/import" enctype="multipart/form-data" class="import-config-form">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <label><span>JSON-файл</span><input type="file" name="config_file" accept="application/json,.json" required></label>
-          <div class="import-actions">
-            <a href="/settings/export" class="download-config">Скачать текущий</a>
-            <button type="submit">Проверить и добавить</button>
+        <div class="toml-import">
+          <p class="eyebrow">Переход с CLI</p>
+          <h2>Перенести из config.toml</h2>
+          <p>Сервисы с заполненным <code>url</code> из статического профиля станут динамическими блоками выбранного продукта. Сам <code>config.toml</code> не меняется.</p>
+          <form method="post" action="/settings/import-toml" class="import-config-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label><span>Продукт для блоков</span><select name="product" required>{% for option in product_options %}<option value="{{ option.key }}">{{ option.title }}</option>{% endfor %}</select></label>
+            <label><span>Номер из ваших ссылок <small>если в них хеш — необязательно</small></span><input name="sample_value" placeholder="Например, 79991234567"></label>
+            <div class="import-actions"><button type="submit" class="secondary-button">Перенести сервисы</button></div>
+          </form>
+        </div>
+      </section>
+
+      {% if import_report %}
+        <section class="panel import-report-panel" id="import-report" tabindex="-1">
+          <div class="panel-heading"><div><span class="step">i</span><h2>Отчёт о переносе из config.toml</h2></div></div>
+          <p>Добавлено блоков: {{ import_report.added }}. Пропущено (такая ссылка уже есть): {{ import_report.skipped }}.</p>
+          {% if import_report.errors %}
+            <div class="alert alert-warning" role="alert">
+              <strong>Не перенесены</strong>
+              {% for item in import_report.errors %}<span>{{ item }}</span>{% endfor %}
+            </div>
+          {% endif %}
+        </section>
+      {% endif %}
+
+      <section class="panel backups-panel" id="backups">
+        <div class="panel-heading"><div><span class="step">↺</span><h2>Резервные копии</h2></div><p>Перед каждым изменением l2tool сохраняет копию настроек (последние 20). Откат в один клик.</p></div>
+        {% if backups %}
+          <div class="backup-rows">
+            {% for backup in backups %}
+              <div class="backup-row">
+                <div><strong>{{ backup.created.strftime('%d.%m.%Y %H:%M:%S') }}</strong><span>{{ ('блоков: ' ~ backup.blocks) if backup.blocks is not none else 'содержимое не читается' }}</span></div>
+                <form method="post" action="/settings/backup/restore" data-confirm="Откатиться к копии от {{ backup.created.strftime('%d.%m.%Y %H:%M') }}? Текущие настройки будут сохранены в новую копию.">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="backup_name" value="{{ backup.name }}">
+                  <button type="submit" class="secondary-button">Откатиться</button>
+                </form>
+              </div>
+            {% endfor %}
           </div>
-        </form>
+        {% else %}
+          <p class="backups-empty">Пока нет копий: они появляются после первого изменения блоков или продуктов.</p>
+        {% endif %}
       </section>
 
       <section class="config-notice">
         <span class="shield">✓</span>
-        <div><strong>Без захардкоженных сервисов</strong><p>Название, принадлежность к продукту и уровень задаются здесь. Данные хранятся только локально в diagnostic_sources.json.</p></div>
+        <div><strong>Без захардкоженных сервисов</strong><p>Название, принадлежность к продукту и уровень задаются здесь. Данные хранятся только локально в diagnostic_sources.json, ссылки с токенами отклоняются.</p></div>
       </section>
 
       <div class="product-config-list">
         {% for product in products %}
           <section class="product-config product-{{ product.key }}">
             <header class="product-config-header">
-              <div class="product-monogram">{{ product.title[:1] }}</div>
+              <div class="product-monogram color-{{ product.color or 'green' }}">{{ product.title[:1] }}</div>
               <div><p>Продукт</p><h2>{{ product.title }}</h2><span>{{ 'Пользовательская конфигурация активна' if product.managed else 'Добавьте первый блок, чтобы заменить прежний профиль' }}</span></div>
+              <div class="product-bulk-actions">
+                <form method="post" action="/settings/product/toggle-all">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="product_key" value="{{ product.key }}">
+                  <input type="hidden" name="enabled" value="1">
+                  <button type="submit" class="quiet-button">Включить все</button>
+                </form>
+                <form method="post" action="/settings/product/toggle-all">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="product_key" value="{{ product.key }}">
+                  <input type="hidden" name="enabled" value="0">
+                  <button type="submit" class="quiet-button">Выключить все</button>
+                </form>
+              </div>
             </header>
             <div class="product-levels">
               {% for level in product.levels %}
                 <section class="config-level config-level-{{ level.key }}">
                   <header class="level-header"><span class="level-number">{{ loop.index }}</span><div><h3>{{ level.title }}</h3><p>{{ 'Формируется из номеров заявки' if level.key == 'number' else 'Запускается после получения UUID звонка' }}</p></div></header>
                   {% if level.sources %}
-                    <div class="source-grid">{% for source in level.sources %}{{ render_source(source, csrf_token, product_options, levels) }}{% endfor %}</div>
+                    <div class="source-grid">{% for source in level.sources %}{{ render_source(source, csrf_token, product_options, levels, first=loop.first, last=loop.last) }}{% endfor %}</div>
                   {% else %}
                     <div class="level-empty"><strong>Блоков пока нет</strong><span>Создайте блок в форме выше и выберите этот продукт и уровень.</span></div>
                   {% endif %}
