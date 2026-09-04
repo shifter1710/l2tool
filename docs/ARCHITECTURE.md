@@ -45,7 +45,9 @@ flowchart LR
 `modules/` — диагностические запросы: что и по каким полям искать в каждом
 сервисе. Точки входа не зависят от реализации сервисов: CLI получает модули
 через реестр `services/registry.py`, веб — переиспользует `run_ticket` из
-`gtool.py`.
+`gtool.py`. Обе точки входа читают одни и те же пользовательские блоки из
+`core/dynamic_sources.py`: динамическая конфигурация приоритетна, статические
+модули — фолбэк для сервисов, которых в ней нет.
 
 ```mermaid
 flowchart TB
@@ -87,6 +89,7 @@ flowchart TB
     gtool --> history
     gtool --> caseexp
     gtool --> pdiag
+    gtool --> dynamic
     gtool --> registry
     lostcli --> lostcore
     parser --> timetz
@@ -338,10 +341,13 @@ flowchart TB
 Профили продуктов: `recording` → zapis, sip_stack, bff; `secretary` →
 secretary; `calls` → myconnect, myconnect_call; `noise` → noise; `assistant` →
 пусто. Встроенные профили описаны в `core/products.py` и работают только для
-CLI и статического веба; каталог продуктов на сайте редактируется в
+CLI и статического веба; каталог продуктов редактируется в
 `diagnostic_sources.json` (схема v2, см. раздел 5). Первый пользовательский
-блок для встроенного продукта переводит его в вебе на динамическую
-конфигурацию; `config.toml` остаётся для CLI.
+блок для встроенного продукта переводит его на динамическую конфигурацию —
+и в вебе, и в CLI (`gtool.py` читает те же блоки: меню продукта и `--open`
+работают по ним, а статические модули остаются фолбэком для сервисов,
+которых нет в динамической конфигурации). `config.toml` при этом сохраняется
+как статический фолбэк.
 
 ## 9. Время и периоды поиска
 
@@ -387,6 +393,7 @@ flowchart TB
     gtoolCli --> cases
     gtoolCli --> histdir
     gtoolCli --> pissues
+    gtoolCli -.->|"читает блоки"| dsjson
     webapp2["webapp.py"] --> dsjson
     webapp2 --> histdir
     webapp2 --> backupsdir
