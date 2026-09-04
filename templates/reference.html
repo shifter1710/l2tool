@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <meta name="description" content="Локальный справочник кодов с расшифровками: таблица, импорт и экспорт JSON-файла. Данные не покидают компьютер.">
+    <title>Справочник кодов — l2tool</title>
+    <link rel="icon" href="{{ url_for('static', path='/favicon.svg') }}" type="image/svg+xml">
+    <script src="{{ url_for('static', path='/app.js') }}" defer></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260904-7">
+  </head>
+  <body>
+    <a class="skip-link" href="#reference-table">Перейти к таблице</a>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="l2tool — на главную"><span class="brand-mark">L2</span><span><strong>l2tool</strong><small>справочник кодов</small></span></a>
+      <div class="topbar-actions">
+        <a class="nav-link" href="/">К диагностике</a>
+        <a class="nav-link" href="/settings">Настройки источников</a>
+        <div class="local-badge"><span></span> Локальные настройки</div>
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Включить тёмную тему" aria-pressed="false"><span class="theme-icon" aria-hidden="true">☾</span><span data-theme-label>Тёмная тема</span></button>
+      </div>
+    </header>
+
+    <main class="shell settings-shell">
+      <div class="settings-header">
+        <h1>Справочник кодов</h1>
+        <p>Если в заявке или поправках встречается код из справочника, его расшифровка показывается в результатах диагностики. Состав зависит от окружения, поэтому данные хранятся только локально в reference_codes.json.</p>
+      </div>
+
+      {% if message %}<div class="alert alert-success" role="status"><strong>Готово</strong><span>{{ message }}</span></div>{% endif %}
+      {% if error %}<div class="alert alert-error" role="alert"><strong>Не удалось импортировать</strong><span>{{ error }}</span></div>{% endif %}
+
+      <section class="panel add-source-panel" id="reference-table" tabindex="-1">
+        <div class="panel-heading"><div><span class="step">#</span><h2>Коды и расшифровки</h2></div></div>
+        {% if rows %}
+          <table class="reference-table">
+            <thead>
+              <tr><th scope="col">Группа</th><th scope="col">Код</th><th scope="col">Расшифровка</th></tr>
+            </thead>
+            <tbody>
+              {% for row in rows %}
+                <tr><td>{{ row.group }}</td><td><code>{{ row.code }}</code></td><td>{{ row.text }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="empty-state">Справочник пуст: импортируйте JSON-файл ниже или создайте reference_codes.json в корне проекта по шаблону reference_codes.example.json.</p>
+        {% endif %}
+      </section>
+
+      <section class="panel import-config-panel">
+        <div>
+          <p class="eyebrow">Готовый файл</p>
+          <h2>Заменить справочник из файла</h2>
+          <p>Выберите <code>reference_codes.json</code>. Файл проверяется целиком: при любой ошибке текущий справочник остаётся без изменений.</p>
+          <form method="post" action="/reference/import" enctype="multipart/form-data" class="import-config-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label><span>JSON-файл</span><input type="file" name="reference_file" accept="application/json,.json" required></label>
+            <div class="import-actions">
+              <a href="/reference/export" class="download-config">Скачать текущий</a>
+              <button type="submit">Проверить и заменить</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <section class="config-notice">
+        <span class="shield">✓</span>
+        <div><strong>Только локально</strong><p>Справочник хранится в reference_codes.json с правами 0600, Git его игнорирует. Лимиты: 256 КБ, до 1000 записей, коды до 16 символов, расшифровки до 500.</p></div>
+      </section>
+    </main>
+  </body>
+</html>

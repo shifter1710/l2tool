@@ -1,6 +1,6 @@
 import pytest
 
-from core import config, dynamic_sources
+from core import config, dynamic_sources, reference_codes, runbook
 
 
 @pytest.fixture(autouse=True)
@@ -33,3 +33,5 @@ def isolated_config(monkeypatch, tmp_path):
 
     monkeypatch.setattr(config, "CONFIG_PATH", config_path)
     monkeypatch.setattr(dynamic_sources, "STORE_PATH", tmp_path / "diagnostic_sources.json")
+    monkeypatch.setattr(reference_codes, "STORE_PATH", tmp_path / "reference_codes.json")
+    monkeypatch.setattr(runbook, "STORE_PATH", tmp_path / "runbook.json")

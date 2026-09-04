@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from core import history, parser
 from core.case_export import build_case_dict, parsed_sidecar_path, write_case_json
+from core.dynamic_sources import build_source_links, load_store
 from core.parser import is_empty_phone_value
 from core.parser_diagnostics import collect_parse_issues, write_parse_issues
 from core.products import available_products, product_title, resolve_product_modules
@@ -53,27 +54,98 @@ def read_file(path: str) -> str:
     return Path(path).read_text(encoding="utf-8")
 
 
+def enabled_dynamic_sources():
+    """Включённые блоки из diagnostic_sources.json; пусто — файла нет или он пуст."""
+    try:
+        data = load_store()
+    except (OSError, ValueError):
+        return []
+    return [source for source in data.get("sources", []) if source.get("enabled", True)]
+
+
+def managed_product_keys():
+    """Продукты, переведённые на динамические блоки (статика для них не используется).
+
+    Если включённых блоков нет совсем, CLI работает по статической схеме.
+    """
+    try:
+        data = load_store()
+    except (OSError, ValueError):
+        return set()
+    if not enabled_dynamic_sources():
+        return set()
+    return {
+        entry["key"]
+        for entry in data.get("products", [])
+        if entry.get("managed") or not entry.get("builtin")
+    }
+
+
+def available_services():
+    """Каталог «ключ → сервис» для --open: динамические блоки + статические модули.
+
+    Динамические блоки приоритетны; статические модули остаются фолбэком
+    для сервисов, которых нет в динамической конфигурации.
+    """
+    services = {}
+    for block in enabled_dynamic_sources():
+        services[block["id"]] = {
+            "title": block.get("name") or block["id"],
+            "requires_call_uuid": block.get("level") == "uuid",
+            "source": block,
+        }
+    for name, mod in MODULES.items():
+        services.setdefault(
+            name,
+            {
+                "title": MODULE_TITLES.get(name, name),
+                "requires_call_uuid": bool(getattr(mod, "REQUIRES_CALL_UUID", False)),
+                "source": None,
+            },
+        )
+    return services
+
+
+def _services_hint(services):
+    items = []
+    for key, service in services.items():
+        if service["source"] is not None:
+            items.append(f"{service['title']} ({key})")
+        else:
+            items.append(key)
+    return ", ".join(items)
+
+
 def resolve_modules(open_arg: str, call_uuid=None):
-    selected = list(MODULES.keys()) if open_arg == "all" else open_arg.split(",")
-    resolved = []
-    available = ", ".join(MODULES)
+    services = available_services()
+    if open_arg == "all":
+        resolved = list(services)
+    else:
+        lookup = {}
+        for key, service in services.items():
+            lookup[key.lower()] = key
+            lookup.setdefault(service["title"].lower(), key)
 
-    for raw_name in selected:
-        raw_name = raw_name.strip()
-        if not raw_name:
-            continue
+        resolved = []
+        for raw_name in open_arg.split(","):
+            raw_name = raw_name.strip()
+            if not raw_name:
+                continue
 
-        if raw_name not in MODULES:
-            raise ValueError(f"Unknown service: {raw_name}. Available: {available}")
+            key = lookup.get(raw_name.lower())
+            if key is None:
+                raise ValueError(
+                    f"Unknown service: {raw_name}. Available: {_services_hint(services)}"
+                )
 
-        if raw_name not in resolved:
-            resolved.append(raw_name)
+            if key not in resolved:
+                resolved.append(key)
 
     if open_arg == "all" and not call_uuid:
         resolved = [
-            name
-            for name in resolved
-            if not getattr(MODULES[name], "REQUIRES_CALL_UUID", False)
+            key
+            for key in resolved
+            if not services[key]["requires_call_uuid"]
         ]
 
     return resolved
@@ -81,7 +153,9 @@ def resolve_modules(open_arg: str, call_uuid=None):
 
 def requires_call_uuid_modules():
     return [
-        name for name, mod in MODULES.items() if getattr(mod, "REQUIRES_CALL_UUID", False)
+        key
+        for key, service in available_services().items()
+        if service["requires_call_uuid"]
     ]
 
 
@@ -156,7 +230,10 @@ def format_opensearch_periods(selected_modules, ctx=None):
     periods = []
 
     for name in selected_modules:
-        period = getattr(MODULES[name], "SEARCH_PERIOD", None)
+        mod = MODULES.get(name)
+        if mod is None:
+            continue
+        period = getattr(mod, "SEARCH_PERIOD", None)
         if period:
             period = configured_search_period(name, period, ctx)
         if period and period not in periods:
@@ -319,14 +396,23 @@ def prompt_date_only_window(text, ctx, input_fn=None):
 
 
 def build_links(ctx, selected_modules):
+    services = available_services()
     links_by_module = {}
     errors = []
 
     for name in selected_modules:
-        mod = MODULES[name]
+        service = services.get(name)
+        if service is None:
+            errors.append(f"[ERROR] Unknown service: {name}")
+            continue
 
         try:
-            links = mod.build(ctx)
+            if service["source"] is not None:
+                links = build_source_links(
+                    service["source"], ctx, call_uuid=ctx.get("call_uuid")
+                )
+            else:
+                links = MODULES[name].build(ctx)
         except Exception as e:
             errors.append(f"[ERROR] Service failed: {name}: {e}")
             continue
@@ -343,11 +429,15 @@ def terminal_link(label: str, url: str) -> str:
     return f"\033]8;;{url}\033\\{label}\033]8;;\033\\"
 
 
-def format_links(links_by_module):
+def format_links(links_by_module, titles=None):
+    if titles is None:
+        titles = {
+            key: service["title"] for key, service in available_services().items()
+        }
     lines = []
 
     for name, links in links_by_module.items():
-        lines.append(f"[{MODULE_TITLES.get(name, name)}]")
+        lines.append(f"[{titles.get(name, name)}]")
         lines.extend(terminal_link(url, url) for url in links)
 
     return lines
@@ -359,8 +449,29 @@ def open_links(links_by_module):
             webbrowser.open(link)
 
 
-def prompt_product():
+def menu_products():
+    """Продукты для меню: в динамическом режиме пустые продукты скрыты."""
     products = available_products()
+    blocks = enabled_dynamic_sources()
+    if not blocks:
+        return products
+
+    with_blocks = {block.get("product") for block in blocks}
+    visible = []
+    for product_key in products:
+        if product_key in with_blocks:
+            visible.append(product_key)
+            continue
+        try:
+            if resolve_product_modules(product_key):
+                visible.append(product_key)
+        except ValueError:
+            continue
+    return visible
+
+
+def prompt_product():
+    products = menu_products()
     print("Выберите продукт:")
     for index, product_key in enumerate(products, start=1):
         print(f"{index}. {product_title(product_key)}")
@@ -376,8 +487,48 @@ def prompt_product():
     return products[choice - 1]
 
 
-def product_open_arg(product_key):
-    modules = resolve_product_modules(product_key)
+def product_open_arg(product_key, call_uuid=None):
+    """Список сервисов продукта: динамические блоки приоритетнее статики."""
+    blocks = [
+        block
+        for block in enabled_dynamic_sources()
+        if block.get("product") == product_key
+    ]
+
+    if product_key in managed_product_keys():
+        usable = [
+            block
+            for block in blocks
+            if call_uuid or block.get("level") != "uuid"
+        ]
+        if usable:
+            return ",".join(block["id"] for block in usable)
+        if blocks:
+            print(
+                "Блоки продукта работают по UUID звонка: "
+                "передайте --call-uuid, чтобы открыть их"
+            )
+        else:
+            print(f"Для продукта {product_title(product_key)} пока нет настроенных блоков")
+        return None
+
+    if blocks:
+        usable = [
+            block
+            for block in blocks
+            if call_uuid or block.get("level") != "uuid"
+        ]
+        if usable:
+            return ",".join(block["id"] for block in usable)
+
+    try:
+        modules = resolve_product_modules(product_key)
+    except ValueError:
+        print(
+            f"Продукт «{product_key}» настраивается только в веб-интерфейсе: "
+            "откройте страницу «Настройки источников»"
+        )
+        return None
     if not modules:
         print(f"Для продукта {product_title(product_key)} пока нет настроенных сервисов")
         return None
@@ -532,7 +683,7 @@ def main():
 
     open_arg = args.open or DEFAULT_OPEN
     if product_key:
-        open_arg = product_open_arg(product_key)
+        open_arg = product_open_arg(product_key, call_uuid=call_uuid)
         if open_arg is None:
             return 2
 

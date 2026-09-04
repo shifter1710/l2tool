@@ -45,7 +45,9 @@ flowchart LR
 `modules/` — диагностические запросы: что и по каким полям искать в каждом
 сервисе. Точки входа не зависят от реализации сервисов: CLI получает модули
 через реестр `services/registry.py`, веб — переиспользует `run_ticket` из
-`gtool.py`.
+`gtool.py`. Обе точки входа читают одни и те же пользовательские блоки из
+`core/dynamic_sources.py`: динамическая конфигурация приоритетна, статические
+модули — фолбэк для сервисов, которых в ней нет.
 
 ```mermaid
 flowchart TB
@@ -59,8 +61,8 @@ flowchart TB
         direction TB
         parser["parser.py + ticket_fields.py<br/>разбор полей заявки"]
         timetz["timezones.py + time_windows.py<br/>регион → таймзона · UTC-окна"]
-        products["products.py<br/>профили продуктов"]
-        dynamic["dynamic_sources.py<br/>пользовательские блоки<br/>diagnostic_sources.json"]
+        products["products.py<br/>встроенные продукты + каталог<br/>из diagnostic_sources.json"]
+        dynamic["dynamic_sources.py<br/>пользовательские блоки<br/>diagnostic_sources.json, схема v2<br/>+ core/source_backups.py — копии"]
         history["history.py<br/>YAML-архивы + index.json"]
         caseexp["case_export.py<br/>case JSON для l2-local-ai"]
         pdiag["parser_diagnostics.py<br/>parser_issues.jsonl"]
@@ -87,6 +89,7 @@ flowchart TB
     gtool --> history
     gtool --> caseexp
     gtool --> pdiag
+    gtool --> dynamic
     gtool --> registry
     lostcli --> lostcore
     parser --> timetz
@@ -168,9 +171,11 @@ sequenceDiagram
 
 ## 5. Динамические источники (конструктор блоков)
 
-Страница «Настройки источников» позволяет собрать собственный диагностический
-блок из одной вставленной ссылки. Ссылка классифицируется по платформе, в ней
-находится пример номера или UUID, и сохраняется стратегия подстановки.
+Страница «Настройки источников» — полноценный редактор источников диагностики:
+блоки и сами продукты добавляются, изменяются, включаются/выключаются,
+дублируются и удаляются с сайта. Блок собирается из одной вставленной ссылки:
+ссылка классифицируется по платформе, в ней находится пример номера или UUID,
+и сохраняется стратегия подстановки.
 
 ```mermaid
 flowchart TB
@@ -199,7 +204,8 @@ flowchart TB
     os --> strategy
     dash --> strategy
     explore --> strategy
-    strategy --> store["diagnostic_sources.json<br/>атомарная запись, права 0600,<br/>продукт попадает в managed_products"]
+    strategy --> preview["Предпросмотр (/settings/source/preview):<br/>тестовый номер или UUID + «сегодня»<br/>итоговая ссылка без записи в файл"]
+    strategy --> store["diagnostic_sources.json, схема v2<br/>атомарная запись, права 0600"]
 
     subgraph runtime["При диагностике: build_source_links"]
         numbers["уровень number:<br/>1 слот → ссылка на каждый номер заявки<br/>2 слота → номера А и Б"]
@@ -211,8 +217,65 @@ flowchart TB
     store --> uuids
     numbers --> timerange
     uuids --> timerange
-    timerange --> links["Готовые ссылки продукта"]
+    timerange --> links["Готовые ссылки продукта<br/>порядок = порядок блоков в файле,<br/>выключенные блоки пропускаются"]
 ```
+
+### Схема v2: каталог продуктов
+
+`diagnostic_sources.json` хранит каталог продуктов и блоки:
+
+```json
+{
+  "version": 2,
+  "products": [
+    {"key": "recording", "title": "Запись", "color": "green", "builtin": true, "managed": true},
+    {"key": "zapis-msk", "title": "Запись МСК", "color": "violet"}
+  ],
+  "sources": [{"id": "…", "name": "BFF", "product": "zapis-msk", "level": "number",
+                "enabled": true, "example_url": "…", "replacements": "…", "…": "…"}]
+}
+```
+
+- Пять встроенных продуктов (`core/products.py`) — значения по умолчанию, когда
+  файла нет; после загрузки каталог читается из файла. Ключ встроенного
+  продукта изменить нельзя — на него ссылается CLI и README.
+- `builtin: true` + `managed: true` — продукт переведён с профиля `config.toml`
+  на динамические блоки (первый блок переключает автоматически). Пользовательский
+  продукт без `builtin` работает только через блоки — статических модулей у него
+  нет.
+- Удаление продукта запрещено, пока у него есть блоки; каталог и блоки можно
+  восстановить созданием продукта с тем же ключом.
+- Старый файл версии 1 (`managed_products: [строки]`) открывается без правки:
+  миграция v1 → v2 происходит в памяти при чтении и сохраняется в файл при
+  первом изменении.
+
+### Операции над блоками и продуктами
+
+- `enabled` — выключенный блок остаётся в настройках (приглушён, бейдж
+  «Выключен»), но не участвует в диагностике. Переключение одним кликом; для
+  продукта — «включить все / выключить все».
+- Порядок блоков (кнопки «Выше/Ниже» в пределах продукта и уровня) задаёт
+  порядок ссылок в результатах; «Дублировать» создаёт копию «… (копия)» с новым
+  id сразу под оригиналом.
+- Предпросмотр: поле «тестовый номер или UUID» в каждой форме блока показывает
+  итоговую ссылку с подстановкой и текущим временем до сохранения; ошибки
+  подстановки видны сразу.
+- Перенос из `config.toml` (односторонний мост для перехода с CLI): каждый
+  `[services.<имя>]` с заполненным `url` становится блоком выбранного продукта
+  (уровень number, стратегия определяется автоматически; поле «номер из ваших
+  ссылок» помогает распознать хеш). Ссылки, уже существующие в продукте,
+  пропускаются; отчёт показывает добавлено / пропущено / ошибки с причинами.
+  `config.toml` не переписывается.
+
+### Резервные копии настроек
+
+Перед каждым изменяющим действием (сохранение, удаление, импорт, правка
+продуктов, откат) текущий файл копируется в `backups/diagnostic_sources.YYYYMMDD-HHMMSS.json`
+(атомарно, 0600; при коллизии секунды — суффикс `-N`). Ротация хранит последние
+20 копий. На странице настроек — список копий с датой и числом блоков и кнопка
+«Откатиться» с подтверждением; откат сначала сохраняет текущее состояние в
+новую копию. Имя копии валидируется по строгому шаблону (защита от path
+traversal).
 
 Импорт и экспорт конфигурации: экспорт отдаёт текущий `diagnostic_sources.json`
 как скачиваемый файл; импорт валидирует все блоки целиком, добавляет новые и
@@ -275,10 +338,16 @@ flowchart TB
 | `recording_crs` | `recording_crs` | Grafana Explore | `crs.service` по UUID | да |
 | `recording_collector` | `recording_collector` | Grafana Explore | контейнер collector по UUID | да |
 
-Профили продуктов (`core/products.py`): `recording` → zapis, sip_stack, bff;
-`secretary` → secretary; `calls` → myconnect, myconnect_call; `noise` → noise;
-`assistant` → пусто. Первый пользовательский блок для продукта переводит его
-в вебе на динамическую конфигурацию; `config.toml` остаётся для CLI.
+Профили продуктов: `recording` → zapis, sip_stack, bff; `secretary` →
+secretary; `calls` → myconnect, myconnect_call; `noise` → noise; `assistant` →
+пусто. Встроенные профили описаны в `core/products.py` и работают только для
+CLI и статического веба; каталог продуктов редактируется в
+`diagnostic_sources.json` (схема v2, см. раздел 5). Первый пользовательский
+блок для встроенного продукта переводит его на динамическую конфигурацию —
+и в вебе, и в CLI (`gtool.py` читает те же блоки: меню продукта и `--open`
+работают по ним, а статические модули остаются фолбэком для сервисов,
+которых нет в динамической конфигурации). `config.toml` при этом сохраняется
+как статический фолбэк.
 
 ## 9. Время и периоды поиска
 
@@ -309,7 +378,8 @@ flowchart LR
 flowchart TB
     subgraph files["Файловая структура"]
         configtoml["config.toml<br/>URL сервисов, периоды, index patterns<br/>(legacy-секции grafana/opensearch)"]
-        dsjson["diagnostic_sources.json<br/>пользовательские блоки, 0600, атомарная запись"]
+        dsjson["diagnostic_sources.json, схема v2<br/>каталог продуктов + блоки,<br/>0600, атомарная запись"]
+        backupsdir["backups/*.json<br/>резервные копии настроек<br/>(последние 20, 0600)"]
         tickets["tickets/current.txt<br/>текст текущей заявки"]
         sidecar["*.parsed.json рядом с заявкой<br/>нормализованный контекст + ссылки"]
         cases["cases/*.json<br/>экспорт --export-case"]
@@ -323,10 +393,13 @@ flowchart TB
     gtoolCli --> cases
     gtoolCli --> histdir
     gtoolCli --> pissues
+    gtoolCli -.->|"читает блоки"| dsjson
     webapp2["webapp.py"] --> dsjson
     webapp2 --> histdir
+    webapp2 --> backupsdir
     modules2["modules/*"] --> configtoml
     dynamic2["dynamic_sources.py"] --> dsjson
+    dynamic2 --> backupsdir
     lost2["lost_calls_table.py"] --> cleaned
 ```
 
@@ -342,10 +415,19 @@ Case JSON (`core/case_export.py`) содержит нормализованны�
 | `POST /analyze` | первичная диагностика заявки |
 | `POST /secondary` | второй этап по UUID звонка |
 | `POST /batch` | обработка таблицы потерянных звонков, скачивание XLSX |
-| `GET /settings` | конструктор диагностических блоков |
+| `GET /settings` | редактор источников: блоки, продукты, копии |
 | `POST /settings/source` | создание / сохранение блока |
 | `POST /settings/source/delete` | удаление блока |
+| `POST /settings/source/toggle` | включить / выключить блок |
+| `POST /settings/source/move` | сдвиг блока выше / ниже |
+| `POST /settings/source/duplicate` | дублирование блока |
+| `POST /settings/source/preview` | предпросмотр ссылки без сохранения |
+| `POST /settings/product` | создание / переименование продукта |
+| `POST /settings/product/delete` | удаление продукта (не занятого блоками) |
+| `POST /settings/product/toggle-all` | включить / выключить все блоки продукта |
 | `POST /settings/import` | импорт конфигурации из JSON |
+| `POST /settings/import-toml` | перенос сервисов из config.toml в блоки |
+| `POST /settings/backup/restore` | откат настроек из резервной копии |
 | `GET /settings/export` | скачивание текущей конфигурации |
 | `GET /healthz` | проверка живости |
 | `GET /static/*` | styles.css, app.js |
@@ -384,10 +466,25 @@ flowchart TB
 История успешных заявок выключена по умолчанию и включается галочкой;
 `--dry-run` в CLI отключает и историю, и диагностику парсера.
 
-## 13. Тесты и CI
+## 13. Тесты, CI и ветки
 
 - `tests/` — pytest по всем слоям: парсер, история, экспорт, ссылки сервисов,
   динамические источники, веб-маршруты (`TestClient` + `httpx`), таблицы.
 - CI (`.github/workflows/ci.yml`): Python 3.12 → `ruff check .` → `pytest -q`.
 - Локально: `python -m pip install -r requirements-dev.txt`,
   затем `python -m pytest -q` и `python -m ruff check .`.
+- Ветки (`CONTRIBUTING.md`): `feature/*` и `temp/*` → PR в `dev`;
+  перед выпуском `dev` вливается в `stage` (полная проверка), из `stage` —
+  merge в `main` с тегом `vX.Y.Z`. Релизный workflow
+  (`.github/workflows/release.yml`) на тег прогоняет тесты и публикует
+  GitHub Release с исходниками.
+- Текущие крупные задачи и их ветки — в `docs/tasks/`.
+
+```mermaid
+flowchart LR
+    f["feature/имя"] -->|"PR"| d["dev"]
+    t["temp/имя"] -->|"PR или удаление"| d
+    d -->|"merge перед выпуском"| s["stage"]
+    s -->|"merge + тег vX.Y.Z"| m["main"]
+    m -->|"тег"| rel["GitHub Release<br/>(release.yml: тесты + публикация)"]
+```
