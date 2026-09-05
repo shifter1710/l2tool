@@ -46,7 +46,7 @@ def _issue(field, reason, line_number, line_text, message):
     }
 
 
-def collect_parse_issues(text, ctx) -> list[dict]:
+def collect_parse_issues(text, ctx, require_time=True) -> list[dict]:
     issues = []
     event_was_skipped = False
 
@@ -103,7 +103,7 @@ def collect_parse_issues(text, ctx) -> list[dict]:
         issue["field"] in {"event_datetime", "event_date", "event_time"}
         for issue in issues
     )
-    if not has_event_time and not has_event_issue and not event_was_skipped:
+    if require_time and not has_event_time and not has_event_issue and not event_was_skipped:
         match = find_ticket_field(text, "event_datetime")
         issues.append(
             _issue(

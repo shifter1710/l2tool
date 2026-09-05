@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import logging
 import os
 import re
 import secrets
@@ -47,9 +48,11 @@ from core.dynamic_sources import (
 from core.lost_calls_table import TableFormatError, process_table
 from core.products import PRODUCT_COLORS, available_products, product_title, resolve_product_modules
 from core.source_backups import list_backups, restore_backup
-from core.utils import normalize_uuid
+from core.utils import hash_phone, normalize_uuid
 from gtool import MODULE_TITLES, RunResult, run_ticket
 from services.registry import SERVICES
+
+LOGGER = logging.getLogger(__name__)
 
 ROOT_DIR = Path(__file__).resolve().parent
 LOCAL_HOSTS = ["127.0.0.1", "localhost"]
@@ -166,7 +169,9 @@ def form_text(form, name, default=""):
 
 def validate_csrf(form):
     submitted = form_text(form, "csrf_token")
-    if not submitted or not secrets.compare_digest(submitted, app.state.csrf_token):
+    if not submitted or not secrets.compare_digest(
+        submitted.encode("utf-8"), app.state.csrf_token.encode("utf-8")
+    ):
         raise HTTPException(status_code=403, detail="Недействительная форма. Обновите страницу.")
 
 
@@ -222,18 +227,34 @@ def run_dynamic_ticket(
         save_history=False,
         write_diagnostics=False,
         parse_text=parse_text,
+        require_time=False,
     )
     if parsed.errors:
         return parsed
 
+    has_event_time = bool(
+        parsed.ctx.get("event_time")
+        or parsed.ctx.get("event_datetimes")
+        or parsed.ctx.get("event_time_range")
+        or parsed.ctx.get("event_date")
+    )
+    if not has_event_time:
+        parsed.ctx["missing_event_time"] = True
+
     parsed.ctx["call_uuid"] = call_uuid
-    links, titles, errors = build_product_links(
+    links, titles, errors, link_labels = build_product_links(
         product,
         level,
         parsed.ctx,
         call_uuid=call_uuid,
     )
+    if not has_event_time:
+        errors.append(
+            "Дата и время звонка не найдены — временные диапазоны ссылок "
+            "взяты из настроек блоков"
+        )
     parsed.ctx["service_titles"] = titles
+    parsed.ctx["service_link_labels"] = link_labels
     if not links and not errors:
         errors = [f"Для уровня «{LEVELS[level]}» ещё не добавлены диагностические блоки"]
     status = "partial" if links and errors else "failed" if errors or not links else "success"
@@ -333,6 +354,17 @@ def utc_offset_label(ctx):
     return f"{sign}{hours}"
 
 
+def phone_with_hash(value):
+    """Номер с хешем для поиска в логах: «79157771575 · f4156ce0dd60d4e5»."""
+    text = format_value(value)
+    if text == "—":
+        return text
+    try:
+        return f"{text} · {hash_phone(value)}"
+    except (TypeError, ValueError):
+        return text
+
+
 def parsed_fields(ctx):
     msisdn = ctx.get("msisdn")
     phone_a_values = phone_values(ctx, "phone_a")
@@ -347,12 +379,18 @@ def parsed_fields(ctx):
     fields = [
         {
             "label": "Номер А",
-            "value": ", ".join(value for value in phone_a_values if value) or "—",
+            "value": ", ".join(
+                phone_with_hash(value) for value in phone_a_values if value
+            )
+            or "—",
             "is_client": client_side == "phone_a",
         },
         {
             "label": "Номер Б",
-            "value": ", ".join(value for value in phone_b_values if value) or "—",
+            "value": ", ".join(
+                phone_with_hash(value) for value in phone_b_values if value
+            )
+            or "—",
             "is_client": client_side == "phone_b",
         },
     ]
@@ -361,7 +399,7 @@ def parsed_fields(ctx):
             0,
             {
                 "label": "Номер клиента",
-                "value": format_value(msisdn),
+                "value": phone_with_hash(msisdn),
                 "is_client": True,
                 "unmatched": True,
             },
@@ -438,6 +476,7 @@ def result_view(result: RunResult, title):
                 ),
                 "platform": platforms.get(module_name),
                 "links": links,
+                "link_labels": ctx.get("service_link_labels", {}).get(module_name, []),
             }
             for module_name, links in result.links_by_module.items()
         ],
@@ -490,6 +529,14 @@ def render_settings(request, *, status_code=200, overrides=None, **values):
         values.setdefault(
             "error",
             f"{error}. Проверьте файл diagnostic_sources.json или удалите его.",
+        )
+        status_code = max(status_code, 400)
+    except Exception as error:  # повреждённые данные не должны ломать страницу
+        LOGGER.exception("Не удалось загрузить настройки диагностических блоков")
+        values.setdefault(
+            "error",
+            f"Неожиданная ошибка при чтении diagnostic_sources.json: {error!r}. "
+            "Проверьте файл или удалите его.",
         )
         status_code = max(status_code, 400)
     try:
@@ -696,6 +743,8 @@ def source_form_values(form_data):
         "sample_value": form_text(form_data, "sample_value"),
         "minutes_before": form_text(form_data, "minutes_before", "2"),
         "minutes_after": form_text(form_data, "minutes_after", "90"),
+        "range_from": form_text(form_data, "range_from"),
+        "range_to": form_text(form_data, "range_to"),
     }
 
 

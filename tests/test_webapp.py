@@ -260,7 +260,7 @@ def test_saved_source_is_used_by_next_diagnostic_run():
     assert "Произвольное имя блока" in analyze_response.text
 
 
-def test_two_slot_link_uses_client_when_a_and_b_are_missing():
+def test_two_slot_link_leaves_second_phone_empty_when_no_attached_numbers():
     dynamic_sources.save_source(
         {
             "name": "Парный поиск",
@@ -293,7 +293,7 @@ def test_two_slot_link_uses_client_when_a_and_b_are_missing():
     assert response.status_code == 200
     assert response.text.count('class="open-link"') == 1
     assert "var-phone=9991234567" in response.text
-    assert "var-second_phone=9991234567" in response.text
+    assert "var-second_phone=" in response.text
 
 
 def test_two_slot_link_completes_missing_b_with_client_number():
@@ -1407,3 +1407,84 @@ def test_settings_survives_broken_runbook_file():
     assert settings_page.status_code == 200
     assert "empty-state" in settings_page.text
     assert case_response.status_code == 404
+
+
+def test_csrf_check_returns_403_for_non_ascii_token():
+    response = request(
+        "POST",
+        "/settings/source",
+        data={"csrf_token": "не-ascii-токен", "name": "x"},
+    )
+
+    assert response.status_code == 403
+
+
+def test_links_generated_without_event_time_with_warning():
+    dynamic_sources.save_source(
+        {
+            "name": "BFF",
+            "product": "recording",
+            "level": "number",
+            "example_url": opensearch_example(),
+            "sample_value": "",
+            "minutes_before": 2,
+            "minutes_after": 90,
+        }
+    )
+    ticket = "\n".join(
+        [
+            "Номер клиента (msisdn): 79991234567",
+            "Местонахождение абонента: Рязанская область",
+        ]
+    )
+    response = request(
+        "POST",
+        "/analyze",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "product": "recording",
+            "window": "60",
+            "ticket_text": ticket,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.text.count('class="open-link"') >= 1
+    assert "Дата и время звонка не найдены" in response.text
+
+
+def test_phone_fields_show_hash_next_to_numbers():
+    dynamic_sources.save_source(
+        {
+            "name": "BFF",
+            "product": "recording",
+            "level": "number",
+            "example_url": opensearch_example(),
+            "sample_value": "",
+            "minutes_before": 2,
+            "minutes_after": 90,
+        }
+    )
+    ticket = "\n".join(
+        [
+            "Номер клиента (msisdn): 79991234567",
+            "Номер А (приложенные звонки): 79991234567, 79157771575",
+            "Дата и время проблемного звонка: 03.09.2026 14:30",
+        ]
+    )
+    response = request(
+        "POST",
+        "/analyze",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "product": "recording",
+            "window": "60",
+            "ticket_text": ticket,
+        },
+    )
+
+    from core.utils import hash_phone
+
+    assert response.status_code == 200
+    assert hash_phone("79157771575") in response.text
+    assert response.text.count("link-label") >= 1

@@ -205,12 +205,12 @@ flowchart TB
     dash --> strategy
     explore --> strategy
     strategy --> preview["Предпросмотр (/settings/source/preview):<br/>тестовый номер или UUID + «сегодня»<br/>итоговая ссылка без записи в файл"]
-    strategy --> store["diagnostic_sources.json, схема v2<br/>атомарная запись, права 0600"]
+    strategy --> store["diagnostic_sources.json, схема v2<br/>атомарная запись, права 0600<br/>повреждённый блок → понятная ошибка"]
 
     subgraph runtime["При диагностике: build_source_links"]
         numbers["уровень number:<br/>1 слот → ссылка на каждый номер заявки<br/>2 слота → номера А и Б"]
         uuids["уровень uuid:<br/>замена примера на UUID звонка"]
-        timerange["временной диапазон:<br/>Grafana — UTC-окна из заявки<br/>OpenSearch — Europe/Moscow ± минуты блока"]
+        timerange["временной диапазон:<br/>Grafana — UTC-окна из заявки<br/>OpenSearch — Europe/Moscow ± минуты блока<br/>range_from/range_to (now-…) — буквально"]
     end
 
     store --> numbers
@@ -232,7 +232,8 @@ flowchart TB
     {"key": "zapis-msk", "title": "Запись МСК", "color": "violet"}
   ],
   "sources": [{"id": "…", "name": "BFF", "product": "zapis-msk", "level": "number",
-                "enabled": true, "example_url": "…", "replacements": "…", "…": "…"}]
+                "enabled": true, "example_url": "…", "replacements": "…",
+                "range_from": "now-5d", "range_to": "now", "…": "…"}]
 }
 ```
 
@@ -322,7 +323,11 @@ flowchart TB
 
 `services/registry.py` сопоставляет ключ сервиса платформе и модулю.
 `SEARCH_PERIOD` модуля — период по умолчанию; `minutes_before` / `minutes_after`
-из `config.toml` пересчитывают его относительно времени звонка.
+из `config.toml` пересчитывают его относительно времени звонка. В динамических
+блоках то же делают поля минут, а пара `range_from` / `range_to` (`now`,
+`now-5d` …) жёстко задаёт относительный диапазон независимо от заявки
+(дашборды Grafana и OpenSearch). Если времени в заявке нет, веб формирует
+ссылки с диапазоном из настроек блока и добавляет предупреждение.
 
 | Ключ | Модуль | Платформа | Что ищет | Нужен UUID |
 | --- | --- | --- | --- | --- |

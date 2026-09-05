@@ -8,6 +8,7 @@ import pytest
 from core.dynamic_sources import (
     build_product_links,
     build_source_links,
+    build_source_links_labeled,
     create_product,
     delete_product,
     delete_source,
@@ -130,12 +131,12 @@ def test_two_phone_slots_create_one_link_with_phone_a_and_phone_b():
 @pytest.mark.parametrize(
     ("phone_a", "phone_b", "client", "expected_a", "expected_b"),
     [
-        (None, None, "79991234567", "9991234567", "9991234567"),
+        (None, None, "79991234567", "9991234567", ""),
         ("79209264847", None, "79157771575", "9209264847", "9157771575"),
         (None, "79209264847", "79157771575", "9157771575", "9209264847"),
     ],
 )
-def test_two_phone_slots_fall_back_to_client_number(
+def test_two_phone_slots_fill_missing_side_with_client_number(
     phone_a, phone_b, client, expected_a, expected_b
 ):
     source = validate_source(
@@ -144,7 +145,7 @@ def test_two_phone_slots_fall_back_to_client_number(
     ctx = context(phone=phone_a, phone_b=phone_b, client=client)
     ctx["phone_a"] = phone_a
     link = build_source_links(source, ctx)[0]
-    query = parse_qs(urlsplit(link).query)
+    query = parse_qs(urlsplit(link).query, keep_blank_values=True)
 
     assert query["var-phone"] == [expected_a]
     assert query["var-second_phone"] == [expected_b]
@@ -330,7 +331,9 @@ def test_disabled_source_is_hidden_from_links_but_kept_in_settings(tmp_path):
     assert list_sources(path=store)[0]["enabled"] is False
     assert list_sources(path=store, enabled_only=True) == []
 
-    links, titles, errors = build_product_links("recording", "number", context(), path=store)
+    links, titles, errors, _labels = build_product_links(
+        "recording", "number", context(), path=store
+    )
     assert links == {} and titles == {} and errors == []
 
     groups = product_groups(path=store)
@@ -499,7 +502,9 @@ def test_import_services_from_config_reproduces_recording_profile(
         "sip_stack": sip_stack_opensearch.build(ticket_ctx)[0],
         "bff": bff_logs_opensearch.build(ticket_ctx)[0],
     }
-    links, _titles, errors = build_product_links("recording", "number", ticket_ctx, path=store)
+    links, _titles, errors, _labels = build_product_links(
+        "recording", "number", ticket_ctx, path=store
+    )
     dynamic_links = {fully_decoded(link) for block_links in links.values() for link in block_links}
 
     assert errors == []
@@ -530,3 +535,99 @@ def test_import_services_from_config_reports_urls_without_sample(tmp_path):
     assert len(report["errors"]) == 2
     assert any("find-call-in-logs" in item for item in report["errors"])
     assert list_sources(path=store) == []
+
+
+def test_v1_source_without_replacements_uses_stored_strategy(tmp_path):
+    store = tmp_path / "diagnostic_sources.json"
+    source = validate_source(values())
+    legacy = {key: value for key, value in source.items() if key != "replacements"}
+    legacy.setdefault("id", "legacy0001")
+    store.write_text(
+        json.dumps({"version": 1, "managed_products": ["recording"], "sources": [legacy]}),
+        encoding="utf-8",
+    )
+
+    groups = product_groups(path=store)
+
+    names = [
+        item["name"]
+        for group in groups
+        for level in group["levels"]
+        for item in level["sources"]
+    ]
+    assert names == ["Пользовательский BFF"]
+
+
+def test_source_without_replacements_and_strategy_raises_value_error(tmp_path):
+    from core.dynamic_sources import _source_slots
+
+    source = validate_source(values())
+    legacy = {
+        key: value
+        for key, value in source.items()
+        if key not in {"replacements", "strategy", "match_value"}
+    }
+    # из ссылки удалён номер — автодетект невозможен, а strategy нет
+    legacy["example_url"] = "https://dashboards.example.local/discover#?_a=(view:discover)"
+    legacy["sample_value"] = ""
+
+    with pytest.raises(ValueError, match="значение-пример"):
+        _source_slots(legacy)
+
+
+def test_now_range_overrides_event_window_for_opensearch():
+    source = validate_source(values(range_from="now-5d", range_to="now"))
+    ctx = context()  # в заявке есть время события — должно игнорироваться
+
+    (link,) = build_source_links(source, ctx)
+
+    assert "from:'now-5d'" in link and "to:'now'" in link
+    assert "2026-09-03" not in link
+
+
+def test_now_range_overrides_event_window_for_grafana_dashboard():
+    source = validate_source(
+        values(
+            example_url=grafana_dashboard_phone_pair(),
+            sample_value="",
+            range_from="Now-2H",
+            range_to="NOW",
+        )
+    )
+    ctx = context()
+
+    (link,) = build_source_links(source, ctx)
+    query = parse_qs(urlsplit(link).query, keep_blank_values=True)
+
+    assert query["from"] == ["now-2h"]
+    assert query["to"] == ["now"]
+
+
+def test_now_range_validation():
+    with pytest.raises(ValueError, match="обе границы"):
+        validate_source(values(range_from="now-5d"))
+    with pytest.raises(ValueError, match="ожидается now"):
+        validate_source(values(range_from="сейчас", range_to="now"))
+    with pytest.raises(ValueError, match="ожидается now"):
+        validate_source(values(range_from="now-5", range_to="now"))
+    with pytest.raises(ValueError, match="Explore"):
+        validate_source(
+            values(
+                level="uuid",
+                sample_value=CALL_UUID,
+                range_from="now-5d",
+                range_to="now",
+                example_url=grafana_url(),
+            )
+        )
+
+
+def test_single_slot_links_are_labeled_per_number():
+    source = validate_source(values())
+    ctx = context(phone="79157771575", phone_b="79209264847")
+
+    labeled = build_source_links_labeled(source, ctx)
+
+    # msisdn = phone_a (context-хелпер): дубль значения сворачивается
+    labels = [label for _url, label in labeled]
+    assert labels == ["клиент 79157771575", "номер Б 79209264847"]

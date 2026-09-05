@@ -197,9 +197,11 @@ def _csv_dialect(sample, suffix):
 
 
 def _read_csv(path):
-    text = path.read_text(encoding="utf-8-sig")
-    dialect = _csv_dialect(text[:4096], path.suffix.lower())
-    all_rows = list(csv.reader(text.splitlines(), dialect=dialect))
+    with path.open(encoding="utf-8-sig", newline="") as file:
+        sample = file.read(4096)
+        dialect = _csv_dialect(sample, path.suffix.lower())
+        file.seek(0)
+        all_rows = list(csv.reader(file, dialect=dialect))
 
     for header_index, values in enumerate(all_rows[:50]):
         header_map = resolve_headers(values)
