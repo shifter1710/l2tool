@@ -1,5 +1,7 @@
 from datetime import date, datetime, timedelta
 
+import pytest
+
 from core import parser
 
 
@@ -362,3 +364,31 @@ def test_parse_phone_comment_datetime():
 
     assert ctx["phone_b"] == "79394928585"
     assert str(ctx["event_time"]) == "2026-06-11 10:25:00"
+
+
+@pytest.mark.parametrize(
+    ("region", "tz"),
+    [
+        ("Таймырский АО", "Asia/Krasnoyarsk"),
+        ("Таймырский (Долгано-Ненецкий) округ", "Asia/Krasnoyarsk"),
+        ("Эвенкийский автономный округ", "Asia/Krasnoyarsk"),
+        ("Республика Башкортостан", "Asia/Yekaterinburg"),
+        ("Тюменская область", "Asia/Yekaterinburg"),
+        ("Ямало-Ненецкий автономный округ", "Asia/Yekaterinburg"),
+        ("Ненецкий АО", "Europe/Moscow"),
+        ("Коми-Пермяцкий округ", "Asia/Yekaterinburg"),
+        ("Республика Коми", "Europe/Moscow"),
+        ("Томская область", "Asia/Tomsk"),
+        ("Омская область", "Asia/Omsk"),
+        ("Республика Саха (Якутия)", "Asia/Yakutsk"),
+        ("Амурская область", "Asia/Yakutsk"),
+        ("Комсомольск-на-Амуре", "Asia/Vladivostok"),
+        ("Сахалинская область", "Asia/Sakhalin"),
+        ("Вологодская область", "Europe/Moscow"),
+        ("Забайкальский край", "Asia/Chita"),
+    ],
+)
+def test_region_timezone_resolution(region, tz):
+    from core.timezones import resolve_timezone
+
+    assert resolve_timezone(region) == tz

@@ -73,6 +73,9 @@ def _read_toml(path):
     return _read_simple_toml(path)
 
 
+_CONFIG_CACHE = {}  # (mtime_ns, size) -> разобранный TOML
+
+
 def load_config(path=None):
     if path:
         return _read_toml(Path(path))
@@ -80,7 +83,14 @@ def load_config(path=None):
     if not CONFIG_PATH.exists():
         raise FileNotFoundError(MISSING_CONFIG_MESSAGE)
 
-    return _read_toml(CONFIG_PATH)
+    stat = CONFIG_PATH.stat()
+    cache_key = (str(CONFIG_PATH), stat.st_mtime_ns, stat.st_size)
+    cached = _CONFIG_CACHE.get(cache_key)
+    if cached is None:
+        cached = _read_toml(CONFIG_PATH)
+        _CONFIG_CACHE.clear()
+        _CONFIG_CACHE[cache_key] = cached
+    return cached
 
 
 def config_value(key_path, default=None):

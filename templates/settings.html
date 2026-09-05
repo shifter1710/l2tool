@@ -36,7 +36,10 @@
   <div class="window-fields">
     <label><span>Минут до события</span><input type="number" name="minutes_before" min="0" max="1440" value="{{ values.minutes_before|default(2) }}"></label>
     <label><span>Минут после события</span><input type="number" name="minutes_after" min="0" max="1440" value="{{ values.minutes_after|default(90) }}"></label>
+    <label><span>Диапазон «от» <small>now-выражение</small></span><input name="range_from" value="{{ values.range_from|default('') }}" placeholder="например, now-5d" spellcheck="false"></label>
+    <label><span>Диапазон «до» <small>now-выражение</small></span><input name="range_to" value="{{ values.range_to|default('') }}" placeholder="например, now" spellcheck="false"></label>
   </div>
+  <p class="field-hint">Заполнены «от» и «до» — ссылка всегда строится с этим относительным диапазоном (например now-5d … now), время из заявки и минуты игнорируются. Для дашбордов Grafana и OpenSearch.</p>
   <div class="preview-fields">
     <label><span>Проверка: тестовый номер или UUID</span><input name="preview_value" placeholder="Например, 79991234567"></label>
     <button type="submit" class="secondary-button" formaction="/settings/source/preview">Проверить ссылку</button>
@@ -81,7 +84,7 @@
           <h3>{{ source.name }}</h3>
         </div>
         <span class="source-summary">
-          {% if source.level == 'uuid' %}{{ 'UUID без дефисов' if source.strategy == 'compact_uuid' else 'UUID целиком' }}{% elif source.replacements|length > 1 %}номер А + номер Б{% else %}{{ {'raw':'полный номер', 'national':'номер без 7', 'hash16':'хеш номера'}[source.strategy]|default('номер') }}{% endif %} · −{{ source.minutes_before }}/+{{ source.minutes_after }} мин
+          {% if source.level == 'uuid' %}{{ 'UUID без дефисов' if source.strategy == 'compact_uuid' else 'UUID целиком' }}{% elif source.replacements|length > 1 %}номер А + номер Б{% else %}{{ {'raw':'полный номер', 'national':'номер без 7', 'hash16':'хеш номера'}[source.strategy]|default('номер') }}{% endif %} · {% if source.range_from %}{{ source.range_from }} … {{ source.range_to }}{% else %}−{{ source.minutes_before }}/+{{ source.minutes_after }} мин{% endif %}
         </span>
         <span class="source-status">{{ 'Активен' if source.enabled|default(True) else 'Выключен' }}</span>
         <svg class="source-chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3 6l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>

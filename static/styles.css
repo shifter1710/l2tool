@@ -792,3 +792,15 @@ button span { margin-left: var(--space-2); }
   .print-links ul { margin: 0; padding-left: 18px; }
   .print-links li { margin: 2px 0; font-size: var(--text-2xs); overflow-wrap: anywhere; }
 }
+
+.link-label {
+  margin-left: 4px;
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  background: var(--panel);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
