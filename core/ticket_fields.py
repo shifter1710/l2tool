@@ -25,6 +25,7 @@ TICKET_FIELDS: dict[str, TicketField] = {
         patterns=(
             _LINE_START + r"Номер звонящего\s*\(А\)\s*[:：]\s*(.+)",
             _LINE_START + r"Номер звонящего\s*[:：]\s*(.+)",
+            _LINE_START + r"Номер А\s*\([^)]*\)\s*[:：]\s*(.+)",
             _LINE_START + r"Номер А\s*[:：]\s*(.+)",
         ),
     ),
@@ -34,6 +35,7 @@ TICKET_FIELDS: dict[str, TicketField] = {
             _LINE_START + r"Номер принимающего звонок\s*\(Б\)\s*[:：]\s*(.+)",
             _LINE_START + r"Номер принимающего звонок\s*Б\s*[:：]\s*(.+)",
             _LINE_START + r"Номер принимающего\s*[:：]\s*(.+)",
+            _LINE_START + r"Номер Б\s*\([^)]*\)\s*[:：]\s*(.+)",
             _LINE_START + r"Номер Б\s*[:：]\s*(.+)",
             _LINE_START + r"Б\s*[:：]\s*(.+)",
             _LINE_START + r"callee\s*[:：]\s*(.+)",
