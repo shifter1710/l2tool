@@ -546,6 +546,7 @@ def run_ticket(
     write_diagnostics=True,
     parse_text=None,
     call_uuid=None,
+    require_time=True,
 ):
     if call_uuid:
         call_uuid = normalize_uuid(call_uuid)
@@ -558,7 +559,7 @@ def run_ticket(
     ctx["selected_modules"] = selected
     ctx["call_uuid"] = call_uuid
 
-    issues = collect_parse_issues(source_text, ctx)
+    issues = collect_parse_issues(source_text, ctx, require_time=require_time)
     lines, warnings = partition_warnings(format_parsed_context(ctx))
     warnings.extend(format_loki_retention_warning(ctx))
     lines.append("")

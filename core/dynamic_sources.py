@@ -212,6 +212,22 @@ def _detect_samples(level, url, sample_value):
     ]
 
 
+VALID_STRATEGIES = {"raw", "national", "hash16", "compact_uuid"}
+_NOW_EXPR_PATTERN = re.compile(r"now(?:-\d{1,4}[smhdwMy])?")
+
+
+def _validate_now_expr(value, label):
+    """now-выражение относительного времени: now, now-5d, now-2h…; пусто — не задано."""
+    expr = str(value or "").strip().lower()
+    if not expr:
+        return ""
+    if not _NOW_EXPR_PATTERN.fullmatch(expr):
+        raise ValueError(
+            f"{label}: ожидается now или now-<число><единица>, например now-5d"
+        )
+    return expr
+
+
 def _source_slots(source):
     slots = source.get("replacements")
     if isinstance(slots, list) and slots:
@@ -223,12 +239,15 @@ def _source_slots(source):
             source.get("sample_value", ""),
         )
     except (KeyError, TypeError, ValueError):
-        return [
-            {
-                "strategy": source["strategy"],
-                "match_value": source["match_value"],
-            }
-        ]
+        name = source.get("name") or source.get("id", "блок")
+        strategy = source.get("strategy")
+        match_value = source.get("match_value")
+        if strategy not in VALID_STRATEGIES or not match_value:
+            raise ValueError(
+                f"Блок «{name}»: не удалось определить способ подстановки. "
+                "Откройте блок в настройках и укажите значение-пример заново"
+            ) from None
+        return [{"strategy": strategy, "match_value": match_value}]
 
 
 def _fully_unquote(value):
@@ -263,6 +282,19 @@ def validate_source(values, path=None):
         raise ValueError("Окно поиска должно быть задано целым числом минут") from error
     if not 0 <= minutes_before <= 1440 or not 0 <= minutes_after <= 1440:
         raise ValueError("Окно поиска должно быть от 0 до 1440 минут")
+    range_from = _validate_now_expr(values.get("range_from"), "Диапазон «от»")
+    range_to = _validate_now_expr(values.get("range_to"), "Диапазон «до»")
+    if bool(range_from) != bool(range_to):
+        raise ValueError("Укажите обе границы диапазона now-… или оставьте обе пустыми")
+    if (
+        range_from
+        and parsed["platform"] == "grafana"
+        and parsed["kind"] != "dashboard"
+    ):
+        raise ValueError(
+            "Диапазон now-… поддерживается для дашбордов Grafana и OpenSearch; "
+            "для Explore скопируйте ссылку с нужным периодом"
+        )
 
     return {
         "name": name,
@@ -279,6 +311,8 @@ def validate_source(values, path=None):
         "replacements": replacements,
         "minutes_before": minutes_before,
         "minutes_after": minutes_after,
+        "range_from": range_from,
+        "range_to": range_to,
     }
 
 
@@ -737,8 +771,6 @@ def _preview_context(level, preview_value):
             "msisdn_values": [phone],
             "phone_a": phone,
             "phone_a_values": [phone],
-            "phone_b": phone,
-            "phone_b_values": [phone],
         }
     )
     return ctx
@@ -746,6 +778,8 @@ def _preview_context(level, preview_value):
 
 def _replacement_for(level, strategy, value):
     if level == "number":
+        if not value:
+            return ""
         normalized = _normalize_phone(value)
         if strategy == "national":
             return normalized[1:]
@@ -791,7 +825,10 @@ def _replace_tree(node, replacements, time_range=None):
 def _grafana_links(source, replacements, ctx):
     parts = urlsplit(source["example_url"])
     params = dict(parse_qsl(parts.query, keep_blank_values=True))
-    windows = utc_search_windows(ctx) or [None]
+    if source.get("range_from") and source.get("range_to"):
+        windows = [(source["range_from"], source["range_to"])]
+    else:
+        windows = utc_search_windows(ctx) or [None]
     links = []
     for window in windows:
         updated = {}
@@ -816,6 +853,8 @@ def _grafana_links(source, replacements, ctx):
 
 
 def _opensearch_period(source, ctx):
+    if source.get("range_from") and source.get("range_to"):
+        return source["range_from"], source["range_to"]
     values = list(ctx.get("event_datetimes") or [])
     if not values and ctx.get("event_time"):
         values = [ctx["event_time"]]
@@ -877,7 +916,8 @@ def _resolved_phone_pair(ctx):
     if not phone_a and not phone_b:
         if not client:
             raise ValueError("В заявке не найден номер клиента или номера А/Б")
-        return client, client
+        # приложенных номеров нет — второй слот не заполняем номером клиента
+        return client, None
     if not phone_a:
         phone_a = client or phone_b
     if not phone_b:
@@ -885,76 +925,97 @@ def _resolved_phone_pair(ctx):
     return phone_a, phone_b
 
 
-def build_source_links(source, ctx, call_uuid=None):
+FIELD_LABELS = (("msisdn", "клиент"), ("phone_a", "номер А"), ("phone_b", "номер Б"))
+
+
+def build_source_links_labeled(source, ctx, call_uuid=None):
+    """Ссылки с пояснением, по какому значению построена каждая: [(url, label), …]."""
     slots = _source_slots(source)
     if source["level"] == "uuid":
         if not call_uuid:
             raise ValueError("UUID звонка не указан")
         replacement_sets = [
-            [
-                (
-                    slots[0]["match_value"],
-                    _replacement_for("uuid", slots[0]["strategy"], call_uuid),
-                )
-            ]
+            (
+                [
+                    (
+                        slots[0]["match_value"],
+                        _replacement_for("uuid", slots[0]["strategy"], call_uuid),
+                    )
+                ],
+                "UUID",
+            )
         ]
     elif len(slots) >= 2:
         phone_a, phone_b = _resolved_phone_pair(ctx)
+        label = f"А {phone_a}" + (f" · Б {phone_b}" if phone_b else "")
         replacement_sets = [
-            [
-                (
-                    slots[0]["match_value"],
-                    _replacement_for("number", slots[0]["strategy"], phone_a),
-                ),
-                (
-                    slots[1]["match_value"],
-                    _replacement_for("number", slots[1]["strategy"], phone_b),
-                ),
-            ]
+            (
+                [
+                    (
+                        slots[0]["match_value"],
+                        _replacement_for("number", slots[0]["strategy"], phone_a),
+                    ),
+                    (
+                        slots[1]["match_value"],
+                        _replacement_for("number", slots[1]["strategy"], phone_b),
+                    ),
+                ],
+                label,
+            )
         ]
     else:
-        values = []
-        for field in ("msisdn", "phone_a", "phone_b"):
+        replacement_sets = []
+        seen = []
+        for field, label in FIELD_LABELS:
             field_values = ctx.get(f"{field}_values") or [ctx.get(field)]
             for value in field_values:
-                if value and value not in values:
-                    values.append(value)
-        if not values:
+                if value and value not in seen:
+                    seen.append(value)
+                    replacement_sets.append(
+                        (
+                            [
+                                (
+                                    slots[0]["match_value"],
+                                    _replacement_for("number", slots[0]["strategy"], value),
+                                )
+                            ],
+                            f"{label} {value}",
+                        )
+                    )
+        if not replacement_sets:
             raise ValueError("В заявке не найдено ни одного номера")
-        replacement_sets = [
-            [
-                (
-                    slots[0]["match_value"],
-                    _replacement_for("number", slots[0]["strategy"], value),
-                )
-            ]
-            for value in values
-        ]
 
     links = []
-    for replacements in replacement_sets:
+    for replacements, label in replacement_sets:
         generated = (
             _grafana_links(source, replacements, ctx)
             if source["platform"] == "grafana"
             else [_opensearch_link(source, replacements, ctx)]
         )
         for link in generated:
-            if link not in links:
-                links.append(link)
+            if link not in [url for url, _ in links]:
+                links.append((link, label))
     return links
 
 
+def build_source_links(source, ctx, call_uuid=None):
+    return [url for url, _label in build_source_links_labeled(source, ctx, call_uuid)]
+
+
 def build_product_links(product, level, ctx, call_uuid=None, path=None):
+    """Возвращает (links, titles, errors, labels): labels — пояснение к каждой ссылке."""
     links = {}
     titles = {}
     errors = []
+    labels = {}
     for source in list_sources(product=product, level=level, path=path, enabled_only=True):
         titles[source["id"]] = source["name"]
         try:
-            generated = build_source_links(source, ctx, call_uuid=call_uuid)
+            generated = build_source_links_labeled(source, ctx, call_uuid=call_uuid)
         except (KeyError, TypeError, ValueError) as error:
             errors.append(f"{source['name']}: {error}")
             continue
         if generated:
-            links[source["id"]] = generated
-    return links, titles, errors
+            links[source["id"]] = [url for url, _label in generated]
+            labels[source["id"]] = [label for _url, label in generated]
+    return links, titles, errors, labels

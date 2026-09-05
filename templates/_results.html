@@ -17,6 +17,9 @@
           <div class="link-group">
             <div class="link-row">
               <a class="open-link" href="{{ link }}" target="_blank" rel="noreferrer noopener">Открыть{% if service.links|length > 1 %} · {{ loop.index }}{% endif %}<span aria-hidden="true">↗</span></a>
+              {% if service.link_labels and service.link_labels[loop.index0] %}
+                <span class="link-label" title="Значение, подставленное в ссылку">{{ service.link_labels[loop.index0] }}</span>
+              {% endif %}
               <button class="copy-link" type="button" data-copy-link="{{ link }}" aria-label="Копировать ссылку {{ service.title }}{% if service.links|length > 1 %}, вариант {{ loop.index }}{% endif %}">
                 <span data-copy-label aria-live="polite">Копировать</span>
               </button>
