@@ -150,12 +150,16 @@
       const contentType = response.headers.get("content-type") || "";
       if (!contentType.includes("text/html")) {
         // Например, JSON-ответ CSRF-отказа — уходим в обычную отправку.
+        zoneBusy = false;
+        resetPending(form);
         form.submit();
         return;
       }
       zone.innerHTML = await response.text();
     } catch (_error) {
       // Сеть или сервер недоступны — отправляем форму обычным путём.
+      zoneBusy = false;
+      resetPending(form);
       form.submit();
       return;
     }
