@@ -55,6 +55,7 @@ flowchart TB
         webapp["webapp.py<br/>веб-интерфейс (FastAPI, port 8765)"]
         gtool["gtool.py<br/>CLI: заявка → ссылки, история, case JSON"]
         lostcli["lost_calls_table.py<br/>CLI: пакетная обработка выгрузок"]
+        callcli["call_history.py<br/>CLI: ссылки по звонкам<br/>из истории баланса"]
     end
 
     subgraph core["core/ — доменная логика"]
@@ -67,6 +68,7 @@ flowchart TB
         caseexp["case_export.py<br/>case JSON для l2-local-ai"]
         pdiag["parser_diagnostics.py<br/>parser_issues.jsonl"]
         lostcore["lost_calls_table.py<br/>очистка выгрузок + ссылки"]
+        callhist["call_history.py<br/>история звонков из баланса:<br/>парсер, группировка переадресаций,<br/>контекст звонка для модулей"]
         config["config.py<br/>чтение config.toml"]
     end
 
@@ -85,13 +87,16 @@ flowchart TB
     webapp --> gtool
     webapp --> dynamic
     webapp --> lostcore
+    webapp --> callhist
     gtool --> parser
     gtool --> history
     gtool --> caseexp
     gtool --> pdiag
     gtool --> dynamic
     gtool --> registry
+    gtool --> callhist
     lostcli --> lostcore
+    callcli --> callhist
     parser --> timetz
     dynamic --> products
     dynamic --> osurl
@@ -233,7 +238,8 @@ flowchart TB
   ],
   "sources": [{"id": "…", "name": "BFF", "product": "zapis-msk", "level": "number",
                 "enabled": true, "example_url": "…", "replacements": "…",
-                "range_from": "now-5d", "range_to": "now", "…": "…"}]
+                "range_from": "now-5d", "range_to": "now", "…": "…"}],
+  "call_history": {"secretary_numbers": ["79991230999"]}
 }
 ```
 
@@ -282,6 +288,25 @@ traversal).
 как скачиваемый файл; импорт валидирует все блоки целиком, добавляет новые и
 пропускает точные дубликаты (совпадают название, продукт, уровень и ссылка).
 
+Полный бандл (`core/config_bundle.py`) объединяет все хранилища — блоки,
+справочник кодов, ранбук и `config.toml` — в один JSON. При импорте бандла
+каждая часть применяется правилами своего одиночного импорта, недостающие
+продукты создаются, а заменённый `config.toml` уходит в `backups/`
+(`config.toml.YYYYMMDD-HHMMSS.bak`, последние 5). Значения по умолчанию
+(окна, продукты форм, наборы сервисов CLI, лимиты) читаются из секций
+`[defaults]`, `[gtool]`, `[call_history]` через `config.optional_value` —
+без них работают встроенные значения.
+
+Проверка ссылок и секретов сосредоточена в `core/url_guard.py` и одинакова
+для динамических блоков и статического профиля: URL допускаются только
+http(s) и без логина/пароля — это проверяется и при чтении config.toml
+(`service_url`, `grafana_find_call_dashboard`, `opensearch.base_url`).
+При импорте `config.toml` и бандла отклоняются ключи-секреты (`token`,
+`password`, `api_key`…) и параметры ссылок с похожими именами — структурно,
+включая percent-кодированное состояние Grafana/OpenSearch во фрагменте.
+При выгрузке бандла `config.toml` с секретами в файл не включается, а
+сводка состава бандла предупреждает об этом.
+
 ## 6. Вторичная диагностика по UUID
 
 После первичной диагностики продукта «Запись», когда UUID звонка уже найден,
@@ -318,6 +343,32 @@ flowchart TB
     links3 --> out["Итоговый XLSX: 5 исходных колонок + 3 ссылки<br/>веб: временный файл, удаление после скачивания<br/>CLI: <имя>.cleaned.xlsx рядом с исходным"]
     warn --> out
 ```
+
+### История звонков из истории баланса
+
+Сценарий для текстовой выгрузки внешнего скрипта детализации, доступный из
+веба (`POST /call-history`) и CLI (`call_history.py`). Ядро —
+`core/call_history.py`; ссылки строит `gtool.run_call_history` тем же
+механизмом `build_links`, что и обычную заявку (динамические блоки +
+статические модули).
+
+```mermaid
+flowchart TB
+    input["Выгрузка истории баланса:<br/>дата-время (МСК) + заголовок события<br/>стрелка →/←, номер, Duration<br/>тип звонка (Цифровой / VoLTE)"] --> parse["Построчный парсер:<br/>направление по стрелке,<br/>короткие коды (0900) как есть"]
+    parse --> fwd{"Строка «Переадресация<br/>по условию …»?"}
+    fwd -->|"да"| merge["Ноги в ±5 с схлопываются:<br/>сервисная нога (до или после)<br/>+ входящая нога звонящего<br/>= один входящий звонок"]
+    fwd -->|нет| single["Обычный звонок: А/Б по направлению"]
+    merge --> ctx["call_context: msisdn + А/Б + время, tz МСК"]
+    single --> ctx
+    ctx --> links["build_links по каждому звонку<br/>(блоки продукта или статика)<br/>метки: цифровой (MyConnect), VoLTE,<br/>условие переадресации, Секретарь"]
+    links --> out["Веб: карточки-аккордеоны по звонкам<br/>CLI: блок ссылок на каждый звонок<br/>лимит 50, предупреждения о Loki/msisdn"]
+```
+
+Номера Секретаря редактируются на странице настроек (панель «История
+звонков · номера Секретаря») и хранятся в `diagnostic_sources.json` в секции
+`call_history`; она приоритетнее секции `[call_history]` в `config.toml`,
+которая работает, пока на сайте ничего не сохраняли. Экспорт, импорт и
+резервные копии переносят секцию вместе с остальной конфигурацией.
 
 ## 8. Реестр сервисов и модули
 
@@ -419,6 +470,7 @@ Case JSON (`core/case_export.py`) содержит нормализованны�
 | `GET /` | главная: форма заявки, результаты, пакетная загрузка |
 | `POST /analyze` | первичная диагностика заявки |
 | `POST /secondary` | второй этап по UUID звонка |
+| `POST /call-history` | ссылки по каждому звонку из истории баланса |
 | `POST /batch` | обработка таблицы потерянных звонков, скачивание XLSX |
 | `GET /settings` | редактор источников: блоки, продукты, копии |
 | `POST /settings/source` | создание / сохранение блока |
@@ -430,10 +482,23 @@ Case JSON (`core/case_export.py`) содержит нормализованны�
 | `POST /settings/product` | создание / переименование продукта |
 | `POST /settings/product/delete` | удаление продукта (не занятого блоками) |
 | `POST /settings/product/toggle-all` | включить / выключить все блоки продукта |
+| `POST /settings/call-history` | номера Секретаря для истории звонков |
+| `GET /settings/export-all` | бандл всех конфигов одним файлом |
+| `POST /settings/import-all` | загрузка бандла всех конфигов |
+| `GET /settings/export-config` | скачивание config.toml |
+| `POST /settings/import-config` | замена config.toml с бэкапом |
+| `POST /settings/runbook` | сохранение кейса ранбука |
+| `POST /settings/runbook/delete` | удаление кейса ранбука |
+| `POST /settings/runbook/import` | импорт ранбука из JSON |
+| `GET /settings/runbook/export` | скачивание ранбука |
 | `POST /settings/import` | импорт конфигурации из JSON |
 | `POST /settings/import-toml` | перенос сервисов из config.toml в блоки |
 | `POST /settings/backup/restore` | откат настроек из резервной копии |
 | `GET /settings/export` | скачивание текущей конфигурации |
+| `GET /reference` | справочник кодов: таблица |
+| `POST /reference/import` | импорт справочника из JSON |
+| `GET /reference/export` | скачивание справочника |
+| `POST /runbook` | шаги кейса со ссылками по данным заявки |
 | `GET /healthz` | проверка живости |
 | `GET /static/*` | styles.css, app.js |
 
@@ -455,7 +520,7 @@ flowchart TB
 
     subgraph data["Защита данных"]
         local["Ничего не отправляется во внешние сервисы:<br/>ссылки открывает браузер пользователя"]
-        secrets["Токены и ключи в ссылках блокируются<br/>при вводе (access_token, api_key, auth, token)"]
+        secrets["Секреты блокируются: ключи TOML и параметры ссылок<br/>(core/url_guard.py), URL только http(s) без паролей"]
         perms["diagnostic_sources.json · parser_issues ·<br/>case JSON пишутся с правами 0600"]
     end
 
@@ -475,7 +540,7 @@ flowchart TB
 
 - `tests/` — pytest по всем слоям: парсер, история, экспорт, ссылки сервисов,
   динамические источники, веб-маршруты (`TestClient` + `httpx`), таблицы.
-- CI (`.github/workflows/ci.yml`): Python 3.12 → `ruff check .` → `pytest -q`.
+- CI (`.github/workflows/ci.yml`): Python 3.10–3.12 → `ruff check .` → `pytest -q`.
 - Локально: `python -m pip install -r requirements-dev.txt`,
   затем `python -m pytest -q` и `python -m ruff check .`.
 - Ветки (`CONTRIBUTING.md`): `feature/*` и `temp/*` → PR в `dev`;
@@ -483,7 +548,7 @@ flowchart TB
   merge в `main` с тегом `vX.Y.Z`. Релизный workflow
   (`.github/workflows/release.yml`) на тег прогоняет тесты и публикует
   GitHub Release с исходниками.
-- Текущие крупные задачи и их ветки — в `docs/tasks/`.
+- Выполненные крупные задачи и их ветки — в архиве `docs/tasks/done/`.
 
 ```mermaid
 flowchart LR

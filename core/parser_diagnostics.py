@@ -10,6 +10,8 @@ from core.parser import (
 )
 from core.ticket_fields import TICKET_FIELDS, find_ticket_field
 
+ROOT_DIR = Path(__file__).resolve().parents[1]
+
 PHONE_FIELDS = (
     ("msisdn", "msisdn_raw"),
     ("phone_a", "phone_a_raw"),
@@ -118,11 +120,12 @@ def collect_parse_issues(text, ctx, require_time=True) -> list[dict]:
     return issues
 
 
-def write_parse_issues(issues, path="parser_issues/parser_issues.jsonl"):
+def write_parse_issues(issues, path=None):
     if not issues:
         return
 
-    path = Path(path)
+    # Путь по умолчанию — всегда внутри каталога проекта, а не текущего CWD
+    path = Path(path) if path else ROOT_DIR / "parser_issues" / "parser_issues.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
 
     file_descriptor = os.open(

@@ -22,6 +22,7 @@ from core.products import (
 )
 from core.source_backups import create_backup
 from core.time_windows import utc_search_windows
+from core.url_guard import find_url_secrets, validate_external_url
 from core.utils import hash_phone, normalize_uuid
 from services.opensearch import extract_index_pattern
 
@@ -31,14 +32,11 @@ STORE_VERSION = 2
 LEVELS = {"number": "Поиск по номерам", "uuid": "Поиск по UUID"}
 MAX_URL_LENGTH = 100_000
 MAX_IMPORTED_SOURCES = 500
+MAX_SECRETARY_NUMBERS = 50
 _WRITE_LOCK = threading.RLock()
 _PHONE_PATTERN = re.compile(r"(?<!\d)(?:[78]\d{10}|\d{10})(?!\d)")
 _UUID_PATTERN = re.compile(
     r"\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b",
-    re.IGNORECASE,
-)
-_SENSITIVE_PATTERN = re.compile(
-    r"(?:[?&#]|^)(?:access_token|api_key|apikey|auth|token)=",
     re.IGNORECASE,
 )
 
@@ -124,11 +122,8 @@ def _parse_platform(url):
     if not value or len(value) > MAX_URL_LENGTH:
         raise ValueError("Вставьте корректную полную ссылку")
     parts = urlsplit(value)
-    if parts.scheme not in {"http", "https"} or not parts.hostname:
-        raise ValueError("Ссылка должна начинаться с http:// или https://")
-    if parts.username or parts.password:
-        raise ValueError("Удалите логин и пароль из ссылки")
-    if _SENSITIVE_PATTERN.search(value):
+    validate_external_url(value)
+    if find_url_secrets(value):
         raise ValueError("Удалите токен или ключ доступа из ссылки")
 
     index_pattern = extract_index_pattern(value)
@@ -150,6 +145,8 @@ def _parse_platform(url):
                 json.loads(query[key])
             except json.JSONDecodeError as error:
                 raise ValueError(f"Не удалось разобрать параметр Grafana {key}") from error
+            except RecursionError as error:
+                raise ValueError(f"Параметр Grafana {key} вложен слишком глубоко") from error
             state_found = True
         if not state_found:
             raise ValueError("Ссылка Grafana Explore должна содержать panes или left")
@@ -550,6 +547,8 @@ def import_sources(content, path=None):
         imported = json.loads(content)
     except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("Файл должен содержать корректный JSON") from error
+    except RecursionError as error:
+        raise ValueError("JSON конфигурации вложен слишком глубоко") from error
 
     raw_sources = imported.get("sources") if isinstance(imported, dict) else imported
     if not isinstance(raw_sources, list):
@@ -702,6 +701,49 @@ def is_managed(product, path=None):
     return entry["managed"] or not entry["builtin"]
 
 
+def load_call_history(path=None):
+    """Секция call_history из diagnostic_sources.json; нет секции — пустой словарь."""
+    section = load_store(path).get("call_history")
+    return section if isinstance(section, dict) else {}
+
+
+def normalize_secretary_numbers(raw_numbers):
+    """Разобрать и проверить номера Секретаря; возвращает нормализованный список.
+
+    Пустой ввод допустим и выключает метки.
+    """
+    items = [item for item in re.split(r"[\s,;]+", str(raw_numbers or "")) if item]
+    normalized = []
+    for item in items:
+        try:
+            number = _normalize_phone(item)
+        except ValueError as error:
+            raise ValueError(f"Номер Секретаря указан некорректно: {item}") from error
+        if number not in normalized:
+            normalized.append(number)
+    if len(normalized) > MAX_SECRETARY_NUMBERS:
+        raise ValueError(
+            f"Номеров Секретаря может быть не больше {MAX_SECRETARY_NUMBERS}"
+        )
+    return normalized
+
+
+def save_call_history_secretary_numbers(raw_numbers, path=None):
+    """Сохранить номера Секретаря (один на строку или через запятую/пробел)."""
+    normalized = normalize_secretary_numbers(raw_numbers)
+
+    with _WRITE_LOCK:
+        data = load_store(path)
+        section = data.get("call_history")
+        if not isinstance(section, dict):
+            section = {}
+        section["secretary_numbers"] = normalized
+        data["call_history"] = section
+        create_backup(path)
+        write_store(data, path)
+    return normalized
+
+
 def product_groups(overrides=None, path=None):
     data = load_store(path)
     overrides = overrides or {}
@@ -780,7 +822,18 @@ def _replacement_for(level, strategy, value):
     if level == "number":
         if not value:
             return ""
-        normalized = _normalize_phone(value)
+        try:
+            normalized = _normalize_phone(value)
+        except ValueError:
+            # Короткие коды (0900 и подобные) подставляем как есть —
+            # у них нет международного формата, подходит для raw и national.
+            if str(value).strip().isdigit() and strategy in {"raw", "national"}:
+                return str(value).strip()
+            if str(value).strip().isdigit():
+                raise ValueError(
+                    f"Короткий код {value} нельзя подставить стратегией {strategy}"
+                ) from None
+            raise
         if strategy == "national":
             return normalized[1:]
         if strategy == "hash16":
@@ -834,7 +887,13 @@ def _grafana_links(source, replacements, ctx):
         updated = {}
         for key, value in params.items():
             if key in {"panes", "left"}:
-                state = json.loads(value)
+                try:
+                    state = json.loads(value)
+                except (json.JSONDecodeError, RecursionError) as error:
+                    raise ValueError(
+                        f"Состояние блока {source['name']} повреждено — "
+                        "пересоздайте блок по ссылке-примеру"
+                    ) from error
                 updated[key] = json.dumps(
                     _replace_tree(state, replacements, window),
                     ensure_ascii=False,
@@ -969,19 +1028,22 @@ def build_source_links_labeled(source, ctx, call_uuid=None):
         for field, label in FIELD_LABELS:
             field_values = ctx.get(f"{field}_values") or [ctx.get(field)]
             for value in field_values:
-                if value and value not in seen:
-                    seen.append(value)
-                    replacement_sets.append(
-                        (
-                            [
-                                (
-                                    slots[0]["match_value"],
-                                    _replacement_for("number", slots[0]["strategy"], value),
-                                )
-                            ],
-                            f"{label} {value}",
-                        )
+                if not value or value in seen:
+                    continue
+                seen.append(value)
+                try:
+                    replacement = _replacement_for("number", slots[0]["strategy"], value)
+                except ValueError:
+                    # Значение не подходит под стратегию блока (например,
+                    # короткий код при подстановке хеша) — пропускаем его,
+                    # остальные номера блока остаются.
+                    continue
+                replacement_sets.append(
+                    (
+                        [(slots[0]["match_value"], replacement)],
+                        f"{label} {value}",
                     )
+                )
         if not replacement_sets:
             raise ValueError("В заявке не найдено ни одного номера")
 

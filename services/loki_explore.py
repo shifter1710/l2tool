@@ -80,6 +80,8 @@ def _build_explore_url(url, transform, *, time_from=None, time_to=None):
             )
         except json.JSONDecodeError as error:
             raise ValueError(f"Cannot parse Grafana Explore parameter: {key}") from error
+        except RecursionError as error:
+            raise ValueError(f"Grafana Explore parameter {key} is nested too deeply") from error
         updated = True
 
     if not updated:

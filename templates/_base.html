@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <meta name="description" content="{% block description %}Локальный разбор текста заявки: номера, дата, регион и готовые диагностические ссылки на Grafana и OpenSearch.{% endblock %}">
+    <title>{% block title %}Диагностика заявки — l2tool{% endblock %}</title>
+    <link rel="icon" href="{{ url_for('static', path='/favicon.svg') }}" type="image/svg+xml">
+    <script src="{{ url_for('static', path='/app.js') }}" defer></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v={{ asset_version }}">
+  </head>
+  <body>
+    <a class="skip-link" href="{% block skip_target %}#ticket-form{% endblock %}">{% block skip_label %}Перейти к форме{% endblock %}</a>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="l2tool — на главную">
+        <span class="brand-mark">L2</span>
+        <span>
+          <strong>l2tool</strong>
+          <small>{% block brand_note %}рабочее место диагностики{% endblock %}</small>
+        </span>
+      </a>
+      <div class="topbar-actions">
+        {% block topbar_links %}
+          <a class="nav-link" href="/reference">Справочник кодов</a>
+          <a class="nav-link" href="/settings">Настройки источников</a>
+        {% endblock %}
+        <div class="local-badge"><span></span> {% block local_badge %}Только на этом компьютере{% endblock %}</div>
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Включить тёмную тему" aria-pressed="false">
+          <span class="theme-icon" aria-hidden="true">☾</span>
+          <span data-theme-label>Тёмная тема</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="{% block main_class %}shell{% endblock %}">
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>

@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from core.url_guard import validate_external_url
+
 try:
     import tomllib
 except ModuleNotFoundError:
@@ -60,7 +62,12 @@ def _read_simple_toml(path):
                 current = current.setdefault(part.strip(), {})
             continue
 
-        key, value = line.split("=", 1)
+        try:
+            key, value = line.split("=", 1)
+        except ValueError as error:
+            raise ValueError(
+                f"config.toml: не удалось разобрать строку: {raw_line.strip()!r}"
+            ) from error
         current[key.strip()] = _parse_value(value)
 
     return data
@@ -104,8 +111,21 @@ def config_value(key_path, default=None):
     return value
 
 
+def optional_value(key_path, default=None):
+    """Значение из config.toml; нет файла или секции — значение по умолчанию.
+
+    Для настроек, которые работают и без config.toml (динамические блоки):
+    окна, наборы сервисов, лимиты.
+    """
+    try:
+        return config_value(key_path, default)
+    except (OSError, ValueError):
+        return default
+
+
 def service_url(name):
-    return config_value(f"services.{name}.url")
+    url = config_value(f"services.{name}.url")
+    return validate_external_url(url, what=f"ссылка сервиса «{name}» из config.toml")
 
 
 def service_index_pattern(name):
@@ -133,7 +153,10 @@ def default_env():
 
 
 def grafana_find_call_dashboard():
-    return config_value("grafana.find_call_dashboard")
+    return validate_external_url(
+        config_value("grafana.find_call_dashboard"),
+        what="ссылка grafana.find_call_dashboard из config.toml",
+    )
 
 
 def grafana_org_id():
@@ -153,7 +176,10 @@ def grafana_recording_loki_datasource_uid():
 
 
 def opensearch_base_url():
-    return config_value("opensearch.base_url")
+    return validate_external_url(
+        config_value("opensearch.base_url"),
+        what="ссылка opensearch.base_url из config.toml",
+    )
 
 
 def opensearch_index_pattern(name):
