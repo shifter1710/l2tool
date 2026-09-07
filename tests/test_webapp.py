@@ -1488,3 +1488,10 @@ def test_phone_fields_show_hash_next_to_numbers():
     assert response.status_code == 200
     assert hash_phone("79157771575") in response.text
     assert response.text.count("link-label") >= 1
+
+
+def test_healthz_returns_ok():
+    response = request("GET", "/healthz")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}

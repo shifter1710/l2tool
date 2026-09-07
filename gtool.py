@@ -613,12 +613,14 @@ def run_ticket(
     window=DEFAULT_WINDOW,
     input_file=DEFAULT_FILE,
     save_history=False,
-    history_root=history.HISTORY_ROOT,
+    history_root=None,
     write_diagnostics=True,
     parse_text=None,
     call_uuid=None,
     require_time=True,
 ):
+    # None → history.HISTORY_ROOT читается в момент вызова, а не импорта
+    history_root = history_root or history.HISTORY_ROOT
     if call_uuid:
         call_uuid = normalize_uuid(call_uuid)
 
@@ -878,7 +880,7 @@ def main():
 
     preview_ctx = parser.parse(text)
     preview_ctx["tz"] = resolve_timezone(preview_ctx.get("region"))
-    preview_ctx["window"] = args.window
+    preview_ctx["window"] = window
     preview_ctx["selected_modules"] = preview_selected
     preview_issues = collect_parse_issues(text, preview_ctx)
     parse_text = text

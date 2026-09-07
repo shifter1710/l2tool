@@ -262,6 +262,7 @@ def test_cli_no_history_does_not_save_or_open_links(monkeypatch, tmp_path, capsy
     opened = []
 
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(history, "HISTORY_ROOT", tmp_path / "history")
     monkeypatch.setitem(gtool.MODULES, "dummy", dummy_module())
     monkeypatch.setattr(gtool, "open_links", lambda links: opened.append(links))
     monkeypatch.setattr(
@@ -293,6 +294,7 @@ def test_cli_normal_run_saves_history_without_opening_links(monkeypatch, tmp_pat
     opened = []
 
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(history, "HISTORY_ROOT", tmp_path / "history")
     monkeypatch.setitem(gtool.MODULES, "dummy", dummy_module())
     monkeypatch.setattr(gtool, "open_links", lambda links: opened.append(links))
     monkeypatch.setattr(

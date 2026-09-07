@@ -62,7 +62,12 @@ def _read_simple_toml(path):
                 current = current.setdefault(part.strip(), {})
             continue
 
-        key, value = line.split("=", 1)
+        try:
+            key, value = line.split("=", 1)
+        except ValueError as error:
+            raise ValueError(
+                f"config.toml: не удалось разобрать строку: {raw_line.strip()!r}"
+            ) from error
         current[key.strip()] = _parse_value(value)
 
     return data

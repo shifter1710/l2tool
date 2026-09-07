@@ -27,6 +27,7 @@ from core.dynamic_sources import (
     create_product,
     import_sources,
     load_store,
+    normalize_secretary_numbers,
     save_call_history_secretary_numbers,
 )
 from core.url_guard import find_config_issues
@@ -93,18 +94,28 @@ def _ensure_bundle_products(store_part, report):
 
 def _import_sources_part(store_part, report):
     _ensure_bundle_products(store_part, report)
+    section = store_part.get("call_history")
+    numbers_text = None
+    if isinstance(section, dict) and "secretary_numbers" in section:
+        numbers = section.get("secretary_numbers")
+        items = numbers if isinstance(numbers, list) else []
+        numbers_text = "\n".join(str(item) for item in items)
+
+    # Номера Секретаря проверяем до применения блоков — иначе ошибка
+    # в номерах оставит наполовину применённый бандл
+    normalized_numbers = (
+        None if numbers_text is None else normalize_secretary_numbers(numbers_text)
+    )
+
     content = json.dumps(store_part, ensure_ascii=False)
     result = import_sources(content)
     report["stores"]["diagnostic_sources"] = (
         f"блоков добавлено {result['added']}, пропущено {result['skipped']}"
     )
-    section = store_part.get("call_history")
-    if isinstance(section, dict) and "secretary_numbers" in section:
-        numbers = section.get("secretary_numbers")
-        items = numbers if isinstance(numbers, list) else []
-        save_call_history_secretary_numbers("\n".join(str(item) for item in items))
+    if normalized_numbers is not None:
+        save_call_history_secretary_numbers(numbers_text)
         report["stores"]["secretary_numbers"] = (
-            f"номеров Секретаря сохранено {len(items)}"
+            f"номеров Секретаря сохранено {len(normalized_numbers)}"
         )
 
 
@@ -181,6 +192,8 @@ def import_bundle(content):
         bundle = json.loads(content)
     except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("Файл бандла должен содержать корректный JSON") from error
+    except RecursionError as error:
+        raise ValueError("JSON бандла вложен слишком глубоко") from error
     if not isinstance(bundle, dict) or bundle.get("l2tool") != BUNDLE_MARKER:
         raise ValueError(
             "Это не бандл l2tool: скачайте «Все конфиги» на странице настроек"

@@ -243,6 +243,22 @@ def test_web_import_config_route(tmp_path, monkeypatch):
     assert (tmp_path / "config.toml").read_text(encoding="utf-8") == '[defaults]\nwindow = 45\n'
 
 
+def test_web_export_config_route(tmp_path, monkeypatch):
+    monkeypatch.setattr(webapp, "CONFIG_PATH", tmp_path / "missing.toml")
+    assert request("GET", "/settings/export-config").status_code == 404
+
+    config_path = tmp_path / "config.toml"
+    config_path.write_text("[defaults]\nwindow = 45\n", encoding="utf-8")
+    monkeypatch.setattr(webapp, "CONFIG_PATH", config_path)
+    response = request("GET", "/settings/export-config")
+
+    assert response.status_code == 200
+    assert response.headers["content-disposition"].startswith(
+        'attachment; filename="config.toml"'
+    )
+    assert "window = 45" in response.text
+
+
 def test_defaults_come_from_config(tmp_path, monkeypatch):
     config_path = tmp_path / "config.toml"
     config_path.write_text(

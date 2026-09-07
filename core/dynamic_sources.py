@@ -145,6 +145,8 @@ def _parse_platform(url):
                 json.loads(query[key])
             except json.JSONDecodeError as error:
                 raise ValueError(f"Не удалось разобрать параметр Grafana {key}") from error
+            except RecursionError as error:
+                raise ValueError(f"Параметр Grafana {key} вложен слишком глубоко") from error
             state_found = True
         if not state_found:
             raise ValueError("Ссылка Grafana Explore должна содержать panes или left")
@@ -545,6 +547,8 @@ def import_sources(content, path=None):
         imported = json.loads(content)
     except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("Файл должен содержать корректный JSON") from error
+    except RecursionError as error:
+        raise ValueError("JSON конфигурации вложен слишком глубоко") from error
 
     raw_sources = imported.get("sources") if isinstance(imported, dict) else imported
     if not isinstance(raw_sources, list):
@@ -703,10 +707,10 @@ def load_call_history(path=None):
     return section if isinstance(section, dict) else {}
 
 
-def save_call_history_secretary_numbers(raw_numbers, path=None):
-    """Сохранить номера Секретаря (один на строку или через запятую/пробел).
+def normalize_secretary_numbers(raw_numbers):
+    """Разобрать и проверить номера Секретаря; возвращает нормализованный список.
 
-    Возвращает нормализованный список; пустой ввод допустим и выключает метки.
+    Пустой ввод допустим и выключает метки.
     """
     items = [item for item in re.split(r"[\s,;]+", str(raw_numbers or "")) if item]
     normalized = []
@@ -721,6 +725,12 @@ def save_call_history_secretary_numbers(raw_numbers, path=None):
         raise ValueError(
             f"Номеров Секретаря может быть не больше {MAX_SECRETARY_NUMBERS}"
         )
+    return normalized
+
+
+def save_call_history_secretary_numbers(raw_numbers, path=None):
+    """Сохранить номера Секретаря (один на строку или через запятую/пробел)."""
+    normalized = normalize_secretary_numbers(raw_numbers)
 
     with _WRITE_LOCK:
         data = load_store(path)
@@ -877,7 +887,13 @@ def _grafana_links(source, replacements, ctx):
         updated = {}
         for key, value in params.items():
             if key in {"panes", "left"}:
-                state = json.loads(value)
+                try:
+                    state = json.loads(value)
+                except (json.JSONDecodeError, RecursionError) as error:
+                    raise ValueError(
+                        f"Состояние блока {source['name']} повреждено — "
+                        "пересоздайте блок по ссылке-примеру"
+                    ) from error
                 updated[key] = json.dumps(
                     _replace_tree(state, replacements, window),
                     ensure_ascii=False,
