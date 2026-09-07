@@ -35,8 +35,12 @@ def filled_stores():
     runbook.import_store(json.dumps([case]))
 
 
-def test_build_bundle_contains_all_stores():
+def test_build_bundle_contains_all_stores(monkeypatch):
     filled_stores()
+    # config_bundle читает конфиг через собственный путь — ведём его
+    # к изолированному config.toml фикстуры, иначе тест зависит от
+    # локального файла разработчика (на CI его нет)
+    monkeypatch.setattr(config_bundle, "CONFIG_PATH", config.CONFIG_PATH)
 
     bundle = config_bundle.build_bundle()
 
@@ -51,6 +55,8 @@ def test_build_bundle_contains_all_stores():
 
 def test_import_bundle_roundtrip_into_fresh_store(tmp_path, monkeypatch):
     filled_stores()
+    # бандл собираем тоже из изолированного конфига, а не локального
+    monkeypatch.setattr(config_bundle, "CONFIG_PATH", config.CONFIG_PATH)
     bundle = config_bundle.build_bundle()
 
     # «Другая машина»: пустые хранилища в отдельном подкаталоге
