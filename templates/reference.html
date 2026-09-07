@@ -1,28 +1,18 @@
-<!doctype html>
-<html lang="ru">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="color-scheme" content="light dark">
-    <meta name="description" content="Локальный справочник кодов с расшифровками: таблица, импорт и экспорт JSON-файла. Данные не покидают компьютер.">
-    <title>Справочник кодов — l2tool</title>
-    <link rel="icon" href="{{ url_for('static', path='/favicon.svg') }}" type="image/svg+xml">
-    <script src="{{ url_for('static', path='/app.js') }}" defer></script>
-    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260904-7">
-  </head>
-  <body>
-    <a class="skip-link" href="#reference-table">Перейти к таблице</a>
-    <header class="topbar">
-      <a class="brand" href="/" aria-label="l2tool — на главную"><span class="brand-mark">L2</span><span><strong>l2tool</strong><small>справочник кодов</small></span></a>
-      <div class="topbar-actions">
-        <a class="nav-link" href="/">К диагностике</a>
-        <a class="nav-link" href="/settings">Настройки источников</a>
-        <div class="local-badge"><span></span> Локальные настройки</div>
-        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Включить тёмную тему" aria-pressed="false"><span class="theme-icon" aria-hidden="true">☾</span><span data-theme-label>Тёмная тема</span></button>
-      </div>
-    </header>
+{% extends "_base.html" %}
 
-    <main class="shell settings-shell">
+{% block description %}Локальный справочник кодов с расшифровками: таблица, импорт и экспорт JSON-файла. Данные не покидают компьютер.{% endblock %}
+{% block title %}Справочник кодов — l2tool{% endblock %}
+{% block skip_target %}#reference-table{% endblock %}
+{% block skip_label %}Перейти к таблице{% endblock %}
+{% block brand_note %}справочник кодов{% endblock %}
+{% block topbar_links %}
+  <a class="nav-link" href="/">К диагностике</a>
+  <a class="nav-link" href="/settings">Настройки источников</a>
+{% endblock %}
+{% block local_badge %}Локальные настройки{% endblock %}
+{% block main_class %}shell settings-shell{% endblock %}
+
+{% block content %}
       <div class="settings-header">
         <h1>Справочник кодов</h1>
         <p>Если в заявке или поправках встречается код из справочника, его расшифровка показывается в результатах диагностики. Состав зависит от окружения, поэтому данные хранятся только локально в reference_codes.json.</p>
@@ -69,6 +59,4 @@
         <span class="shield">✓</span>
         <div><strong>Только локально</strong><p>Справочник хранится в reference_codes.json с правами 0600, Git его игнорирует. Лимиты: 256 КБ, до 1000 записей, коды до 16 символов, расшифровки до 500.</p></div>
       </section>
-    </main>
-  </body>
-</html>
+{% endblock %}

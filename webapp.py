@@ -108,6 +108,17 @@ app.mount("/static", StaticFiles(directory=ROOT_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=ROOT_DIR / "templates")
 
 
+def _asset_version():
+    """Версия стилей из mtime файла: меняется при каждом обновлении CSS."""
+    try:
+        return str(int((ROOT_DIR / "static" / "styles.css").stat().st_mtime_ns))
+    except OSError:
+        return "1"
+
+
+templates.env.globals["asset_version"] = _asset_version()
+
+
 @app.middleware("http")
 async def secure_local_responses(request: Request, call_next):
     response = None

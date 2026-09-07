@@ -156,22 +156,6 @@
   --page-glow: rgba(105, 205, 162, 0.07);
 }
 
-/* Печать всегда выходит в светлой палитре */
-@media print {
-  :root,
-  :root[data-theme="dark"] {
-    --ink: #13231d;
-    --muted: #5f6d67;
-    --paper: #ffffff;
-    --panel: #ffffff;
-    --subtle-panel: #ffffff;
-    --secondary-surface: #ffffff;
-    --line: #c9c9c4;
-    --soft-line: #dededa;
-    --page-glow: transparent;
-  }
-}
-
 /* ==========================================================================
    Базовый слой
    ========================================================================== */
@@ -695,14 +679,10 @@ button span { margin-left: var(--space-2); }
 .platform-opensearch { color: var(--info-fg); background: var(--info-bg); }
 .source-status { flex: 0 0 auto; padding: 4px var(--space-2); border-radius: var(--radius-pill); color: var(--muted); background: var(--subtle-panel); font-size: var(--text-2xs); font-weight: 750; }
 .is-configured .source-status { color: var(--chip-on-fg); background: var(--chip-on-bg); }
-.source-description { min-height: 38px; margin: var(--space-3) 0; color: var(--muted); font-size: var(--text-xs); line-height: 1.55; }
 .parsed-source { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0 0 var(--space-3); }
 .parsed-source div { min-width: 110px; padding: var(--space-2) 10px; border: 1px solid var(--soft-line); border-radius: var(--radius-sm); background: var(--subtle-panel); }
 .parsed-source dt { color: var(--muted); font-size: var(--text-2xs); font-weight: 750; letter-spacing: 0.05em; text-transform: uppercase; }
 .parsed-source dd { margin: 3px 0 0; overflow-wrap: anywhere; font-size: var(--text-2xs); font-weight: 750; }
-.source-error, .legacy-note { margin: 0 0 var(--space-3); padding: 8px 10px; border-radius: var(--radius-sm); font-size: var(--text-2xs); line-height: 1.45; }
-.source-error { color: var(--danger-fg); background: var(--danger-bg); }
-.legacy-note { color: var(--warning-fg); background: var(--warning-bg); }
 .source-form { display: grid; gap: var(--space-3); margin-top: auto; }
 .source-edit-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
 .source-edit-grid small { color: var(--muted); font-size: var(--text-2xs); font-weight: 500; }
@@ -827,6 +807,20 @@ button span { margin-left: var(--space-2); }
    ========================================================================== */
 
 @media print {
+  /* Печать всегда выходит в светлой палитре */
+  :root,
+  :root[data-theme="dark"] {
+    --ink: #13231d;
+    --muted: #5f6d67;
+    --paper: #ffffff;
+    --panel: #ffffff;
+    --subtle-panel: #ffffff;
+    --secondary-surface: #ffffff;
+    --line: #c9c9c4;
+    --soft-line: #dededa;
+    --page-glow: transparent;
+  }
+
   .skip-link,
   .topbar,
   .local-note,

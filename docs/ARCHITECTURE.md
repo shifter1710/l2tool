@@ -487,10 +487,18 @@ Case JSON (`core/case_export.py`) содержит нормализованны�
 | `POST /settings/import-all` | загрузка бандла всех конфигов |
 | `GET /settings/export-config` | скачивание config.toml |
 | `POST /settings/import-config` | замена config.toml с бэкапом |
+| `POST /settings/runbook` | сохранение кейса ранбука |
+| `POST /settings/runbook/delete` | удаление кейса ранбука |
+| `POST /settings/runbook/import` | импорт ранбука из JSON |
+| `GET /settings/runbook/export` | скачивание ранбука |
 | `POST /settings/import` | импорт конфигурации из JSON |
 | `POST /settings/import-toml` | перенос сервисов из config.toml в блоки |
 | `POST /settings/backup/restore` | откат настроек из резервной копии |
 | `GET /settings/export` | скачивание текущей конфигурации |
+| `GET /reference` | справочник кодов: таблица |
+| `POST /reference/import` | импорт справочника из JSON |
+| `GET /reference/export` | скачивание справочника |
+| `POST /runbook` | шаги кейса со ссылками по данным заявки |
 | `GET /healthz` | проверка живости |
 | `GET /static/*` | styles.css, app.js |
 
@@ -512,7 +520,7 @@ flowchart TB
 
     subgraph data["Защита данных"]
         local["Ничего не отправляется во внешние сервисы:<br/>ссылки открывает браузер пользователя"]
-        secrets["Токены и ключи в ссылках блокируются<br/>при вводе (access_token, api_key, auth, token)"]
+        secrets["Секреты блокируются: ключи TOML и параметры ссылок<br/>(core/url_guard.py), URL только http(s) без паролей"]
         perms["diagnostic_sources.json · parser_issues ·<br/>case JSON пишутся с правами 0600"]
     end
 
@@ -532,7 +540,7 @@ flowchart TB
 
 - `tests/` — pytest по всем слоям: парсер, история, экспорт, ссылки сервисов,
   динамические источники, веб-маршруты (`TestClient` + `httpx`), таблицы.
-- CI (`.github/workflows/ci.yml`): Python 3.12 → `ruff check .` → `pytest -q`.
+- CI (`.github/workflows/ci.yml`): Python 3.10–3.12 → `ruff check .` → `pytest -q`.
 - Локально: `python -m pip install -r requirements-dev.txt`,
   затем `python -m pytest -q` и `python -m ruff check .`.
 - Ветки (`CONTRIBUTING.md`): `feature/*` и `temp/*` → PR в `dev`;

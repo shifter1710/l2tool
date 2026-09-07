@@ -1,38 +1,7 @@
 {% from "_results.html" import error_alert %}
-<!doctype html>
-<html lang="ru">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="color-scheme" content="light dark">
-    <meta name="description" content="Локальный разбор текста заявки: номера, дата, регион и готовые диагностические ссылки на Grafana и OpenSearch.">
-    <title>Диагностика заявки — l2tool</title>
-    <link rel="icon" href="{{ url_for('static', path='/favicon.svg') }}" type="image/svg+xml">
-    <script src="{{ url_for('static', path='/app.js') }}" defer></script>
-    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260906-2">
-  </head>
-  <body>
-    <a class="skip-link" href="#ticket-form">Перейти к форме</a>
-    <header class="topbar">
-      <a class="brand" href="/" aria-label="l2tool — на главную">
-        <span class="brand-mark">L2</span>
-        <span>
-          <strong>l2tool</strong>
-          <small>рабочее место диагностики</small>
-        </span>
-      </a>
-      <div class="topbar-actions">
-        <a class="nav-link" href="/reference">Справочник кодов</a>
-        <a class="nav-link" href="/settings">Настройки источников</a>
-        <div class="local-badge"><span></span> Только на этом компьютере</div>
-        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Включить тёмную тему" aria-pressed="false">
-          <span class="theme-icon" aria-hidden="true">☾</span>
-          <span data-theme-label>Тёмная тема</span>
-        </button>
-      </div>
-    </header>
+{% extends "_base.html" %}
 
-    <main class="shell">
+{% block content %}
       <h1 class="visually-hidden">Диагностика заявки</h1>
 
       {{ error_alert(error) }}
@@ -169,6 +138,4 @@
       </div>
 
       <p class="local-note"><span class="shield" aria-hidden="true">✓</span> Локальный режим: сервис слушает только 127.0.0.1, кэширование страниц отключено.</p>
-    </main>
-  </body>
-</html>
+{% endblock %}
