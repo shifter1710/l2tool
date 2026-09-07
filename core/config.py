@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from core.url_guard import validate_external_url
+
 try:
     import tomllib
 except ModuleNotFoundError:
@@ -117,7 +119,8 @@ def optional_value(key_path, default=None):
 
 
 def service_url(name):
-    return config_value(f"services.{name}.url")
+    url = config_value(f"services.{name}.url")
+    return validate_external_url(url, what=f"ссылка сервиса «{name}» из config.toml")
 
 
 def service_index_pattern(name):
@@ -145,7 +148,10 @@ def default_env():
 
 
 def grafana_find_call_dashboard():
-    return config_value("grafana.find_call_dashboard")
+    return validate_external_url(
+        config_value("grafana.find_call_dashboard"),
+        what="ссылка grafana.find_call_dashboard из config.toml",
+    )
 
 
 def grafana_org_id():
@@ -165,7 +171,10 @@ def grafana_recording_loki_datasource_uid():
 
 
 def opensearch_base_url():
-    return config_value("opensearch.base_url")
+    return validate_external_url(
+        config_value("opensearch.base_url"),
+        what="ссылка opensearch.base_url из config.toml",
+    )
 
 
 def opensearch_index_pattern(name):

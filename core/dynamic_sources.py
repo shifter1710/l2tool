@@ -22,6 +22,7 @@ from core.products import (
 )
 from core.source_backups import create_backup
 from core.time_windows import utc_search_windows
+from core.url_guard import find_url_secrets, validate_external_url
 from core.utils import hash_phone, normalize_uuid
 from services.opensearch import extract_index_pattern
 
@@ -36,10 +37,6 @@ _WRITE_LOCK = threading.RLock()
 _PHONE_PATTERN = re.compile(r"(?<!\d)(?:[78]\d{10}|\d{10})(?!\d)")
 _UUID_PATTERN = re.compile(
     r"\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b",
-    re.IGNORECASE,
-)
-_SENSITIVE_PATTERN = re.compile(
-    r"(?:[?&#]|^)(?:access_token|api_key|apikey|auth|token)=",
     re.IGNORECASE,
 )
 
@@ -125,11 +122,8 @@ def _parse_platform(url):
     if not value or len(value) > MAX_URL_LENGTH:
         raise ValueError("Вставьте корректную полную ссылку")
     parts = urlsplit(value)
-    if parts.scheme not in {"http", "https"} or not parts.hostname:
-        raise ValueError("Ссылка должна начинаться с http:// или https://")
-    if parts.username or parts.password:
-        raise ValueError("Удалите логин и пароль из ссылки")
-    if _SENSITIVE_PATTERN.search(value):
+    validate_external_url(value)
+    if find_url_secrets(value):
         raise ValueError("Удалите токен или ключ доступа из ссылки")
 
     index_pattern = extract_index_pattern(value)

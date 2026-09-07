@@ -23,13 +23,13 @@ from tempfile import NamedTemporaryFile
 from core import reference_codes, runbook
 from core.config import CONFIG_PATH
 from core.dynamic_sources import (
-    _SENSITIVE_PATTERN,
     available_products,
     create_product,
     import_sources,
     load_store,
     save_call_history_secretary_numbers,
 )
+from core.url_guard import find_config_issues
 
 BUNDLE_VERSION = 1
 BUNDLE_MARKER = "configs"
@@ -59,7 +59,13 @@ def build_bundle():
         pass
     try:
         if CONFIG_PATH.exists():
-            bundle["config_toml"] = CONFIG_PATH.read_text(encoding="utf-8")
+            content = CONFIG_PATH.read_text(encoding="utf-8")
+            issues = find_config_issues(content)
+            if issues:
+                # config.toml с секретами не включаем в файл переноса
+                bundle["skipped"] = {"config_toml": "; ".join(issues[:2])}
+            else:
+                bundle["config_toml"] = content
     except OSError:
         pass
     return bundle
@@ -109,8 +115,12 @@ def import_config_toml(text):
         raise ValueError("config.toml пуст")
     if len(content.encode("utf-8")) > MAX_BUNDLE_SIZE:
         raise ValueError("config.toml слишком велик")
-    if _SENSITIVE_PATTERN.search(content):
-        raise ValueError("В config.toml найден токен или ключ доступа — уберите его")
+    issues = find_config_issues(content)
+    if issues:
+        raise ValueError(
+            "config.toml не принят — секреты и посторонние ссылки запрещены: "
+            + "; ".join(issues)
+        )
     try:
         import tomllib
 
@@ -238,5 +248,12 @@ def bundle_summary():
     except (OSError, ValueError):
         pass
     if CONFIG_PATH.exists():
-        stores.append("config.toml")
+        try:
+            issues = find_config_issues(CONFIG_PATH.read_text(encoding="utf-8"))
+        except OSError:
+            issues = []
+        if issues:
+            stores.append("config.toml пропущен — в нём найден секрет или посторонняя ссылка")
+        else:
+            stores.append("config.toml")
     return " · ".join(stores) if stores else "хранилища пусты"

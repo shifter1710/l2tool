@@ -155,6 +155,42 @@ def test_import_config_toml_validates_and_backs_up(tmp_path, monkeypatch):
         raise AssertionError(f"expected ValueError for {bad!r}")
 
 
+def test_import_config_toml_rejects_secrets_and_dangerous_schemes(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text('[defaults]\nwindow = 60\n', encoding="utf-8")
+    monkeypatch.setattr(config_bundle, "CONFIG_PATH", config_path)
+
+    for bad in (
+        '[services.zapis]\ntoken = "abc"\n',  # TOML-стиль с пробелами вокруг «=»
+        '[services.zapis]\npassword = "hunter2"\n',
+        '[services.zapis]\nurl = "javascript:alert(1)"\n',
+        '[services.zapis]\nurl = "https://user:pass@grafana.example.local/d/x"\n',
+    ):
+        try:
+            config_bundle.import_config_toml(bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"expected ValueError for {bad!r}")
+    # Отказ не трогает существующий файл
+    assert config_path.read_text(encoding="utf-8") == '[defaults]\nwindow = 60\n'
+
+
+def test_build_bundle_skips_config_toml_with_secrets(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        '[services.zapis]\n'
+        'url = "https://grafana.example.local/d/x?orgId=1&token=secret"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config_bundle, "CONFIG_PATH", config_path)
+
+    bundle = config_bundle.build_bundle()
+
+    assert "config_toml" not in bundle
+    assert "token" in bundle["skipped"]["config_toml"]
+    assert "пропущен" in config_bundle.bundle_summary()
+
+
 def test_web_export_all_returns_bundle():
     response = request("GET", "/settings/export-all")
 

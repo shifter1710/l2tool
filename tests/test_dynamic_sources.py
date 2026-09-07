@@ -1,7 +1,7 @@
 import json
 import stat
 from datetime import datetime
-from urllib.parse import parse_qs, unquote, urlencode, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit
 
 import pytest
 
@@ -212,8 +212,17 @@ def test_rejects_credentials_tokens_and_missing_sample():
         validate_source(values(example_url="https://user:pass@example.local/explore?panes={}"))
     with pytest.raises(ValueError, match="токен"):
         validate_source(values(example_url=opensearch_url() + "&token=secret"))
+    with pytest.raises(ValueError, match="токен"):
+        validate_source(values(example_url=opensearch_url() + "&private_token=secret"))
     with pytest.raises(ValueError, match="значение-пример"):
         validate_source(values(example_url=opensearch_url("no-number")))
+
+
+def test_rejects_token_inside_encoded_grafana_state():
+    state = quote('{"apiKey": "abc", "expr": "79991234567"}')
+    url = f"https://grafana.example.local/explore?panes={state}&orgId=1"
+    with pytest.raises(ValueError, match="токен"):
+        validate_source(values(example_url=url))
 
 
 def test_opensearch_example_without_time_state_reports_error():
