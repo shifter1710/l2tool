@@ -104,6 +104,18 @@ def config_value(key_path, default=None):
     return value
 
 
+def optional_value(key_path, default=None):
+    """Значение из config.toml; нет файла или секции — значение по умолчанию.
+
+    Для настроек, которые работают и без config.toml (динамические блоки):
+    окна, наборы сервисов, лимиты.
+    """
+    try:
+        return config_value(key_path, default)
+    except (OSError, ValueError):
+        return default
+
+
 def service_url(name):
     return config_value(f"services.{name}.url")
 

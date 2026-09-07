@@ -55,6 +55,7 @@ flowchart TB
         webapp["webapp.py<br/>веб-интерфейс (FastAPI, port 8765)"]
         gtool["gtool.py<br/>CLI: заявка → ссылки, история, case JSON"]
         lostcli["lost_calls_table.py<br/>CLI: пакетная обработка выгрузок"]
+        callcli["call_history.py<br/>CLI: ссылки по звонкам<br/>из истории баланса"]
     end
 
     subgraph core["core/ — доменная логика"]
@@ -67,6 +68,7 @@ flowchart TB
         caseexp["case_export.py<br/>case JSON для l2-local-ai"]
         pdiag["parser_diagnostics.py<br/>parser_issues.jsonl"]
         lostcore["lost_calls_table.py<br/>очистка выгрузок + ссылки"]
+        callhist["call_history.py<br/>история звонков из баланса:<br/>парсер, группировка переадресаций,<br/>контекст звонка для модулей"]
         config["config.py<br/>чтение config.toml"]
     end
 
@@ -85,13 +87,16 @@ flowchart TB
     webapp --> gtool
     webapp --> dynamic
     webapp --> lostcore
+    webapp --> callhist
     gtool --> parser
     gtool --> history
     gtool --> caseexp
     gtool --> pdiag
     gtool --> dynamic
     gtool --> registry
+    gtool --> callhist
     lostcli --> lostcore
+    callcli --> callhist
     parser --> timetz
     dynamic --> products
     dynamic --> osurl
@@ -233,7 +238,8 @@ flowchart TB
   ],
   "sources": [{"id": "…", "name": "BFF", "product": "zapis-msk", "level": "number",
                 "enabled": true, "example_url": "…", "replacements": "…",
-                "range_from": "now-5d", "range_to": "now", "…": "…"}]
+                "range_from": "now-5d", "range_to": "now", "…": "…"}],
+  "call_history": {"secretary_numbers": ["79991230999"]}
 }
 ```
 
@@ -282,6 +288,15 @@ traversal).
 как скачиваемый файл; импорт валидирует все блоки целиком, добавляет новые и
 пропускает точные дубликаты (совпадают название, продукт, уровень и ссылка).
 
+Полный бандл (`core/config_bundle.py`) объединяет все хранилища — блоки,
+справочник кодов, ранбук и `config.toml` — в один JSON. При импорте бандла
+каждая часть применяется правилами своего одиночного импорта, недостающие
+продукты создаются, а заменённый `config.toml` уходит в `backups/`
+(`config.toml.YYYYMMDD-HHMMSS.bak`, последние 5). Значения по умолчанию
+(окна, продукты форм, наборы сервисов CLI, лимиты) читаются из секций
+`[defaults]`, `[gtool]`, `[call_history]` через `config.optional_value` —
+без них работают встроенные значения.
+
 ## 6. Вторичная диагностика по UUID
 
 После первичной диагностики продукта «Запись», когда UUID звонка уже найден,
@@ -318,6 +333,32 @@ flowchart TB
     links3 --> out["Итоговый XLSX: 5 исходных колонок + 3 ссылки<br/>веб: временный файл, удаление после скачивания<br/>CLI: <имя>.cleaned.xlsx рядом с исходным"]
     warn --> out
 ```
+
+### История звонков из истории баланса
+
+Сценарий для текстовой выгрузки внешнего скрипта детализации, доступный из
+веба (`POST /call-history`) и CLI (`call_history.py`). Ядро —
+`core/call_history.py`; ссылки строит `gtool.run_call_history` тем же
+механизмом `build_links`, что и обычную заявку (динамические блоки +
+статические модули).
+
+```mermaid
+flowchart TB
+    input["Выгрузка истории баланса:<br/>дата-время (МСК) + заголовок события<br/>стрелка →/←, номер, Duration<br/>тип звонка (Цифровой / VoLTE)"] --> parse["Построчный парсер:<br/>направление по стрелке,<br/>короткие коды (0900) как есть"]
+    parse --> fwd{"Строка «Переадресация<br/>по условию …»?"}
+    fwd -->|"да"| merge["Ноги в ±5 с схлопываются:<br/>сервисная нога (до или после)<br/>+ входящая нога звонящего<br/>= один входящий звонок"]
+    fwd -->|нет| single["Обычный звонок: А/Б по направлению"]
+    merge --> ctx["call_context: msisdn + А/Б + время, tz МСК"]
+    single --> ctx
+    ctx --> links["build_links по каждому звонку<br/>(блоки продукта или статика)<br/>метки: цифровой (MyConnect), VoLTE,<br/>условие переадресации, Секретарь"]
+    links --> out["Веб: карточки-аккордеоны по звонкам<br/>CLI: блок ссылок на каждый звонок<br/>лимит 50, предупреждения о Loki/msisdn"]
+```
+
+Номера Секретаря редактируются на странице настроек (панель «История
+звонков · номера Секретаря») и хранятся в `diagnostic_sources.json` в секции
+`call_history`; она приоритетнее секции `[call_history]` в `config.toml`,
+которая работает, пока на сайте ничего не сохраняли. Экспорт, импорт и
+резервные копии переносят секцию вместе с остальной конфигурацией.
 
 ## 8. Реестр сервисов и модули
 
@@ -419,6 +460,7 @@ Case JSON (`core/case_export.py`) содержит нормализованны�
 | `GET /` | главная: форма заявки, результаты, пакетная загрузка |
 | `POST /analyze` | первичная диагностика заявки |
 | `POST /secondary` | второй этап по UUID звонка |
+| `POST /call-history` | ссылки по каждому звонку из истории баланса |
 | `POST /batch` | обработка таблицы потерянных звонков, скачивание XLSX |
 | `GET /settings` | редактор источников: блоки, продукты, копии |
 | `POST /settings/source` | создание / сохранение блока |
@@ -430,6 +472,11 @@ Case JSON (`core/case_export.py`) содержит нормализованны�
 | `POST /settings/product` | создание / переименование продукта |
 | `POST /settings/product/delete` | удаление продукта (не занятого блоками) |
 | `POST /settings/product/toggle-all` | включить / выключить все блоки продукта |
+| `POST /settings/call-history` | номера Секретаря для истории звонков |
+| `GET /settings/export-all` | бандл всех конфигов одним файлом |
+| `POST /settings/import-all` | загрузка бандла всех конфигов |
+| `GET /settings/export-config` | скачивание config.toml |
+| `POST /settings/import-config` | замена config.toml с бэкапом |
 | `POST /settings/import` | импорт конфигурации из JSON |
 | `POST /settings/import-toml` | перенос сервисов из config.toml в блоки |
 | `POST /settings/backup/restore` | откат настроек из резервной копии |

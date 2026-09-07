@@ -9,7 +9,7 @@
     <title>Диагностика заявки — l2tool</title>
     <link rel="icon" href="{{ url_for('static', path='/favicon.svg') }}" type="image/svg+xml">
     <script src="{{ url_for('static', path='/app.js') }}" defer></script>
-    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260904-8">
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260906-2">
   </head>
   <body>
     <a class="skip-link" href="#ticket-form">Перейти к форме</a>
@@ -22,6 +22,7 @@
         </span>
       </a>
       <div class="topbar-actions">
+        <a class="nav-link" href="/reference">Справочник кодов</a>
         <a class="nav-link" href="/settings">Настройки источников</a>
         <div class="local-badge"><span></span> Только на этом компьютере</div>
         <button class="theme-toggle" type="button" data-theme-toggle aria-label="Включить тёмную тему" aria-pressed="false">
@@ -101,26 +102,73 @@
         </details>
       {% endif %}
 
-      <p class="local-note"><span class="shield" aria-hidden="true">✓</span> Локальный режим: сервис слушает только 127.0.0.1, кэширование страниц отключено.</p>
+      <section class="tools-section" aria-labelledby="tools-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Ещё сценарии</p>
+            <h2 id="tools-title">Массовая обработка</h2>
+          </div>
+        </div>
 
-      <details class="panel batch-panel">
-        <summary>
-          <strong>Пакетная обработка · потерянные звонки</strong>
-          <span class="batch-hint">XLSX, XLSM, CSV или TSV до 25 МБ — готовая таблица со ссылками скачается обратно</span>
-        </summary>
-        <form method="post" action="/batch" enctype="multipart/form-data" class="batch-form">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <label class="file-field">
-            <span>Таблица, до 25 МБ</span>
-            <input type="file" name="table_file" accept=".xlsx,.xlsm,.csv,.tsv" required>
-          </label>
-          <button type="submit" class="secondary-button">Обработать и скачать</button>
-        </form>
-      </details>
+        <details class="panel batch-panel calls-history-panel">
+          <summary>
+            <strong>История звонков · из истории баланса</strong>
+            <span class="batch-hint">Вставьте выгрузку скрипта детализации и номер клиента — ссылки построятся для каждого звонка; время по МСК</span>
+          </summary>
+          <form method="post" action="/call-history#calls-result" class="batch-form calls-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="form-row calls-form-row">
+              <label>
+                <span>Продукт</span>
+                <select name="product">
+                  {% for product in products %}
+                    <option value="{{ product.key }}" {% if not product.enabled %}disabled{% endif %} {% if calls_form.product == product.key %}selected{% endif %}>
+                      {{ product.title }}{% if not product.enabled %} — скоро{% endif %}
+                    </option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label class="window-field">
+                <span>Окно, минут</span>
+                <input type="number" name="window" min="0" max="1440" value="{{ calls_form.window }}">
+              </label>
+              <label class="msisdn-field">
+                <span>Номер клиента</span>
+                <input type="text" name="msisdn" value="{{ calls_form.msisdn }}" placeholder="79991234567" maxlength="18">
+              </label>
+            </div>
+            <label class="ticket-field">
+              <span>История звонков из баланса</span>
+              <textarea name="history_text" required maxlength="200000" placeholder="2026-09-08 14:45:12 Связь. Исходящая (Бесплатный сервисный номер)&#10;    → 79991230001 Duration: 4 SECOND&#10;      Интернет-звонки: VoLTE&#10;2026-09-08 14:45:12 Переадресация по условию “абонент недоступен” → 79991230001&#10;2026-09-08 14:45:12 Входящая связь: Сервисная линия (0900)&#10;    ← 0900 Duration: 3 SECOND">{{ calls_form.history_text }}</textarea>
+            </label>
+            <div class="form-actions">
+              <p class="field-hint">Тройные события переадресации (исходящий на сервисный номер, сама переадресация и входящая нога) схлопываются в один звонок.</p>
+              <button type="submit" class="secondary-button">Построить ссылки по звонкам <span aria-hidden="true">→</span></button>
+            </div>
+          </form>
+        </details>
+
+        <details class="panel batch-panel">
+          <summary>
+            <strong>Пакетная обработка · потерянные звонки</strong>
+            <span class="batch-hint">XLSX, XLSM, CSV или TSV до 25 МБ — готовая таблица со ссылками скачается обратно</span>
+          </summary>
+          <form method="post" action="/batch" enctype="multipart/form-data" class="batch-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label class="file-field">
+              <span>Таблица, до 25 МБ</span>
+              <input type="file" name="table_file" accept=".xlsx,.xlsm,.csv,.tsv" required>
+            </label>
+            <button type="submit" class="secondary-button">Обработать и скачать</button>
+          </form>
+        </details>
+      </section>
 
       <div id="result-zone" aria-live="polite">
         {% include "_results.html" %}
       </div>
+
+      <p class="local-note"><span class="shield" aria-hidden="true">✓</span> Локальный режим: сервис слушает только 127.0.0.1, кэширование страниц отключено.</p>
     </main>
   </body>
 </html>

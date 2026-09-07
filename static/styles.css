@@ -382,8 +382,13 @@ button span { margin-left: var(--space-2); }
 
 .shield { display: grid; flex: 0 0 auto; place-items: center; border-radius: var(--radius-sm); color: var(--accent-strong); background: var(--accent-bright); font-weight: 900; }
 
-.local-note { display: flex; gap: var(--space-2); align-items: center; margin: var(--space-3) 2px 0; color: var(--muted); font-size: var(--text-xs); }
+.local-note { display: flex; gap: var(--space-2); align-items: center; margin: var(--space-5) 2px 0; color: var(--muted); font-size: var(--text-xs); }
 .local-note .shield { width: 20px; height: 20px; font-size: var(--text-2xs); }
+
+/* Секция дополнительных сценариев: заголовок + аккуordion-панели */
+.tools-section { display: grid; gap: var(--space-3); margin-top: var(--space-5); }
+.tools-section .section-heading { margin-bottom: calc(-1 * var(--space-1)); }
+.tools-section .batch-panel { margin-top: 0; }
 
 .batch-panel { margin-top: var(--space-5); padding: 0; overflow: hidden; }
 .batch-panel > summary { display: flex; flex-wrap: wrap; gap: 4px var(--space-4); align-items: baseline; padding: var(--space-3) var(--space-4); cursor: pointer; list-style: none; }
@@ -394,6 +399,38 @@ button span { margin-left: var(--space-2); }
 .batch-hint { color: var(--muted); font-size: var(--text-xs); }
 .batch-form { display: grid; gap: var(--space-3); padding: var(--space-4); border-top: 1px solid var(--soft-line); }
 .file-field input { height: auto; padding: 8px; font-size: var(--text-2xs); }
+
+/* История звонков из баланса: панель формы и результат */
+.calls-history-panel { margin-top: var(--space-3); }
+.calls-form { gap: var(--space-4); }
+.calls-form-row { grid-template-columns: minmax(0, 1.4fr) 150px minmax(160px, 0.8fr); }
+.calls-form textarea { min-height: 170px; }
+.calls-form .form-actions .field-hint { max-width: 60%; margin: 0; }
+.calls-results { margin-top: var(--space-5); }
+.calls-summary { margin: 0 0 var(--space-3); color: var(--muted); font-size: var(--text-xs); }
+.calls-list { display: grid; gap: var(--space-2); }
+.calls-day {
+  margin: var(--space-4) 0 var(--space-1);
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--soft-line);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.calls-day:first-child { margin-top: 0; }
+.call-item { border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel); }
+.call-item > summary { display: flex; flex-wrap: wrap; gap: 4px var(--space-2); align-items: center; padding: var(--space-2) var(--space-3); cursor: pointer; list-style: none; }
+.call-item > summary::-webkit-details-marker { display: none; }
+.call-item > summary::after { content: "▾"; margin-left: auto; color: var(--muted); font-size: var(--text-2xs); }
+.call-item[open] > summary::after { content: "▴"; }
+.call-time { flex: 0 0 auto; color: var(--muted); font-family: var(--font-mono); font-size: var(--text-2xs); }
+.call-title { flex: 0 1 auto; font-size: var(--text-xs); font-weight: 750; overflow-wrap: anywhere; }
+.call-title--in { color: var(--accent); }
+.call-title--out { color: var(--info-fg); }
+.call-badge { flex: 0 0 auto; padding: 2px 8px; border: 1px solid var(--line); border-radius: var(--radius-pill); color: var(--badge-muted-fg); background: var(--badge-muted-bg); font-size: var(--text-2xs); font-weight: 700; white-space: nowrap; }
+.call-body { padding: var(--space-3); border-top: 1px solid var(--soft-line); }
 
 /* Runbook: панель на главной и страница кейса */
 .runbook-panel { margin-top: var(--space-3); padding: 0; overflow: hidden; }
@@ -418,6 +455,11 @@ button span { margin-left: var(--space-2); }
 /* Ранбук на странице настроек */
 .runbook-settings-panel { display: grid; gap: var(--space-3); }
 .runbook-form { display: grid; gap: var(--space-2); }
+
+/* Номера Секретаря для истории звонков из баланса */
+.call-history-settings-panel { display: grid; gap: var(--space-3); }
+.call-history-form { display: grid; gap: var(--space-3); }
+.call-history-form textarea { min-height: 90px; max-height: 220px; padding: 10px var(--space-3); font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.6; }
 .runbook-case-fields { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: var(--space-2); }
 .runbook-step-row { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-2); align-items: end; }
 .runbook-step-index { align-self: end; padding-bottom: 10px; color: var(--muted); font-size: var(--text-xs); font-weight: 700; }
@@ -572,16 +614,35 @@ button span { margin-left: var(--space-2); }
 /* -- Настройки --------------------------------------------------------- */
 
 .settings-shell { max-width: 1020px; }
-.settings-header { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-5); align-items: baseline; margin-bottom: var(--space-4); }
+.settings-header { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-5); align-items: baseline; margin-bottom: var(--space-3); }
 .settings-header h1 { margin: 0; font-size: var(--text-lg); font-weight: 700; letter-spacing: -0.01em; }
 .settings-header p { margin: 0; max-width: 640px; color: var(--muted); font-size: var(--text-xs); line-height: 1.5; }
+.settings-jump { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-1); }
+.settings-jump a { padding: 6px 12px; border: 1px solid var(--line); border-radius: var(--radius-pill); color: var(--muted); background: var(--panel); font-size: var(--text-2xs); font-weight: 750; text-decoration: none; }
+.settings-jump a:hover { color: var(--ink); background: var(--quiet-button); }
+.settings-group { display: grid; gap: var(--space-4); margin-top: var(--space-5); align-content: start; }
+.settings-group > .section-heading { margin-bottom: calc(-1 * var(--space-1)); }
+.settings-group > .add-source-panel,
+.settings-group > .products-panel,
+.settings-group > .backups-panel,
+.settings-group > .import-config-panel,
+.settings-group > .config-notice { margin-bottom: 0; }
 .add-source-panel { margin-bottom: var(--space-3); padding: var(--space-4); }
 .add-source-panel .panel-heading { margin-bottom: var(--space-3); }
 .add-source-panel > p { margin: 0 0 var(--space-4); color: var(--muted); font-size: var(--text-xs); line-height: 1.55; }
-.import-config-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 0.7fr); gap: var(--space-5); align-items: end; margin-bottom: var(--space-3); padding: var(--space-4); }
+.import-config-panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--space-5); align-items: start; margin-bottom: var(--space-3); padding: var(--space-4); }
 .import-config-panel h2 { margin: 4px 0 var(--space-2); font-size: var(--text-base); }
 .import-config-panel p { margin: 0; color: var(--muted); font-size: var(--text-xs); line-height: 1.5; }
 .import-config-panel code { color: var(--ink); }
+.bundle-panel { display: grid; gap: var(--space-2); padding: var(--space-4); }
+.bundle-summary { margin: 0; color: var(--muted); font-size: var(--text-xs); }
+.bundle-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: end; }
+.bundle-actions form { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: end; flex: 1 1 320px; }
+.bundle-actions label { flex: 1 1 240px; }
+.button-link { display: inline-flex; align-items: center; min-height: 40px; padding: 0 var(--space-4); border-radius: var(--radius-sm); color: white; background: var(--button-bg); font-size: var(--text-sm); font-weight: 750; text-decoration: none; }
+.button-link:hover { background: var(--button-hover); }
+.bundle-report-list { margin: 0; padding: 0 var(--space-4); list-style: none; display: grid; gap: var(--space-1); font-size: var(--text-sm); }
+.bundle-report-list strong { font-family: var(--font-mono); font-size: var(--text-xs); }
 .import-config-form { display: grid; gap: var(--space-3); }
 .import-config-form input[type="file"] { height: auto; padding: 8px; font-size: var(--text-2xs); }
 .import-actions { display: flex; gap: var(--space-2); justify-content: flex-end; align-items: center; }
@@ -737,6 +798,8 @@ button span { margin-left: var(--space-2); }
   .theme-toggle { width: 36px; justify-content: center; padding: 0; }
   .primary-panel { padding: var(--space-3); }
   .form-row { grid-template-columns: 1fr; }
+  .calls-form-row { grid-template-columns: 1fr; }
+  .calls-form .form-actions .field-hint { max-width: none; }
   .service-list, .secondary-service-list, .correction-grid { grid-template-columns: 1fr; }
   .datetime-override { grid-template-columns: 1fr; }
   .datetime-override input { margin-top: var(--space-2); }

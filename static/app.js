@@ -7,9 +7,10 @@
   const pendingLabels = {
     "/analyze": "Разбираем заявку…",
     "/secondary": "Запускаем второй этап…",
+    "/call-history": "Строим ссылки по звонкам…",
     "/batch": "Обрабатываем таблицу…",
   };
-  const fetchActions = new Set(["/analyze", "/secondary"]);
+  const fetchActions = new Set(["/analyze", "/secondary", "/call-history"]);
 
   function storedTheme() {
     try {
@@ -71,6 +72,7 @@
   function scrollIntoFeedback() {
     const target =
       document.getElementById("secondary-result") ||
+      document.getElementById("calls-result") ||
       document.getElementById("result") ||
       document.querySelector(".alert");
     target?.scrollIntoView({

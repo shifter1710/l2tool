@@ -115,7 +115,7 @@
     <title>Источники диагностики — l2tool</title>
     <link rel="icon" href="{{ url_for('static', path='/favicon.svg') }}" type="image/svg+xml">
     <script src="{{ url_for('static', path='/app.js') }}" defer></script>
-    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260904-8">
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260906-2">
   </head>
   <body>
     <a class="skip-link" href="#add-source">Перейти к форме</a>
@@ -134,6 +134,12 @@
         <h1>Свои диагностические блоки</h1>
         <p>Добавляйте продукты и любое количество блоков, называйте их так, как удобно команде. l2tool разбирает пример ссылки и при диагностике заменяет найденный номер или UUID и временной диапазон.</p>
       </div>
+
+      <nav class="settings-jump" aria-label="Разделы настроек">
+        <a href="#blocks">Блоки</a>
+        <a href="#catalog">Продукты и сценарии</a>
+        <a href="#data">Импорт и копии</a>
+      </nav>
 
       {% if message %}<div class="alert alert-success" role="status"><strong>Готово</strong><span>{{ message }}</span></div>{% endif %}
       {% if error %}<div class="alert alert-error" role="alert"><strong>Не удалось сохранить</strong><span>{{ error }}</span></div>{% endif %}
@@ -155,7 +161,15 @@
         </section>
       {% endif %}
 
-      <section class="panel add-source-panel" id="add-source" tabindex="-1">
+      <section class="settings-group" id="blocks" aria-labelledby="blocks-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Редактирование</p>
+            <h2 id="blocks-title">Диагностические блоки</h2>
+          </div>
+        </div>
+
+        <section class="panel add-source-panel" id="add-source" tabindex="-1">
         <div class="panel-heading"><div><span class="step">+</span><h2>Добавить блок</h2></div></div>
         <p>Откройте в Grafana или OpenSearch нужный поиск с тестовым номером либо UUID и вставьте сюда получившуюся ссылку.</p>
         <form method="post" action="/settings/source" class="source-form">
@@ -165,7 +179,54 @@
         </form>
       </section>
 
-      <section class="panel products-panel" id="products">
+      <div class="product-config-list">
+        {% for product in products %}
+          <section class="product-config product-{{ product.key }}">
+            <header class="product-config-header">
+              <div class="product-monogram color-{{ product.color or 'green' }}">{{ product.title[:1] }}</div>
+              <div><p>Продукт</p><h2>{{ product.title }}</h2><span>{{ 'Пользовательская конфигурация активна' if product.managed else 'Добавьте первый блок, чтобы заменить прежний профиль' }}</span></div>
+              <div class="product-bulk-actions">
+                <form method="post" action="/settings/product/toggle-all">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="product_key" value="{{ product.key }}">
+                  <input type="hidden" name="enabled" value="1">
+                  <button type="submit" class="quiet-button">Включить все</button>
+                </form>
+                <form method="post" action="/settings/product/toggle-all">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="product_key" value="{{ product.key }}">
+                  <input type="hidden" name="enabled" value="0">
+                  <button type="submit" class="quiet-button">Выключить все</button>
+                </form>
+              </div>
+            </header>
+            <div class="product-levels">
+              {% for level in product.levels %}
+                <section class="config-level config-level-{{ level.key }}">
+                  <header class="level-header"><span class="level-number">{{ loop.index }}</span><div><h3>{{ level.title }}</h3><p>{{ 'Формируется из номеров заявки' if level.key == 'number' else 'Запускается после получения UUID звонка' }}</p></div></header>
+                  {% if level.sources %}
+                    <div class="source-grid">{% for source in level.sources %}{{ render_source(source, csrf_token, product_options, levels, first=loop.first, last=loop.last) }}{% endfor %}</div>
+                  {% else %}
+                    <div class="level-empty"><strong>Блоков пока нет</strong><span>Создайте блок в форме выше и выберите этот продукт и уровень.</span></div>
+                  {% endif %}
+                </section>
+              {% endfor %}
+            </div>
+          </section>
+        {% endfor %}
+      </div>
+
+      </section>
+
+      <section class="settings-group" id="catalog" aria-labelledby="catalog-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Каталог</p>
+            <h2 id="catalog-title">Продукты и сценарии</h2>
+          </div>
+        </div>
+
+        <section class="panel products-panel" id="products">
         <div class="panel-heading"><div><span class="step">P</span><h2>Продукты</h2></div><p>Состав сервисов на сайте. Ключи встроенных продуктов менять нельзя — на них ссылается CLI.</p></div>
         <div class="product-rows">
           {% for product in catalog %}
@@ -206,6 +267,17 @@
           <label><span>Название</span><input name="title" required maxlength="80" value="{{ product_draft.title if product_draft and not product_draft.original_key else '' }}" placeholder="Запись МСК"></label>
           <label><span>Цвет монограммы</span><select name="color">{{ color_options(product_draft.color if product_draft and not product_draft.original_key else none) }}</select></label>
           <button type="submit" class="secondary-button">Добавить продукт</button>
+        </form>
+      </section>
+
+      <section class="panel call-history-settings-panel" id="call-history" tabindex="-1">
+        <div class="panel-heading"><div><span class="step">S</span><h2>История звонков · номера Секретаря</h2></div><p>Звонки из истории баланса, ушедшие на эти номера, помечаются бейджем «Секретарь». Один номер на строку. Сохранённый здесь список приоритетнее секции [call_history] в config.toml.</p></div>
+        <form method="post" action="/settings/call-history" class="call-history-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <label><span>Номера Секретаря <small>7XXXXXXXXXX, по одному на строку</small></span>
+            <textarea name="secretary_numbers" spellcheck="false" placeholder="79991230999&#10;89991230998">{% if call_history_draft is not none %}{{ call_history_draft }}{% else %}{{ call_history_numbers }}{% endif %}</textarea>
+          </label>
+          <div class="source-actions"><button type="submit" class="secondary-button">Сохранить номера</button></div>
         </form>
       </section>
 
@@ -268,7 +340,31 @@
         </div>
       </section>
 
-      <section class="panel import-config-panel">
+      </section>
+
+      <section class="settings-group" id="data" aria-labelledby="data-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Данные</p>
+            <h2 id="data-title">Импорт и резервные копии</h2>
+          </div>
+        </div>
+
+        <section class="panel bundle-panel">
+          <div class="panel-heading"><div><span class="step">★</span><h2>Все конфиги сразу</h2></div><p>Один файл со всеми настройками: блоки и номера Секретаря, справочник кодов, ранбук и config.toml. Перенос на другой компьютер в два клика.</p></div>
+          <p class="bundle-summary">Сейчас в бандл попадут: <strong>{{ bundle_summary }}</strong>.</p>
+          <div class="bundle-actions">
+            <a class="button-link" href="/settings/export-all">Скачать все конфиги</a>
+            <form method="post" action="/settings/import-all" enctype="multipart/form-data" class="import-config-form">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <label><span>Файл бандла</span><input type="file" name="bundle_file" accept="application/json,.json" required></label>
+              <button type="submit" class="secondary-button">Загрузить все конфиги</button>
+            </form>
+          </div>
+          <p class="field-hint">Блоки добавятся к существующим (дубликаты пропустятся), справочник и ранбук заменятся целиком, config.toml перезапишется — прежний останется в backups/.</p>
+        </section>
+
+        <section class="panel import-config-panel">
         <div>
           <p class="eyebrow">Готовая конфигурация</p>
           <h2>Добавить блоки из файла</h2>
@@ -279,6 +375,19 @@
             <div class="import-actions">
               <a href="/settings/export" class="download-config">Скачать текущий</a>
               <button type="submit">Проверить и добавить</button>
+            </div>
+          </form>
+        </div>
+        <div class="toml-import">
+          <p class="eyebrow">config.toml</p>
+          <h2>Статический профиль отдельно</h2>
+          <p>Сервисы CLI и значения по умолчанию. Перед заменой проверяется TOML, прежний файл уходит в backups/. Токены в ссылках отклоняются.</p>
+          <form method="post" action="/settings/import-config" enctype="multipart/form-data" class="import-config-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label><span>TOML-файл</span><input type="file" name="config_toml_file" accept=".toml,application/toml" required></label>
+            <div class="import-actions">
+              <a href="/settings/export-config" class="download-config">Скачать текущий</a>
+              <button type="submit" class="secondary-button">Заменить config.toml</button>
             </div>
           </form>
         </div>
@@ -294,6 +403,26 @@
           </form>
         </div>
       </section>
+
+      {% if bundle_report %}
+        <section class="panel import-report-panel" id="bundle-report" tabindex="-1">
+          <div class="panel-heading"><div><span class="step">i</span><h2>Отчёт о загрузке бандла</h2></div></div>
+          {% if bundle_report.stores %}
+            <ul class="bundle-report-list">
+              {% for name, outcome in bundle_report.stores.items() %}
+                <li><strong>{{ name }}</strong>: {{ outcome }}</li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+          {% for note in bundle_report.notes %}<p class="field-hint">{{ note }}</p>{% endfor %}
+          {% if bundle_report.errors %}
+            <div class="alert alert-warning" role="alert">
+              <strong>Не перенесено</strong>
+              {% for item in bundle_report.errors %}<span>{{ item }}</span>{% endfor %}
+            </div>
+          {% endif %}
+        </section>
+      {% endif %}
 
       {% if import_report %}
         <section class="panel import-report-panel" id="import-report" tabindex="-1">
@@ -328,47 +457,13 @@
         {% endif %}
       </section>
 
+      </section>
+
       <section class="config-notice">
         <span class="shield">✓</span>
         <div><strong>Без захардкоженных сервисов</strong><p>Название, принадлежность к продукту и уровень задаются здесь. Данные хранятся только локально в diagnostic_sources.json, ссылки с токенами отклоняются.</p></div>
       </section>
 
-      <div class="product-config-list">
-        {% for product in products %}
-          <section class="product-config product-{{ product.key }}">
-            <header class="product-config-header">
-              <div class="product-monogram color-{{ product.color or 'green' }}">{{ product.title[:1] }}</div>
-              <div><p>Продукт</p><h2>{{ product.title }}</h2><span>{{ 'Пользовательская конфигурация активна' if product.managed else 'Добавьте первый блок, чтобы заменить прежний профиль' }}</span></div>
-              <div class="product-bulk-actions">
-                <form method="post" action="/settings/product/toggle-all">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                  <input type="hidden" name="product_key" value="{{ product.key }}">
-                  <input type="hidden" name="enabled" value="1">
-                  <button type="submit" class="quiet-button">Включить все</button>
-                </form>
-                <form method="post" action="/settings/product/toggle-all">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                  <input type="hidden" name="product_key" value="{{ product.key }}">
-                  <input type="hidden" name="enabled" value="0">
-                  <button type="submit" class="quiet-button">Выключить все</button>
-                </form>
-              </div>
-            </header>
-            <div class="product-levels">
-              {% for level in product.levels %}
-                <section class="config-level config-level-{{ level.key }}">
-                  <header class="level-header"><span class="level-number">{{ loop.index }}</span><div><h3>{{ level.title }}</h3><p>{{ 'Формируется из номеров заявки' if level.key == 'number' else 'Запускается после получения UUID звонка' }}</p></div></header>
-                  {% if level.sources %}
-                    <div class="source-grid">{% for source in level.sources %}{{ render_source(source, csrf_token, product_options, levels, first=loop.first, last=loop.last) }}{% endfor %}</div>
-                  {% else %}
-                    <div class="level-empty"><strong>Блоков пока нет</strong><span>Создайте блок в форме выше и выберите этот продукт и уровень.</span></div>
-                  {% endif %}
-                </section>
-              {% endfor %}
-            </div>
-          </section>
-        {% endfor %}
-      </div>
     </main>
   </body>
 </html>

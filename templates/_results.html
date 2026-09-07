@@ -192,6 +192,56 @@
   </section>
 {% endif %}
 
+{% if calls_result %}
+  <section class="results calls-results" id="calls-result">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">История звонков</p>
+        <h2>{{ calls_result.title }}</h2>
+      </div>
+      <span class="status status-{{ calls_result.status }}">{{ calls_result.status_title }}</span>
+    </div>
+
+    <p class="calls-summary">
+      Распознано звонков: <strong>{{ calls_result.total_calls }}</strong>{% if calls_result.truncated %}, показаны первые {{ calls_result.shown }}{% endif %}{% if calls_result.msisdn %} · номер клиента <strong>{{ calls_result.msisdn }}</strong>{% endif %} · время по МСК
+    </p>
+
+    {% if calls_result.warnings %}
+      <div class="alert alert-warning">
+        <strong>Есть замечания</strong>
+        {% for warning in calls_result.warnings %}<span>{{ warning }}</span>{% endfor %}
+      </div>
+    {% endif %}
+
+    <div class="calls-list">
+      {% for call in calls_result.calls %}
+        {% if loop.first or call.day != loop.previtem.day %}
+          <div class="calls-day">{{ call.day }}</div>
+        {% endif %}
+        <details class="call-item" {% if loop.first %}open{% endif %}>
+          <summary>
+            <span class="call-time">{{ call.time }}</span>
+            <span class="call-title call-title--{{ call.direction }}">{{ call.title }}</span>
+            {% for badge in call.badges %}<span class="call-badge">{{ badge }}</span>{% endfor %}
+          </summary>
+          <div class="call-body">
+            {% if call.services %}
+              {{ service_grid(call.services, "call-service-list") }}
+            {% else %}
+              <p class="empty-state">Для этого звонка ссылки не сформированы.</p>
+            {% endif %}
+            {% if call.warnings %}
+              <div class="warning-list">
+                {% for warning in call.warnings %}<p>{{ warning }}</p>{% endfor %}
+              </div>
+            {% endif %}
+          </div>
+        </details>
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}
+
 {% if secondary_result %}
   <section class="secondary-results" id="secondary-result">
     <div class="section-heading">
