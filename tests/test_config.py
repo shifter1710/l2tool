@@ -100,6 +100,25 @@ url = "https://opensearch.test/discover#?_a=(metadata:(indexPattern:bff-id))"
     )
 
 
+def test_python_310_toml_fallback_parses_arrays(monkeypatch):
+    monkeypatch.setattr(config, "tomllib", None)
+
+    data = config.parse_simple_toml(
+        "\n".join(
+            [
+                "[call_history]",
+                'secretary_numbers = ["79991230999", "89991230998"]',
+                "empty = []",
+                "max_calls = 7",
+            ]
+        )
+    )
+
+    assert data["call_history"]["secretary_numbers"] == ["79991230999", "89991230998"]
+    assert data["call_history"]["empty"] == []
+    assert data["call_history"]["max_calls"] == 7
+
+
 def test_config_missing_local_file_raises_helpful_error(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "missing-config.toml")
 
