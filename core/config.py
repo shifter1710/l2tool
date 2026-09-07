@@ -20,8 +20,14 @@ MISSING_CONFIG_MESSAGE = (
 def _parse_value(raw_value):
     value = raw_value.strip()
 
-    if value.startswith('"') and value.endswith('"'):
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
         return value[1:-1]
+
+    if value.startswith("[") and value.endswith("]"):
+        inner = value[1:-1].strip()
+        if not inner:
+            return []
+        return [_parse_value(item) for item in _split_array_items(inner)]
 
     if value == "true":
         return True
@@ -33,6 +39,28 @@ def _parse_value(raw_value):
         return int(value)
     except ValueError:
         return value
+
+
+def _split_array_items(inner):
+    """Элементы массива: запятые вне кавычек; вложенные массивы не нужны."""
+    items = []
+    current = []
+    quote = None
+    for char in inner:
+        if quote:
+            current.append(char)
+            if char == quote:
+                quote = None
+        elif char in "\"'":
+            quote = char
+            current.append(char)
+        elif char == ",":
+            items.append("".join(current))
+            current = []
+        else:
+            current.append(char)
+    items.append("".join(current))
+    return [item for item in (entry.strip() for entry in items) if item]
 
 
 def _strip_comment(line):
@@ -47,11 +75,15 @@ def _strip_comment(line):
     return line
 
 
-def _read_simple_toml(path):
+def parse_simple_toml(text):
+    """Разбор TOML без tomllib (Python 3.10): секции, скаляры и плоские массивы.
+
+    Используется и как fallback-валидатор содержимого при импорте config.toml.
+    """
     data = {}
     current = data
 
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
+    for raw_line in text.splitlines():
         line = _strip_comment(raw_line).strip()
         if not line:
             continue
@@ -71,6 +103,10 @@ def _read_simple_toml(path):
         current[key.strip()] = _parse_value(value)
 
     return data
+
+
+def _read_simple_toml(path):
+    return parse_simple_toml(path.read_text(encoding="utf-8"))
 
 
 def _read_toml(path):
