@@ -21,7 +21,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 from core import reference_codes, runbook
-from core.config import CONFIG_PATH
+from core.config import CONFIG_PATH, parse_simple_toml
 from core.dynamic_sources import (
     available_products,
     create_product,
@@ -137,7 +137,12 @@ def import_config_toml(text):
 
         tomllib.loads(content)
     except ModuleNotFoundError:
-        pass  # простой парер конфигурации проверит файл при чтении
+        # Python 3.10: tomllib нет — проверяем упрощённым парсером, чтобы
+        # мусор не записывался в config.toml молча
+        try:
+            parse_simple_toml(content)
+        except ValueError as error:
+            raise ValueError(f"config.toml не разбирается как TOML: {error}") from error
     except (TypeError, ValueError) as error:
         raise ValueError(f"config.toml не разбирается как TOML: {error}") from error
 
