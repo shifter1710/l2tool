@@ -1,0 +1,9 @@
+# Метаданные проекта: ограничение версии Python в машиночитаемом виде.
+# Сборки/установки пакета нет — зависимости ставятся из requirements.txt,
+# настройки pytest и ruff живут в pytest.ini и ruff.toml.
+
+[project]
+name = "l2tool"
+version = "1.2.0"
+description = "Локальный инструмент диагностики заявок L2: веб-интерфейс и CLI"
+requires-python = ">=3.10"

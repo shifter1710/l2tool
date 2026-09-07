@@ -548,7 +548,7 @@ flowchart TB
   merge в `main` с тегом `vX.Y.Z`. Релизный workflow
   (`.github/workflows/release.yml`) на тег прогоняет тесты и публикует
   GitHub Release с исходниками.
-- Текущие крупные задачи и их ветки — в `docs/tasks/`.
+- Выполненные крупные задачи и их ветки — в архиве `docs/tasks/done/`.
 
 ```mermaid
 flowchart LR
