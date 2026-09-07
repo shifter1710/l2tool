@@ -1,11 +1,13 @@
 import json
 import os
+import re
 from datetime import date, datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from uuid import uuid4
 
-HISTORY_ROOT = Path("history")
+ROOT_DIR = Path(__file__).resolve().parents[1]
+HISTORY_ROOT = ROOT_DIR / "history"
 INDEX_NAME = "index.json"
 
 
@@ -77,11 +79,8 @@ def save_ticket_history(
     archive_uuid = uuid_factory()
     shortid = archive_uuid.hex[:8]
     event_date = _archive_date(ctx, now)
-    main_number = (
-        ctx.get("msisdn")
-        or ctx.get("phone_a")
-        or ctx.get("phone_b")
-        or "unknown"
+    main_number = _file_number(
+        ctx.get("msisdn") or ctx.get("phone_a") or ctx.get("phone_b")
     )
 
     archive_path = (
@@ -130,6 +129,16 @@ def _archive_date(ctx, now):
 
     current = now or datetime.now().astimezone()
     return current.date()
+
+
+def _file_number(value):
+    """Номер для имени файла: только цифры, иначе «unknown».
+
+    Значения берутся из распознанного контекста, но на всякий случай
+    не пропускаем в путь произвольные строки (слэши, «..»).
+    """
+    digits = re.sub(r"\D", "", str(value or ""))
+    return digits or "unknown"
 
 
 def _atomic_write_text(path, text):

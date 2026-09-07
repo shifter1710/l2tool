@@ -45,3 +45,29 @@ url = ""
 # services.zapis, поэтому вторую полную ссылку Grafana Explore указывать не нужно.
 [grafana.recording]
 loki_datasource_uid = ""
+
+# Значения по умолчанию для веб-форм и CLI. Все ключи необязательны:
+# без них используются встроенные значения.
+[defaults]
+# Окно поиска в минутах (форма на главной и флаг --window).
+window = 60
+# Продукт, выбранный в основной форме.
+product = "recording"
+# Продукт в панели «История звонков из истории баланса».
+calls_product = "calls"
+# Сколько дней Loki хранит логи — для предупреждения о старых звонках.
+loki_retention_days = 5
+
+# Сервисы, которые открывает gtool.py без --open и --product.
+[gtool]
+default_open = "zapis,bff,myconnect,myconnect_call"
+
+# История звонков из истории баланса (call_history.py и панель на главной).
+# Номера Секретаря: звонки, ушедшие на эти номера, помечаются бейджем «Секретарь».
+# Список на странице настроек приоритетнее этой секции.
+[call_history]
+secretary_numbers = []
+# Сервисы call_history.py без --open/--product.
+default_open = "zapis"
+# Максимум звонков в выводе (веб и CLI).
+max_calls = 50

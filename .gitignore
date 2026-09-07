@@ -16,6 +16,8 @@ cases/
 # python
 __pycache__/
 *.pyc
+.pytest_cache/
+.ruff_cache/
 
 # local env
 .env

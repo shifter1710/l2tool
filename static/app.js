@@ -7,9 +7,10 @@
   const pendingLabels = {
     "/analyze": "Разбираем заявку…",
     "/secondary": "Запускаем второй этап…",
+    "/call-history": "Строим ссылки по звонкам…",
     "/batch": "Обрабатываем таблицу…",
   };
-  const fetchActions = new Set(["/analyze", "/secondary"]);
+  const fetchActions = new Set(["/analyze", "/secondary", "/call-history"]);
 
   function storedTheme() {
     try {
@@ -71,6 +72,7 @@
   function scrollIntoFeedback() {
     const target =
       document.getElementById("secondary-result") ||
+      document.getElementById("calls-result") ||
       document.getElementById("result") ||
       document.querySelector(".alert");
     target?.scrollIntoView({
@@ -101,23 +103,27 @@
     }
   }
 
+  const idleButtons = new WeakMap();
+
   function markPending(form) {
     const label = pendingLabels[formPath(form)];
     const button = form.querySelector('button[type="submit"]');
-    if (!label || !button || button.dataset.pendingLabel) return;
-    button.dataset.pendingLabel = button.innerHTML;
+    if (!label || !button || idleButtons.has(button)) return;
+    // Копия кнопки до изменений — восстанавливаем заменой узла, без
+    // перезаписи innerHTML туда-обратно.
+    idleButtons.set(button, button.cloneNode(true));
     button.setAttribute("aria-busy", "true");
     button.disabled = true;
     button.textContent = label;
   }
 
   function resetPending(form) {
-    const button = form.querySelector("button[data-pending-label]");
+    const button = form.querySelector('button[type="submit"]');
     if (!button) return;
-    button.innerHTML = button.dataset.pendingLabel;
-    button.removeAttribute("data-pending-label");
-    button.removeAttribute("aria-busy");
-    button.disabled = false;
+    const idle = idleButtons.get(button);
+    if (!idle) return;
+    idleButtons.delete(button);
+    button.replaceWith(idle);
   }
 
   function skeletonMarkup() {
@@ -136,37 +142,96 @@
   }
 
   let zoneBusy = false;
+  const FETCH_TIMEOUT_MS = 45000;
+
+  function showZoneAlert(zone, title, detail) {
+    const alert = document.createElement("div");
+    alert.className = "alert alert-error";
+    alert.setAttribute("role", "alert");
+    const strong = document.createElement("strong");
+    strong.textContent = title;
+    const span = document.createElement("span");
+    span.textContent = detail;
+    alert.append(strong, span);
+    zone.replaceChildren(alert);
+  }
+
+  function announceResultStatus(zone) {
+    // Компактный live-регион вместо озвучивания всей зоны результатов:
+    // скринридер слышит короткий итог, а не сотни узлов разметки.
+    const status = document.getElementById("result-status");
+    if (!status) return;
+    const linkCount = zone.querySelectorAll("[data-copy-link]").length;
+    status.textContent = linkCount
+      ? `Диагностика готова: ссылок — ${linkCount}.`
+      : "Диагностика завершена без ссылок.";
+  }
 
   async function submitViaFetch(form, zone) {
     zoneBusy = true;
     zone.setAttribute("aria-busy", "true");
     zone.innerHTML = skeletonMarkup();
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    let succeeded = false;
     try {
       const response = await fetch(form.getAttribute("action") || form.action, {
         method: "POST",
         body: new FormData(form),
         headers: { "X-Requested-With": "XMLHttpRequest" },
+        signal: controller.signal,
       });
+      if (response.status === 403) {
+        // Например, сервер перезапустили и токен формы устарел.
+        showZoneAlert(
+          zone,
+          "Форма устарела",
+          "Обновите страницу (F5) и отправьте заявку ещё раз.",
+        );
+        return;
+      }
+      if (!response.ok) {
+        let detail = `Сервер ответил ошибкой ${response.status}.`;
+        try {
+          const data = await response.clone().json();
+          if (data && data.detail) detail = String(data.detail);
+        } catch (_error) {
+          // HTML-ответ без JSON-детали — оставляем общий текст
+        }
+        showZoneAlert(zone, "Не удалось получить результат", detail);
+        return;
+      }
       const contentType = response.headers.get("content-type") || "";
       if (!contentType.includes("text/html")) {
-        // Например, JSON-ответ CSRF-отказа — уходим в обычную отправку.
-        zoneBusy = false;
-        resetPending(form);
+        // Неожиданный формат ответа — отдаём форме обычную отправку.
         form.submit();
         return;
       }
       zone.innerHTML = await response.text();
-    } catch (_error) {
-      // Сеть или сервер недоступны — отправляем форму обычным путём.
+      announceResultStatus(zone);
+      succeeded = true;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        showZoneAlert(
+          zone,
+          "Превышено время ожидания",
+          "Сервер не ответил. Попробуйте ещё раз или уменьшите объём заявки.",
+        );
+      } else {
+        showZoneAlert(
+          zone,
+          "Сервер недоступен",
+          "Проверьте, что l2tool запущен, и повторите отправку.",
+        );
+      }
+    } finally {
+      window.clearTimeout(timeout);
       zoneBusy = false;
+      zone.removeAttribute("aria-busy");
       resetPending(form);
-      form.submit();
-      return;
+      if (succeeded) scrollIntoFeedback();
     }
-    zoneBusy = false;
-    zone.removeAttribute("aria-busy");
-    resetPending(form);
-    scrollIntoFeedback();
   }
 
   let draftHint = null;
@@ -321,10 +386,15 @@
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" || !(event.ctrlKey || event.metaKey)) return;
     const field = event.target;
-    if (field instanceof HTMLTextAreaElement && field.form) {
-      event.preventDefault();
-      field.form.requestSubmit();
-    }
+    if (!(field instanceof HTMLTextAreaElement)) return;
+    // Ctrl+Enter отправляет формы диагностики, а не любой textarea страницы
+    const form = field.form;
+    const isDiagnosticForm =
+      form &&
+      (form.classList.contains("ticket-form") || form.classList.contains("calls-form"));
+    if (!isDiagnosticForm) return;
+    event.preventDefault();
+    form.requestSubmit();
   });
 
   systemTheme.addEventListener?.("change", (event) => {

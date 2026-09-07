@@ -1,3 +1,5 @@
+import pytest
+
 from core import config
 
 
@@ -46,6 +48,18 @@ url = "https://opensearch.test/discover#?_a=(metadata:(indexPattern:bff-id))"
         "https://opensearch.test/discover#?_a=(metadata:(indexPattern:bff-id))"
     )
     assert config.service_url("missing") is None
+
+
+def test_service_url_rejects_dangerous_schemes(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        '[services.zapis]\nurl = "javascript:alert(1)"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "CONFIG_PATH", config_path)
+
+    with pytest.raises(ValueError, match="http:// или https://"):
+        config.service_url("zapis")
 
 
 def test_config_reads_service_time_window(monkeypatch, tmp_path):

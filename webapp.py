@@ -22,7 +22,15 @@ from starlette.background import BackgroundTask
 from starlette.datastructures import UploadFile
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from core import history, reference_codes, runbook
+from core import call_history, history, reference_codes, runbook
+from core.config import CONFIG_PATH
+from core.config_bundle import (
+    MAX_BUNDLE_SIZE,
+    build_bundle,
+    bundle_summary,
+    import_bundle,
+    import_config_toml,
+)
 from core.dynamic_sources import (
     LEVELS,
     build_product_links,
@@ -40,6 +48,7 @@ from core.dynamic_sources import (
     move_source,
     preview_source,
     product_groups,
+    save_call_history_secretary_numbers,
     save_source,
     set_product_sources_enabled,
     set_source_enabled,
@@ -49,7 +58,17 @@ from core.lost_calls_table import TableFormatError, process_table
 from core.products import PRODUCT_COLORS, available_products, product_title, resolve_product_modules
 from core.source_backups import list_backups, restore_backup
 from core.utils import hash_phone, normalize_uuid
-from gtool import MODULE_TITLES, RunResult, run_ticket
+from gtool import (
+    MODULE_TITLES,
+    RunResult,
+    available_services,
+    configured_call_history_max_calls,
+    configured_calls_product,
+    configured_default_product,
+    configured_default_window,
+    run_call_history,
+    run_ticket,
+)
 from services.registry import SERVICES
 
 LOGGER = logging.getLogger(__name__)
@@ -87,6 +106,17 @@ app.state.csrf_token = secrets.token_urlsafe(32)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=LOCAL_HOSTS)
 app.mount("/static", StaticFiles(directory=ROOT_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=ROOT_DIR / "templates")
+
+
+def _asset_version():
+    """Версия стилей из mtime файла: меняется при каждом обновлении CSS."""
+    try:
+        return str(int((ROOT_DIR / "static" / "styles.css").stat().st_mtime_ns))
+    except OSError:
+        return "1"
+
+
+templates.env.globals["asset_version"] = _asset_version()
 
 
 @app.middleware("http")
@@ -143,14 +173,21 @@ def page_context(request: Request, **values):
         "csrf_token": app.state.csrf_token,
         "products": product_options(),
         "form": {
-            "product": "recording",
-            "window": 60,
+            "product": configured_default_product(),
+            "window": configured_default_window(),
             "ticket_text": "",
             "save_history": False,
             "corrections": {},
             "dynamic_product": False,
         },
+        "calls_form": {
+            "product": configured_calls_product(),
+            "window": configured_default_window(),
+            "msisdn": "",
+            "history_text": "",
+        },
         "result": None,
+        "calls_result": None,
         "secondary_result": None,
         "reference_hints": [],
         "runbook_cases": runbook.load_store(),
@@ -521,6 +558,7 @@ def render_settings(request, *, status_code=200, overrides=None, **values):
     catalog = []
     backups = []
     source_options = []
+    call_history_numbers = ""
     try:
         products = product_groups(overrides=overrides)
         catalog = list_products()
@@ -540,6 +578,10 @@ def render_settings(request, *, status_code=200, overrides=None, **values):
         )
         status_code = max(status_code, 400)
     try:
+        call_history_numbers = "\n".join(call_history.secretary_numbers_ordered())
+    except (OSError, ValueError):
+        call_history_numbers = ""
+    try:
         backups = list_backups()
     except (OSError, ValueError):
         backups = []
@@ -558,6 +600,10 @@ def render_settings(request, *, status_code=200, overrides=None, **values):
         "runbook_source_options": source_options,
         "runbook_step_limit": runbook.MAX_STEPS,
         "runbook_draft": None,
+        "call_history_numbers": call_history_numbers,
+        "call_history_draft": None,
+        "bundle_summary": bundle_summary(),
+        "bundle_report": None,
         "draft": None,
         "preview": None,
         "import_report": None,
@@ -615,6 +661,10 @@ async def settings(request: Request):
         message = "Кейс ранбука удалён"
     elif params.get("runbook_imported") is not None:
         message = f"Ранбук заменён: кейсов — {params.get('runbook_imported', '0')}"
+    elif params.get("config_saved"):
+        message = "config.toml заменён — прежний файл сохранён в backups/"
+    elif params.get("call_history_saved") is not None:
+        message = "Номера Секретаря сохранены — звонки на них помечаются бейджем"
     elif params.get("imported") is not None:
         added = params.get("imported", "0")
         skipped = params.get("skipped", "0")
@@ -825,6 +875,99 @@ async def settings_restore_backup(request: Request):
     except (OSError, ValueError) as error:
         return render_settings(request, error=str(error), status_code=400)
     return RedirectResponse("/settings?restored=1", status_code=303)
+
+
+@app.post("/settings/call-history")
+async def settings_call_history(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    raw_numbers = form_text(form_data, "secretary_numbers")
+    try:
+        save_call_history_secretary_numbers(raw_numbers)
+    except (OSError, ValueError) as error:
+        return render_settings(
+            request,
+            error=str(error),
+            status_code=400,
+            call_history_draft=raw_numbers,
+        )
+    return RedirectResponse("/settings?call_history_saved=1#call-history", status_code=303)
+
+
+@app.get("/settings/export-all")
+async def settings_export_all():
+    """Бандл всех конфигураций одним файлом."""
+    bundle = build_bundle()
+    content = json.dumps(bundle, ensure_ascii=False, indent=2) + "\n"
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="l2tool-configs-{stamp}.json"'
+        },
+    )
+
+
+@app.post("/settings/import-all")
+async def settings_import_all(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    upload = form_data.get("bundle_file")
+    if not isinstance(upload, UploadFile) or not upload.filename:
+        return render_settings(request, error="Выберите JSON-файл бандла", status_code=400)
+
+    try:
+        if Path(upload.filename).suffix.lower() != ".json":
+            raise ValueError(
+                "Файл бандла — JSON, скачанный через «Скачать все конфиги»"
+            )
+        content = await upload.read(MAX_BUNDLE_SIZE + 1)
+        if len(content) > MAX_BUNDLE_SIZE:
+            raise ValueError("Файл бандла превышает 8 МБ")
+        report = import_bundle(content.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as error:
+        return render_settings(request, error=str(error), status_code=400)
+    finally:
+        await upload.close()
+    return render_settings(request, bundle_report=report)
+
+
+@app.get("/settings/export-config")
+async def settings_export_config():
+    if not CONFIG_PATH.exists():
+        return PlainTextResponse("config.toml пока не создан", status_code=404)
+    try:
+        content = CONFIG_PATH.read_text(encoding="utf-8")
+    except OSError as error:
+        return PlainTextResponse(f"Не удалось прочитать config.toml: {error}", status_code=400)
+    return Response(
+        content=content,
+        media_type="application/toml",
+        headers={"Content-Disposition": 'attachment; filename="config.toml"'},
+    )
+
+
+@app.post("/settings/import-config")
+async def settings_import_config(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    upload = form_data.get("config_toml_file")
+    if not isinstance(upload, UploadFile) or not upload.filename:
+        return render_settings(request, error="Выберите TOML-файл", status_code=400)
+
+    try:
+        if Path(upload.filename).suffix.lower() != ".toml":
+            raise ValueError("Поддерживается файл config.toml")
+        content = await upload.read(MAX_BUNDLE_SIZE + 1)
+        if len(content) > MAX_BUNDLE_SIZE:
+            raise ValueError("Файл config.toml слишком велик")
+        import_config_toml(content.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as error:
+        return render_settings(request, error=str(error), status_code=400)
+    finally:
+        await upload.close()
+    return RedirectResponse("/settings?config_saved=1#data", status_code=303)
 
 
 @app.post("/settings/import-toml")
@@ -1256,6 +1399,132 @@ async def secondary(request: Request):
         reference_hints=reference_codes.find_codes(effective_text),
         secondary_form={"call_uuid": call_uuid, "mode": mode},
         has_uuid_level=has_uuid_sources(product) or product == "recording",
+        partial=partial,
+    )
+
+
+def history_open_arg(product):
+    """Сервисы продукта для истории звонков: динамические блоки или статика."""
+    if product not in available_products():
+        raise ValueError("Неизвестный продукт")
+    if is_managed(product):
+        blocks = list_sources(product=product, level="number", enabled_only=True)
+        return ",".join(source["id"] for source in blocks)
+    return ",".join(resolve_product_modules(product))
+
+
+CALL_HISTORY_MONTHS = (
+    "января", "февраля", "марта", "апреля", "мая", "июня",
+    "июля", "августа", "сентября", "октября", "ноября", "декабря",
+)
+CALL_HISTORY_WEEKDAYS = (
+    "понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье",
+)
+
+
+def _call_day_label(started_at):
+    return (
+        f"{started_at.day} {CALL_HISTORY_MONTHS[started_at.month - 1]} "
+        f"{started_at.year} · {CALL_HISTORY_WEEKDAYS[started_at.weekday()]}"
+    )
+
+
+def calls_result_view(result):
+    """Вид результата истории звонков: сводка и ссылки по каждому звонку."""
+    platforms = service_platforms()
+    titles = {
+        key: service["title"] for key, service in available_services().items()
+    }
+    warnings = []
+    for warning in result.warnings:
+        if warning not in warnings:
+            warnings.append(warning)
+
+    calls_view = []
+    for entry in result.entries:
+        calls_view.append(
+            {
+                "day": _call_day_label(entry.call.started_at),
+                "time": f"{entry.call.started_at:%d.%m.%Y %H:%M:%S}",
+                "direction": entry.call.direction,
+                "title": call_history.call_title(entry.call),
+                "badges": call_history.call_badges(entry.call),
+                "services": [
+                    {
+                        "key": module_name,
+                        "title": titles.get(
+                            module_name, MODULE_TITLES.get(module_name, module_name)
+                        ),
+                        "platform": platforms.get(module_name),
+                        "links": links,
+                    }
+                    for module_name, links in entry.links_by_module.items()
+                ],
+                "warnings": entry.errors,
+            }
+        )
+
+    return {
+        "title": "История звонков из баланса",
+        "status": result.status,
+        "status_title": {
+            "success": "Готово",
+            "failed": "Нужна проверка",
+        }.get(result.status, result.status),
+        "msisdn": result.msisdn,
+        "total_calls": result.total_calls,
+        "shown": len(result.entries),
+        "truncated": result.truncated,
+        "calls": calls_view,
+        "warnings": warnings,
+    }
+
+
+@app.post("/call-history")
+async def call_history_route(request: Request):
+    form_data = await request.form()
+    validate_csrf(form_data)
+    partial = wants_fragment(request)
+
+    calls_form = {
+        "product": form_text(form_data, "product", "calls"),
+        "window": form_text(form_data, "window", "60"),
+        "msisdn": form_text(form_data, "msisdn"),
+        "history_text": form_text(form_data, "history_text"),
+    }
+
+    try:
+        if not calls_form["history_text"]:
+            raise ValueError("Вставьте историю звонков из истории баланса")
+        if len(calls_form["history_text"]) > MAX_TICKET_LENGTH:
+            raise ValueError("История звонков превышает 200 000 символов")
+        window = parse_window(form_data)
+        open_arg = history_open_arg(calls_form["product"])
+        if not open_arg:
+            raise ValueError(
+                f"Для продукта «{product_title(calls_form['product'])}» "
+                "пока нет настроенных сервисов"
+            )
+        result = run_call_history(
+            calls_form["history_text"],
+            msisdn=calls_form["msisdn"] or None,
+            open_arg=open_arg,
+            window=window,
+            max_calls=configured_call_history_max_calls(),
+        )
+    except (OSError, ValueError) as error:
+        return render_index(
+            request,
+            calls_form=calls_form,
+            error=str(error),
+            status_code=400,
+            partial=partial,
+        )
+
+    return render_index(
+        request,
+        calls_form=calls_form,
+        calls_result=calls_result_view(result),
         partial=partial,
     )
 
