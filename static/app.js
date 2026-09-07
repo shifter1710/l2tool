@@ -156,6 +156,17 @@
     zone.replaceChildren(alert);
   }
 
+  function announceResultStatus(zone) {
+    // Компактный live-регион вместо озвучивания всей зоны результатов:
+    // скринридер слышит короткий итог, а не сотни узлов разметки.
+    const status = document.getElementById("result-status");
+    if (!status) return;
+    const linkCount = zone.querySelectorAll("[data-copy-link]").length;
+    status.textContent = linkCount
+      ? `Диагностика готова: ссылок — ${linkCount}.`
+      : "Диагностика завершена без ссылок.";
+  }
+
   async function submitViaFetch(form, zone) {
     zoneBusy = true;
     zone.setAttribute("aria-busy", "true");
@@ -198,6 +209,7 @@
         return;
       }
       zone.innerHTML = await response.text();
+      announceResultStatus(zone);
       succeeded = true;
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
