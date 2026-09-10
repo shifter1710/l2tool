@@ -1123,6 +1123,16 @@ def test_reference_import_requires_csrf_token():
     assert response.status_code == 403
 
 
+def enable_runbook_feature():
+    from core import config
+
+    config.CONFIG_PATH.write_text(
+        config.CONFIG_PATH.read_text(encoding="utf-8")
+        + "\n[features]\nrunbook = true\n",
+        encoding="utf-8",
+    )
+
+
 def write_runbook_case(case):
     from core import runbook
 
@@ -1141,6 +1151,7 @@ def runbook_case(source_id=None, symptom="Запись есть, транскр�
 
 
 def test_home_shows_collapsed_runbook_panel_with_case_buttons():
+    enable_runbook_feature()
     write_runbook_case(runbook_case())
 
     response = request("GET", "/")
@@ -1153,10 +1164,54 @@ def test_home_shows_collapsed_runbook_panel_with_case_buttons():
 
 
 def test_home_hides_runbook_panel_when_store_is_empty():
+    enable_runbook_feature()
+
     response = request("GET", "/")
 
     assert response.status_code == 200
     assert "Куда смотреть?" not in response.text
+
+
+def test_runbook_hidden_by_default_even_with_saved_cases():
+    write_runbook_case(runbook_case())
+
+    home = request("GET", "/")
+    settings_page = request("GET", "/settings")
+
+    assert home.status_code == 200
+    assert "Куда смотреть?" not in home.text
+    assert 'action="/runbook"' not in home.text
+    assert settings_page.status_code == 200
+    assert 'id="runbook"' not in settings_page.text
+    assert "Ранбук «куда смотреть»" not in settings_page.text
+    # данные остаются на месте и ждут включения тогла
+    assert webapp.runbook.load_store()[0]["id"] == "no-transcript"
+
+
+def test_runbook_routes_return_404_when_feature_disabled():
+    csrf = webapp.app.state.csrf_token
+
+    run_response = request(
+        "POST",
+        "/runbook",
+        data={"csrf_token": csrf, "case_id": "no-transcript", "window": "60"},
+    )
+    save_response = request(
+        "POST",
+        "/settings/runbook",
+        data={"csrf_token": csrf, "symptom": "Кейс", "step_note_1": "Шаг"},
+    )
+    delete_response = request(
+        "POST",
+        "/settings/runbook/delete",
+        data={"csrf_token": csrf, "case_id": "no-transcript"},
+    )
+    export_response = request("GET", "/settings/runbook/export")
+
+    assert run_response.status_code == 404
+    assert save_response.status_code == 404
+    assert delete_response.status_code == 404
+    assert export_response.status_code == 404
 
 
 def test_runbook_renders_steps_with_links_from_last_ticket():
@@ -1171,6 +1226,7 @@ def test_runbook_renders_steps_with_links_from_last_ticket():
             "minutes_after": 90,
         }
     )
+    enable_runbook_feature()
     write_runbook_case(runbook_case(source_id=source["id"]))
 
     response = request(
@@ -1206,6 +1262,7 @@ def test_runbook_without_ticket_shows_hint_instead_of_links():
             "minutes_after": 90,
         }
     )
+    enable_runbook_feature()
     write_runbook_case(runbook_case(source_id=source["id"]))
 
     response = request(
@@ -1225,6 +1282,7 @@ def test_runbook_without_ticket_shows_hint_instead_of_links():
 
 
 def test_runbook_step_with_missing_source_is_text_without_link():
+    enable_runbook_feature()
     write_runbook_case(runbook_case(source_id="missing-block"))
 
     response = request(
@@ -1246,6 +1304,8 @@ def test_runbook_step_with_missing_source_is_text_without_link():
 
 
 def test_runbook_unknown_case_returns_404():
+    enable_runbook_feature()
+
     response = request(
         "POST",
         "/runbook",
@@ -1262,6 +1322,7 @@ def test_runbook_unknown_case_returns_404():
 
 
 def test_runbook_requires_csrf_token():
+    enable_runbook_feature()
     write_runbook_case(runbook_case())
 
     response = request(
@@ -1274,6 +1335,7 @@ def test_runbook_requires_csrf_token():
 
 
 def test_settings_runbook_crud_from_site():
+    enable_runbook_feature()
     source = dynamic_sources.save_source(
         {
             "name": "BFF конвейер",
@@ -1333,6 +1395,8 @@ def test_settings_runbook_crud_from_site():
 
 
 def test_settings_runbook_rejects_case_without_steps():
+    enable_runbook_feature()
+
     response = request(
         "POST",
         "/settings/runbook",
@@ -1349,6 +1413,7 @@ def test_settings_runbook_rejects_case_without_steps():
 
 
 def test_settings_runbook_import_and_export_roundtrip():
+    enable_runbook_feature()
     write_runbook_case(runbook_case())
     export_response = request("GET", "/settings/runbook/export")
 
@@ -1373,6 +1438,7 @@ def test_settings_runbook_import_and_export_roundtrip():
 
 
 def test_settings_runbook_import_rejects_invalid_file_without_replacing():
+    enable_runbook_feature()
     write_runbook_case(runbook_case())
     response = request(
         "POST",
@@ -1387,6 +1453,7 @@ def test_settings_runbook_import_rejects_invalid_file_without_replacing():
 
 
 def test_settings_survives_broken_runbook_file():
+    enable_runbook_feature()
     webapp.runbook.STORE_PATH.write_text("{broken", encoding="utf-8")
     webapp.runbook._LOAD_ERROR_LOGGED.clear()
 

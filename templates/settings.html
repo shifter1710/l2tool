@@ -270,6 +270,7 @@
         </form>
       </section>
 
+      {% if runbook_enabled %}
       <section class="panel runbook-settings-panel" id="runbook" tabindex="-1">
         <div class="panel-heading"><div><span class="step">R</span><h2>Ранбук «куда смотреть»</h2></div><p>Кейсы «симптом → шаги» показываются свёрнутой панелью на главной. Шаг ссылается на диагностический блок по его названию; если блока нет в настройках, шаг показывается текстом. Содержимое хранится локально в runbook.json.</p></div>
 
@@ -328,6 +329,7 @@
           </form>
         </div>
       </section>
+      {% endif %}
 
       </section>
 

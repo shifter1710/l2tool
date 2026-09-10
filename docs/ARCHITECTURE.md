@@ -465,6 +465,12 @@ Case JSON (`core/case_export.py`) содержит нормализованны�
 
 ## 11. Маршруты веб-приложения
 
+Экспериментальные функции прячутся за тоглами секции `[features]` в
+config.toml (`core.config.feature_enabled`): выключены по умолчанию, при
+выключении их маршруты отвечают 404, а интерфейс не показывается. Сейчас
+такой тогл один — `runbook` (ранбук «куда смотреть»); хранилище
+`runbook.json` и его перенос в бандле работают независимо от тогла.
+
 | Метод и путь | Назначение |
 | --- | --- |
 | `GET /` | главная: форма заявки, результаты, пакетная загрузка |
@@ -487,10 +493,10 @@ Case JSON (`core/case_export.py`) содержит нормализованны�
 | `POST /settings/import-all` | загрузка бандла всех конфигов |
 | `GET /settings/export-config` | скачивание config.toml |
 | `POST /settings/import-config` | замена config.toml с бэкапом |
-| `POST /settings/runbook` | сохранение кейса ранбука |
-| `POST /settings/runbook/delete` | удаление кейса ранбука |
-| `POST /settings/runbook/import` | импорт ранбука из JSON |
-| `GET /settings/runbook/export` | скачивание ранбука |
+| `POST /settings/runbook` | сохранение кейса ранбука (фича-тогл) |
+| `POST /settings/runbook/delete` | удаление кейса ранбука (фича-тогл) |
+| `POST /settings/runbook/import` | импорт ранбука из JSON (фича-тогл) |
+| `GET /settings/runbook/export` | скачивание ранбука (фича-тогл) |
 | `POST /settings/import` | импорт конфигурации из JSON |
 | `POST /settings/import-toml` | перенос сервисов из config.toml в блоки |
 | `POST /settings/backup/restore` | откат настроек из резервной копии |
@@ -498,7 +504,7 @@ Case JSON (`core/case_export.py`) содержит нормализованны�
 | `GET /reference` | справочник кодов: таблица |
 | `POST /reference/import` | импорт справочника из JSON |
 | `GET /reference/export` | скачивание справочника |
-| `POST /runbook` | шаги кейса со ссылками по данным заявки |
+| `POST /runbook` | шаги кейса со ссылками по данным заявки (фича-тогл) |
 | `GET /healthz` | проверка живости |
 | `GET /static/*` | styles.css, app.js |
 

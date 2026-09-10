@@ -159,6 +159,15 @@ def optional_value(key_path, default=None):
         return default
 
 
+def feature_enabled(name):
+    """Фича-тогл из секции [features] локального config.toml.
+
+    Функции выключены по умолчанию и включаются явно, например:
+    [features] runbook = true
+    """
+    return optional_value(f"features.{name}", False) is True
+
+
 def service_url(name):
     url = config_value(f"services.{name}.url")
     return validate_external_url(url, what=f"ссылка сервиса «{name}» из config.toml")
