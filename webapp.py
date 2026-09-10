@@ -23,7 +23,7 @@ from starlette.datastructures import UploadFile
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from core import call_history, history, reference_codes, runbook
-from core.config import CONFIG_PATH
+from core.config import CONFIG_PATH, feature_enabled
 from core.config_bundle import (
     MAX_BUNDLE_SIZE,
     build_bundle,
@@ -190,7 +190,7 @@ def page_context(request: Request, **values):
         "calls_result": None,
         "secondary_result": None,
         "reference_hints": [],
-        "runbook_cases": runbook.load_store(),
+        "runbook_cases": [] if runbook_feature_disabled() else runbook.load_store(),
         "has_uuid_level": False,
         "error": None,
         "partial": False,
@@ -535,6 +535,11 @@ def wants_fragment(request: Request):
     return request.headers.get("x-requested-with") == "XMLHttpRequest"
 
 
+def runbook_feature_disabled():
+    """Ранбук спрятан за фича-тоглом [features] runbook в config.toml."""
+    return not feature_enabled("runbook")
+
+
 def runbook_source_options():
     """Блоки источников для выпадающих списков шагов ранбука."""
     try:
@@ -596,10 +601,12 @@ def render_settings(request, *, status_code=200, overrides=None, **values):
         "product_colors": PRODUCT_COLORS,
         "backups": backups,
         "levels": LEVELS,
+        "runbook_enabled": not runbook_feature_disabled(),
         "runbook_cases": runbook.load_store(),
         "runbook_source_options": source_options,
         "runbook_step_limit": runbook.MAX_STEPS,
         "runbook_draft": None,
+        "import_toml_draft": None,
         "call_history_numbers": call_history_numbers,
         "call_history_draft": None,
         "bundle_summary": bundle_summary(),
@@ -795,6 +802,7 @@ def source_form_values(form_data):
         "minutes_after": form_text(form_data, "minutes_after", "90"),
         "range_from": form_text(form_data, "range_from"),
         "range_to": form_text(form_data, "range_to"),
+        "preview_value": form_text(form_data, "preview_value"),
     }
 
 
@@ -976,11 +984,23 @@ async def settings_import_toml(request: Request):
     validate_csrf(form_data)
     product = form_text(form_data, "product")
     sample_value = form_text(form_data, "sample_value")
+    draft = {"product": product, "sample_value": sample_value}
     try:
         report = import_services_from_config(product, sample_value=sample_value)
     except (OSError, ValueError) as error:
-        return render_settings(request, error=str(error), status_code=400)
-    return render_settings(request, import_report=report)
+        return render_settings(
+            request,
+            error=str(error),
+            status_code=400,
+            import_toml_draft=draft,
+        )
+    # При ошибках переноса форма сохраняется: например, чтобы добавить
+    # номер-пример для ссылок с хешем и повторить перенос.
+    return render_settings(
+        request,
+        import_report=report,
+        import_toml_draft=draft if report["errors"] else None,
+    )
 
 
 @app.get("/reference")
@@ -1140,6 +1160,8 @@ def render_runbook(request, *, status_code=200, case=None, steps=None, error=Non
 
 @app.post("/runbook")
 async def runbook_page(request: Request):
+    if runbook_feature_disabled():
+        raise HTTPException(status_code=404, detail="Ранбук выключен")
     form_data = await request.form()
     validate_csrf(form_data)
     case_id = form_text(form_data, "case_id")
@@ -1172,6 +1194,8 @@ async def runbook_page(request: Request):
 
 @app.post("/settings/runbook")
 async def settings_save_runbook_case(request: Request):
+    if runbook_feature_disabled():
+        raise HTTPException(status_code=404, detail="Ранбук выключен")
     form_data = await request.form()
     validate_csrf(form_data)
     case_id = form_text(form_data, "case_id") or None
@@ -1194,6 +1218,8 @@ async def settings_save_runbook_case(request: Request):
 
 @app.post("/settings/runbook/delete")
 async def settings_delete_runbook_case(request: Request):
+    if runbook_feature_disabled():
+        raise HTTPException(status_code=404, detail="Ранбук выключен")
     form_data = await request.form()
     validate_csrf(form_data)
     try:
@@ -1205,6 +1231,8 @@ async def settings_delete_runbook_case(request: Request):
 
 @app.post("/settings/runbook/import")
 async def settings_import_runbook(request: Request):
+    if runbook_feature_disabled():
+        raise HTTPException(status_code=404, detail="Ранбук выключен")
     form_data = await request.form()
     validate_csrf(form_data)
     upload = form_data.get("runbook_file")
@@ -1226,6 +1254,8 @@ async def settings_import_runbook(request: Request):
 
 @app.get("/settings/runbook/export")
 async def settings_export_runbook():
+    if runbook_feature_disabled():
+        raise HTTPException(status_code=404, detail="Ранбук выключен")
     return Response(
         content=runbook.export_store(),
         media_type="application/json",

@@ -41,7 +41,7 @@
   </div>
   <p class="field-hint">Заполнены «от» и «до» — ссылка всегда строится с этим относительным диапазоном (например now-5d … now), время из заявки и минуты игнорируются. Для дашбордов Grafana и OpenSearch.</p>
   <div class="preview-fields">
-    <label><span>Проверка: тестовый номер или UUID</span><input name="preview_value" placeholder="Например, 79991234567"></label>
+    <label><span>Проверка: тестовый номер или UUID</span><input name="preview_value" value="{{ values.preview_value|default('') }}" placeholder="Например, 79991234567"></label>
     <button type="submit" class="secondary-button" formaction="/settings/source/preview">Проверить ссылку</button>
   </div>
 {% endmacro %}
@@ -270,6 +270,7 @@
         </form>
       </section>
 
+      {% if runbook_enabled %}
       <section class="panel runbook-settings-panel" id="runbook" tabindex="-1">
         <div class="panel-heading"><div><span class="step">R</span><h2>Ранбук «куда смотреть»</h2></div><p>Кейсы «симптом → шаги» показываются свёрнутой панелью на главной. Шаг ссылается на диагностический блок по его названию; если блока нет в настройках, шаг показывается текстом. Содержимое хранится локально в runbook.json.</p></div>
 
@@ -328,6 +329,7 @@
           </form>
         </div>
       </section>
+      {% endif %}
 
       </section>
 
@@ -386,8 +388,8 @@
           <p>Сервисы с заполненным <code>url</code> из статического профиля станут динамическими блоками выбранного продукта. Сам <code>config.toml</code> не меняется.</p>
           <form method="post" action="/settings/import-toml" class="import-config-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <label><span>Продукт для блоков</span><select name="product" required>{% for option in product_options %}<option value="{{ option.key }}">{{ option.title }}</option>{% endfor %}</select></label>
-            <label><span>Номер из ваших ссылок <small>если в них хеш — необязательно</small></span><input name="sample_value" placeholder="Например, 79991234567"></label>
+            <label><span>Продукт для блоков</span><select name="product" required>{% for option in product_options %}<option value="{{ option.key }}" {% if import_toml_draft and import_toml_draft.product == option.key %}selected{% endif %}>{{ option.title }}</option>{% endfor %}</select></label>
+            <label><span>Номер из ваших ссылок <small>если в них хеш — необязательно</small></span><input name="sample_value" value="{{ import_toml_draft.sample_value if import_toml_draft else '' }}" placeholder="Например, 79991234567"></label>
             <div class="import-actions"><button type="submit" class="secondary-button">Перенести сервисы</button></div>
           </form>
         </div>
