@@ -606,6 +606,7 @@ def render_settings(request, *, status_code=200, overrides=None, **values):
         "runbook_source_options": source_options,
         "runbook_step_limit": runbook.MAX_STEPS,
         "runbook_draft": None,
+        "import_toml_draft": None,
         "call_history_numbers": call_history_numbers,
         "call_history_draft": None,
         "bundle_summary": bundle_summary(),
@@ -801,6 +802,7 @@ def source_form_values(form_data):
         "minutes_after": form_text(form_data, "minutes_after", "90"),
         "range_from": form_text(form_data, "range_from"),
         "range_to": form_text(form_data, "range_to"),
+        "preview_value": form_text(form_data, "preview_value"),
     }
 
 
@@ -982,11 +984,23 @@ async def settings_import_toml(request: Request):
     validate_csrf(form_data)
     product = form_text(form_data, "product")
     sample_value = form_text(form_data, "sample_value")
+    draft = {"product": product, "sample_value": sample_value}
     try:
         report = import_services_from_config(product, sample_value=sample_value)
     except (OSError, ValueError) as error:
-        return render_settings(request, error=str(error), status_code=400)
-    return render_settings(request, import_report=report)
+        return render_settings(
+            request,
+            error=str(error),
+            status_code=400,
+            import_toml_draft=draft,
+        )
+    # При ошибках переноса форма сохраняется: например, чтобы добавить
+    # номер-пример для ссылок с хешем и повторить перенос.
+    return render_settings(
+        request,
+        import_report=report,
+        import_toml_draft=draft if report["errors"] else None,
+    )
 
 
 @app.get("/reference")

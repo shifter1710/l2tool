@@ -862,6 +862,8 @@ def test_settings_preview_builds_link_without_saving():
     assert "Проверка ссылки" in response.text
     assert "msisdn:79991230001" in response.text
     assert "Открыть в новой вкладке" in response.text
+    # тестовый номер остаётся в поле проверки — удобно повторить проверку
+    assert 'name="preview_value" value="79991230001"' in response.text
     assert dynamic_sources.list_sources() == before
 
     broken = request(
@@ -880,6 +882,7 @@ def test_settings_preview_builds_link_without_saving():
 
     assert broken.status_code == 400
     assert "Ссылка не собирается" in broken.text
+    assert 'name="preview_value" value="79991230001"' in broken.text
     assert dynamic_sources.list_sources() == before
 
 
@@ -957,6 +960,64 @@ def test_settings_import_toml_renders_report(monkeypatch, tmp_path):
         "Grafana / find-call-in-logs"
     ]
     assert dynamic_sources.list_sources()[0]["strategy"] == "national"
+
+
+def test_settings_import_toml_error_keeps_product_and_sample_value(monkeypatch, tmp_path):
+    from core import config as config_module
+
+    # конфиг без сервисов с url — перенос падает, форма не должна сбрасываться
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        "[services.zapis]\nurl = \"\"\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config_module, "CONFIG_PATH", config_path)
+
+    response = request(
+        "POST",
+        "/settings/import-toml",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "product": "secretary",
+            "sample_value": "79991234567",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "заполненным url" in response.text
+    assert '<option value="secretary" selected' in response.text
+    assert 'name="sample_value" value="79991234567"' in response.text
+    assert dynamic_sources.list_sources() == []
+
+
+def test_settings_import_toml_report_errors_keep_form_values(monkeypatch, tmp_path):
+    from core import config as config_module
+
+    # ссылка без номера и без значения-примера: блок не переносится,
+    # отчёт просит пример — выбранный продукт должен сохраниться для повтора
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "[services.zapis]",
+                'url = "https://grafana.example.local/d/example/find-call-in-logs'
+                '?orgId=000&var-env=example&var-env_cluster=example"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config_module, "CONFIG_PATH", config_path)
+
+    response = request(
+        "POST",
+        "/settings/import-toml",
+        data={"csrf_token": webapp.app.state.csrf_token, "product": "calls"},
+    )
+
+    assert response.status_code == 200
+    assert "Не перенесены" in response.text
+    assert "значение-пример" in response.text
+    assert '<option value="calls" selected' in response.text
 
 
 def write_reference_store(data):
