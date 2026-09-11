@@ -8,7 +8,35 @@ import webapp
 from core import call_history, dynamic_sources
 from core import config as config_module
 
+# Сводный формат внешнего скрипта: диапазон времени с длительностью
+# и строка участников. Слева — звонящий; «← В (условие)» — переадресация
+# на номер клиента. Все номера синтетические.
 HISTORY_SAMPLE = "\n".join(
+    [
+        "08.09.2026 10:00:18-10:03:09 (0:02:51)",
+        "79991234567 → 79991000001",
+        "",
+        "08.09.2026 16:39:45-16:41:56 (0:02:11)",
+        "79991000002 → 79991234567",
+        "",
+        "08.09.2026 18:27:02-18:33:02 (0:06:00)",
+        "79991234567 → 79991000008",
+        "",
+        # Переадресация по «занято»: звонок на сервисный номер ушёл клиенту.
+        "10.09.2026 19:03:51-19:04:09 (0:00:18)",
+        "79991000009 → 79991230002 ← 79991234567 (занято)",
+        "",
+        # Переадресация от короткого кода.
+        "10.09.2026 14:45:12-14:45:15 (0:00:03)",
+        "0900 → 79991230001 ← 79991234567 (нет ответа)",
+        "",
+        "12.09.2026 12:35:41-12:44:48 (0:09:07)",
+        "79991000012 → 79991234567",
+    ]
+)
+
+# Прежний событийный формат — старые выгрузки остаются совместимы.
+OLD_HISTORY_SAMPLE = "\n".join(
     [
         "2026-09-07 10:00:18 Связь. Исходящая (_Сотовые операторы)",
         "→ 79991000001 Duration: 171 SECOND",
@@ -49,8 +77,84 @@ def find_call(calls, phone):
     return next(call for call in calls if call.remote_phone == phone)
 
 
-def test_parse_groups_forward_chains_and_plain_calls():
-    calls = call_history.parse_call_history(HISTORY_SAMPLE)
+def test_parse_range_format_directions_and_durations():
+    calls = call_history.parse_call_history(HISTORY_SAMPLE, msisdn="79991234567")
+
+    assert [call.remote_phone for call in calls] == [
+        "79991000001",
+        "79991000002",
+        "79991000008",
+        "0900",
+        "79991000009",
+        "79991000012",
+    ]
+
+    outgoing = find_call(calls, "79991000001")
+    assert outgoing.direction == "out"
+    assert outgoing.duration == 171
+    assert outgoing.started_at == datetime(2026, 9, 8, 10, 0, 18)
+
+    incoming = find_call(calls, "79991000002")
+    assert incoming.direction == "in"
+    assert incoming.duration == 131
+
+    long_call = find_call(calls, "79991000012")
+    assert long_call.direction == "in"
+    assert long_call.duration == 547
+
+
+def test_parse_range_format_forward_rows():
+    calls = call_history.parse_call_history(HISTORY_SAMPLE, msisdn="79991234567")
+
+    forwarded = find_call(calls, "79991000009")
+    assert forwarded.direction == "in"
+    assert forwarded.forward_condition == "занято"
+    assert forwarded.service_phone == "79991230002"
+    assert forwarded.duration == 18
+    assert forwarded.legs == 3
+
+    short_code = find_call(calls, "0900")
+    assert short_code.direction == "in"
+    assert short_code.forward_condition == "нет ответа"
+    assert short_code.service_phone == "79991230001"
+
+
+def test_parse_range_format_infers_subscriber_without_msisdn():
+    with_msisdn = call_history.parse_call_history(HISTORY_SAMPLE, msisdn="79991234567")
+    inferred = call_history.parse_call_history(HISTORY_SAMPLE)
+
+    # 79991234567 участвует в каждой записи — направления выводятся те же.
+    assert [(call.direction, call.remote_phone) for call in inferred] == [
+        (call.direction, call.remote_phone) for call in with_msisdn
+    ]
+
+
+def test_parse_range_format_secretary_flag(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        '[call_history]\nsecretary_numbers = ["79991230002"]\n', encoding="utf-8"
+    )
+    monkeypatch.setattr(config_module, "CONFIG_PATH", config_path)
+
+    history = "\n".join(
+        [
+            "10.09.2026 19:03:51-19:04:09 (0:00:18)",
+            "79991000009 → 79991230002 ← 79991234567 (занято)",
+            "10.09.2026 19:30:00-19:30:30 (0:00:30)",
+            "79991234567 → 79991230002",
+        ]
+    )
+    calls = call_history.parse_call_history(history, msisdn="79991234567")
+
+    forwarded, plain = calls
+    assert forwarded.secretary
+    assert "Секретарь" in call_history.call_badges(forwarded)
+    assert plain.secretary
+    assert "Секретарь" in call_history.call_badges(plain)
+
+
+def test_parse_event_format_still_supported():
+    calls = call_history.parse_call_history(OLD_HISTORY_SAMPLE)
 
     assert len(calls) == 6
     assert [call.remote_phone for call in calls] == [
@@ -63,8 +167,8 @@ def test_parse_groups_forward_chains_and_plain_calls():
     ]
 
 
-def test_forward_chain_with_service_leg_before():
-    calls = call_history.parse_call_history(HISTORY_SAMPLE)
+def test_event_format_forward_chain_with_service_leg_before():
+    calls = call_history.parse_call_history(OLD_HISTORY_SAMPLE)
     forwarded = find_call(calls, "0900")
 
     assert forwarded.direction == "in"
@@ -78,8 +182,8 @@ def test_forward_chain_with_service_leg_before():
     assert not any(call.remote_phone == "79991230001" for call in calls)
 
 
-def test_forward_chain_with_service_leg_after():
-    calls = call_history.parse_call_history(HISTORY_SAMPLE)
+def test_event_format_forward_chain_with_service_leg_after():
+    calls = call_history.parse_call_history(OLD_HISTORY_SAMPLE)
     forwarded = find_call(calls, "79991000009")
 
     assert forwarded.forward_condition == "занято"
@@ -89,8 +193,8 @@ def test_forward_chain_with_service_leg_after():
     assert not any(call.remote_phone == "79991230002" for call in calls)
 
 
-def test_plain_calls_keep_direction_and_type():
-    calls = call_history.parse_call_history(HISTORY_SAMPLE)
+def test_event_format_plain_calls_keep_direction_and_type():
+    calls = call_history.parse_call_history(OLD_HISTORY_SAMPLE)
 
     outgoing = find_call(calls, "79991000001")
     assert outgoing.direction == "out"
@@ -280,20 +384,17 @@ def test_run_call_history_builds_links_per_call():
 
     first = result.entries[0]
     assert first.call.remote_phone == "79991000001"
+    assert first.call.direction == "out"
     assert first.links_by_module["zapis"]
     link = first.links_by_module["zapis"][0]
     assert "var-phone=9991234567" in link
     assert "var-second_phone=9991000001" in link
 
-    forwarded = find_call(
-        [entry.call for entry in result.entries], "0900"
-    )  # входящий от Сервисная линияа: А — короткий код
     forwarded_links = next(
         entry.links_by_module["zapis"]
         for entry in result.entries
         if entry.call.remote_phone == "0900"
     )
-    assert forwarded.direction == "in"
     assert "var-phone=0900" in forwarded_links[0]
     assert "var-second_phone=9991234567" in forwarded_links[0]
 
@@ -374,9 +475,9 @@ def test_web_call_history_route_builds_per_call_links():
     assert "История звонков из баланса" in response.text
     assert 'id="calls-result"' in response.text
     assert "Распознано звонков: <strong>6</strong>" in response.text
-    assert "переадресация «абонент недоступен» → 79991230001" in response.text
-    assert "входящий ← 0900 (Сервисная линия)" in response.text
-    assert "class=\"call-item\"" in response.text
+    assert "переадресация «занято» → 79991230002" in response.text
+    assert "входящий ← 0900" in response.text
+    assert 'class="call-item"' in response.text
     assert "var-phone=0900" in response.text
     # Бейджа «Секретарь» нет: номера Секретаря не настроены.
     assert 'call-badge">Секретарь' not in response.text
@@ -432,6 +533,8 @@ def test_example_file_from_docs_parses():
     example = Path(__file__).resolve().parents[1] / "examples" / "balance_history.example.txt"
     calls = call_history.parse_call_history(example.read_text(encoding="utf-8"))
 
-    assert len(calls) == 34
-    assert sum(1 for call in calls if call.forwarded) == 15
-    assert sum(1 for call in calls if call.digital) == 17
+    assert len(calls) == 38
+    assert sum(1 for call in calls if call.forwarded) == 8
+    # Номер клиента не передан — выводится по частоте участия.
+    assert sum(1 for call in calls if call.direction == "out") == 15
+    assert sum(1 for call in calls if call.direction == "in") == 23
