@@ -732,7 +732,7 @@ def run_call_history(
     max_calls = max_calls or configured_call_history_max_calls()
     client_phone = normalize_client_phone(msisdn)
 
-    calls = call_history.parse_call_history(text)
+    calls = call_history.parse_call_history(text, msisdn=client_phone)
     if not calls:
         raise ValueError(
             "Не удалось распознать события звонков. Проверьте, что вставлена "
