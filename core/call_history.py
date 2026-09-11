@@ -1,11 +1,20 @@
 """Разбор истории звонков, вытянутой из истории баланса.
 
-Внешний скрипт превращает историю баланса абонента в текст: каждая запись —
-строка с датой и временем (МСК) и заголовком события, затем строка с
-направлением, номером и длительностью и необязательная строка типа звонка.
-Здесь такой текст разбирается в список звонков; цепочка переадресации из
-трёх событий (исходящий на бесплатный сервисный номер, сама переадресация и
-входящая нога звонящего) схлопывается в один звонок.
+Внешний скрипт детализации умеет два формата, и оба здесь разбираются в
+список звонков.
+
+Сводный формат (текущий): запись — строка с датой и диапазоном времени
+«ДД.ММ.ГГГГ чч:мм:сс-чч:мм:сс (ч:мм:сс)» и строка участников «А → Б»
+(А — звонящий) либо «А → Б ← В (условие)» — звонок на номер Б, ушедший по
+переадресации на В. Направления относительно абонента в строках нет, поэтому
+номер абонента передаётся с msisdn, а без него определяется как самый
+частый участник выгрузки.
+
+Событийный формат (прежний): строка с датой и временем (МСК) и заголовком
+события, затем строка с направлением, номером и длительностью и
+необязательная строка типа звонка. Цепочка переадресации из трёх событий
+(исходящий на бесплатный сервисный номер, сама переадресация и входящая
+нога звонящего) схлопывается в один звонок.
 """
 
 import re
@@ -36,6 +45,16 @@ OUTGOING_TITLE_PATTERN = re.compile(r"^Связь\.\s*Исходящая")
 INCOMING_TITLE_PATTERN = re.compile(r"^Связь\.\s*Входящая")
 APP_CALL_TITLE_PATTERN = re.compile(r"^Безлимитный звонок")
 CATEGORY_PATTERN = re.compile(r"\((?P<category>[^()]*)\)\s*$")
+RANGE_HEADER_PATTERN = re.compile(
+    r"^\s*(?P<day>\d{2})\.(?P<month>\d{2})\.(?P<year>\d{4})\s+"
+    r"(?P<start>\d{2}:\d{2}:\d{2})-(?P<end>\d{2}:\d{2}:\d{2})\s+"
+    r"\((?P<duration>\d+:\d{2}:\d{2})\)\s*$"
+)
+RANGE_PARTICIPANTS_PATTERN = re.compile(
+    r"^\s*(?P<caller>\+?\d+)\s*→\s*(?P<callee>\+?\d+)"
+    r"(?:\s*←\s*(?P<forwarded_to>\+?\d+))?"
+    r"(?:\s*\((?P<condition>[^()]+)\))?\s*$"
+)
 
 CALL_TYPE_LABELS = {
     DIGITAL_CALL_TYPE: "цифровой (MyConnect)",
@@ -229,6 +248,110 @@ def _parse_events(text):
     return events
 
 
+@dataclass
+class _RangeRecord:
+    """Запись сводного формата: один звонок целиком, включая переадресацию."""
+
+    started_at: datetime
+    duration: int
+    caller: str
+    callee: str
+    forwarded_to: str | None = None
+    condition: str | None = None
+
+
+def _parse_duration(text):
+    hours, minutes, seconds = (int(part) for part in text.split(":"))
+    return hours * 3600 + minutes * 60 + seconds
+
+
+def _parse_range_records(text):
+    records = []
+    pending = None
+
+    for raw_line in text.splitlines():
+        header = RANGE_HEADER_PATTERN.match(raw_line)
+        if header:
+            year, month, day = (
+                int(header.group("year")),
+                int(header.group("month")),
+                int(header.group("day")),
+            )
+            hour, minute, second = (
+                int(part) for part in header.group("start").split(":")
+            )
+            pending = (
+                datetime(year, month, day, hour, minute, second),
+                _parse_duration(header.group("duration")),
+            )
+            continue
+
+        participants = RANGE_PARTICIPANTS_PATTERN.match(raw_line)
+        if participants and pending is not None:
+            forwarded_to = participants.group("forwarded_to")
+            records.append(
+                _RangeRecord(
+                    started_at=pending[0],
+                    duration=pending[1],
+                    caller=normalize_remote_phone(participants.group("caller")),
+                    callee=normalize_remote_phone(participants.group("callee")),
+                    forwarded_to=(
+                        normalize_remote_phone(forwarded_to) if forwarded_to else None
+                    ),
+                    condition=participants.group("condition"),
+                )
+            )
+            pending = None
+
+    return records
+
+
+def _range_subscriber(records, msisdn):
+    """Номер абонента, чья выгрузка: msisdn, а без него — самый частый участник."""
+    if msisdn:
+        return normalize_remote_phone(msisdn)
+    counts = {}
+    for record in records:
+        for phone in (record.caller, record.callee, record.forwarded_to):
+            if phone:
+                counts[phone] = counts.get(phone, 0) + 1
+    if not counts:
+        return None
+    # Абонент участвует в каждой записи, поэтому максимум частоты — он;
+    # при равенстве (короткая выгрузка) побеждает встреченный раньше.
+    return max(counts, key=counts.get)
+
+
+def _range_call(record, subscriber):
+    if record.forwarded_to:
+        call = HistoryCall(
+            started_at=record.started_at,
+            direction="in",
+            remote_phone=record.caller,
+            duration=record.duration,
+            forward_condition=record.condition,
+            service_phone=record.callee,
+            legs=3,
+        )
+        call.secretary = _secretary_involved(call.remote_phone, call.service_phone)
+        return call
+
+    if record.caller == subscriber:
+        direction, remote = "out", record.callee
+    elif record.callee == subscriber:
+        direction, remote = "in", record.caller
+    else:
+        direction, remote = "in", record.caller
+    call = HistoryCall(
+        started_at=record.started_at,
+        direction=direction,
+        remote_phone=remote,
+        duration=record.duration,
+    )
+    call.secretary = _secretary_involved(call.remote_phone)
+    return call
+
+
 def _near(first, second):
     return abs((first.started_at - second.started_at).total_seconds()) <= FORWARD_MERGE_SECONDS
 
@@ -332,9 +455,20 @@ def _group_calls(events):
     return calls
 
 
-def parse_call_history(text):
-    """Текст истории звонков из баланса → список сгруппированных звонков."""
-    return _group_calls(_parse_events(text))
+def parse_call_history(text, msisdn=None):
+    """Текст истории звонков из баланса → список сгруппированных звонков.
+
+    Форматы распознаются оба сразу: сводный использует msisdn (или выводит
+    абонента по частоте), событийный разбирается по стрелкам как раньше.
+    """
+    records = _parse_range_records(text)
+    calls = []
+    if records:
+        subscriber = _range_subscriber(records, msisdn)
+        calls = [_range_call(record, subscriber) for record in records]
+    calls.extend(_group_calls(_parse_events(text)))
+    calls.sort(key=lambda call: call.started_at)
+    return calls
 
 
 def call_title(call):
