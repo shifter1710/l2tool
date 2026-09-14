@@ -640,3 +640,35 @@ def test_single_slot_links_are_labeled_per_number():
     # msisdn = phone_a (context-хелпер): дубль значения сворачивается
     labels = [label for _url, label in labeled]
     assert labels == ["клиент 79157771575", "номер Б 79209264847"]
+
+
+def test_two_slot_block_builds_link_per_caller_phone():
+    # Номер А — перечисление: парный блок строит ссылку на каждого звонящего.
+    source = validate_source(
+        values(example_url=grafana_dashboard_phone_pair(), sample_value="")
+    )
+    ctx = context(phone="79209264847", client=PHONE)
+    ctx["phone_a_values"] = ["79209264847", "79209264848", "79209264849"]
+
+    links = build_source_links(source, ctx)
+    labels = [label for _url, label in build_source_links_labeled(source, ctx)]
+
+    assert len(links) == 3
+    assert all(
+        f"А {phone}" in label
+        for phone, label in zip(ctx["phone_a_values"], labels, strict=True)
+    )
+    assert all(f"Б {PHONE}" in label for label in labels)
+    assert "9209264848" in unquote(links[1])
+    assert "9209264849" in unquote(links[2])
+
+
+def test_two_slot_block_single_caller_unchanged():
+    source = validate_source(
+        values(example_url=grafana_dashboard_phone_pair(), sample_value="")
+    )
+
+    links = build_source_links(source, context(phone="79209264847", phone_b=OTHER_PHONE))
+
+    assert len(links) == 1
+    assert "9209264847" in unquote(links[0])
