@@ -640,7 +640,7 @@ def run_ticket(
     if issues and write_diagnostics:
         write_parse_issues(issues)
 
-    if issues:
+    if issues and not ctx.get("msisdn"):
         lines.extend(format_parse_errors(issues))
         return RunResult(
             ctx,
@@ -650,6 +650,11 @@ def run_ticket(
             [issue["message"] for issue in issues],
             status="failed",
         )
+    if issues:
+        # Номер клиента распознан — диагностика строится и при проблемах
+        # в остальных полях («все номера в этот промежуток», неизвестное
+        # время и т.п.): проблемы показываются предупреждениями.
+        warnings.extend(issue["message"] for issue in issues)
 
     matches = history.find_matches(ctx, history_root=history_root)
     lines.extend(history.format_matches(matches))
