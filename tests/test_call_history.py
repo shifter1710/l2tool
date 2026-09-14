@@ -17,7 +17,7 @@ HISTORY_SAMPLE = "\n".join(
         "79991234567 → 79991000001",
         "",
         "08.09.2026 16:39:45-16:41:56 (0:02:11)",
-        "79991000002 → 79991234567",
+        "79991000002 → 79991234567 Интернет-звонки: VoLTE",
         "",
         "08.09.2026 18:27:02-18:33:02 (0:06:00)",
         "79991234567 → 79991000008",
@@ -30,8 +30,18 @@ HISTORY_SAMPLE = "\n".join(
         "10.09.2026 14:45:12-14:45:15 (0:00:03)",
         "0900 → 79991230001 ← 79991234567 (нет ответа)",
         "",
+        # Пара строк одного события «занято»: нога абонента + нога звонящего.
+        "11.09.2026 20:28:02-20:28:23 (0:00:21)",
+        "79991234567 → 79991230003 ← 79991230003 (занято)",
+        "11.09.2026 20:28:02-20:28:23 (0:00:21)",
+        "79991000020 → 79991230003 ← 79991234567 (занято)",
+        "",
         "12.09.2026 12:35:41-12:44:48 (0:09:07)",
         "79991000012 → 79991234567",
+        "",
+        # Сервисная метка вместо номера: Viruchay:<номер>.
+        "12.09.2026 18:54:07-18:55:14 (0:01:07)",
+        "79991234567 → Viruchay:9991000021 ",
     ]
 )
 
@@ -86,7 +96,9 @@ def test_parse_range_format_directions_and_durations():
         "79991000008",
         "0900",
         "79991000009",
+        "79991000020",
         "79991000012",
+        "79991000021",
     ]
 
     outgoing = find_call(calls, "79991000001")
@@ -97,6 +109,8 @@ def test_parse_range_format_directions_and_durations():
     incoming = find_call(calls, "79991000002")
     assert incoming.direction == "in"
     assert incoming.duration == 131
+    assert incoming.call_type == "Интернет-звонки: VoLTE"
+    assert "VoLTE" in call_history.call_badges(incoming)
 
     long_call = find_call(calls, "79991000012")
     assert long_call.direction == "in"
@@ -117,6 +131,29 @@ def test_parse_range_format_forward_rows():
     assert short_code.direction == "in"
     assert short_code.forward_condition == "нет ответа"
     assert short_code.service_phone == "79991230001"
+
+
+def test_parse_range_format_dedupes_forwarded_pair():
+    calls = call_history.parse_call_history(HISTORY_SAMPLE, msisdn="79991234567")
+
+    # Из двух строк события «занято» собирается один звонок с реальным
+    # звонящим; нога абонента не остаётся отдельным звонком.
+    pair_calls = [
+        call for call in calls if call.started_at == datetime(2026, 9, 11, 20, 28, 2)
+    ]
+    assert len(pair_calls) == 1
+    assert pair_calls[0].remote_phone == "79991000020"
+    assert pair_calls[0].service_phone == "79991230003"
+    assert pair_calls[0].forward_condition == "занято"
+
+
+def test_parse_range_format_service_label_number():
+    calls = call_history.parse_call_history(HISTORY_SAMPLE, msisdn="79991234567")
+
+    # Viruchay:9991000021 — метка сервиса с номером внутри: номер извлекается.
+    labeled = find_call(calls, "79991000021")
+    assert labeled.direction == "out"
+    assert labeled.duration == 67
 
 
 def test_parse_range_format_infers_subscriber_without_msisdn():
@@ -372,8 +409,8 @@ def test_run_call_history_builds_links_per_call():
     )
 
     assert result.status == "success"
-    assert result.total_calls == 6
-    assert len(result.entries) == 6
+    assert result.total_calls == 8
+    assert len(result.entries) == 8
     assert result.msisdn == "79991234567"
     # Предупреждения о номере клиента и усечении не ожидаем; возможен только
     # отказ Loki по давним датам фикстуры.
@@ -407,7 +444,7 @@ def test_run_call_history_truncates_and_warns_without_msisdn():
         max_calls=2,
     )
 
-    assert result.total_calls == 6
+    assert result.total_calls == 8
     assert result.truncated
     assert len(result.entries) == 2
     assert any("Показаны первые 2" in warning for warning in result.warnings)
@@ -452,9 +489,9 @@ def test_cli_prints_links_per_call(monkeypatch, tmp_path, capsys):
 
     assert exit_code == 0
     output = capsys.readouterr().out
-    assert "Распознано звонков: 6" in output
-    assert "Переадресаций: 2" in output
-    assert output.count("[Grafana / find-call-in-logs]") == 6
+    assert "Распознано звонков: 8" in output
+    assert "Переадресаций: 3" in output
+    assert output.count("[Grafana / find-call-in-logs]") == 8
     assert "var-phone=9991234567" in output
 
 
@@ -474,7 +511,7 @@ def test_web_call_history_route_builds_per_call_links():
     assert response.status_code == 200
     assert "История звонков из баланса" in response.text
     assert 'id="calls-result"' in response.text
-    assert "Распознано звонков: <strong>6</strong>" in response.text
+    assert "Распознано звонков: <strong>8</strong>" in response.text
     assert "переадресация «занято» → 79991230002" in response.text
     assert "входящий ← 0900" in response.text
     assert 'class="call-item"' in response.text
