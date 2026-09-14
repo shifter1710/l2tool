@@ -51,9 +51,10 @@ RANGE_HEADER_PATTERN = re.compile(
     r"\((?P<duration>\d+:\d{2}:\d{2})\)\s*$"
 )
 RANGE_PARTICIPANTS_PATTERN = re.compile(
-    r"^\s*(?P<caller>\+?\d+)\s*→\s*(?P<callee>\+?\d+)"
-    r"(?:\s*←\s*(?P<forwarded_to>\+?\d+))?"
-    r"(?:\s*\((?P<condition>[^()]+)\))?\s*$"
+    r"^\s*(?P<caller>\S+)\s*→\s*(?P<callee>\S+)"
+    r"(?:\s*←\s*(?P<forwarded_to>\S+))?"
+    r"(?:\s*\((?P<condition>[^()]+)\))?"
+    r"(?:\s+(?P<call_type>\S.*?\S|\S))?\s*$"
 )
 
 CALL_TYPE_LABELS = {
@@ -258,6 +259,7 @@ class _RangeRecord:
     callee: str
     forwarded_to: str | None = None
     condition: str | None = None
+    call_type: str | None = None
 
 
 def _parse_duration(text):
@@ -299,11 +301,35 @@ def _parse_range_records(text):
                         normalize_remote_phone(forwarded_to) if forwarded_to else None
                     ),
                     condition=participants.group("condition"),
+                    call_type=participants.group("call_type"),
                 )
             )
             pending = None
 
     return records
+
+
+def _dedupe_forwarded_pairs(records, subscriber):
+    """Пара строк одного события переадресации — один звонок.
+
+    На «занято»/«нет ответа» скрипт показывает две строки с одинаковыми
+    временем и длительностью: нога абонента и нога реального звонящего.
+    Оставляем ногу звонящего (caller отличается от абонента), она и
+    попадает в карточку звонка.
+    """
+    grouped = {}
+    for index, record in enumerate(records):
+        if record.forwarded_to:
+            grouped.setdefault((record.started_at, record.duration), []).append(index)
+    drop = set()
+    for indices in grouped.values():
+        if len(indices) < 2:
+            continue
+        keep = next(
+            (i for i in indices if records[i].caller != subscriber), indices[0]
+        )
+        drop.update(i for i in indices if i != keep)
+    return [record for index, record in enumerate(records) if index not in drop]
 
 
 def _range_subscriber(records, msisdn):
@@ -329,6 +355,7 @@ def _range_call(record, subscriber):
             direction="in",
             remote_phone=record.caller,
             duration=record.duration,
+            call_type=record.call_type,
             forward_condition=record.condition,
             service_phone=record.callee,
             legs=3,
@@ -347,6 +374,7 @@ def _range_call(record, subscriber):
         direction=direction,
         remote_phone=remote,
         duration=record.duration,
+        call_type=record.call_type,
     )
     call.secretary = _secretary_involved(call.remote_phone)
     return call
@@ -465,7 +493,10 @@ def parse_call_history(text, msisdn=None):
     calls = []
     if records:
         subscriber = _range_subscriber(records, msisdn)
-        calls = [_range_call(record, subscriber) for record in records]
+        calls = [
+            _range_call(record, subscriber)
+            for record in _dedupe_forwarded_pairs(records, subscriber)
+        ]
     calls.extend(_group_calls(_parse_events(text)))
     calls.sort(key=lambda call: call.started_at)
     return calls
