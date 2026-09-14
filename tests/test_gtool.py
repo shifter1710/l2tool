@@ -188,6 +188,42 @@ def test_prompt_parse_fixes_allows_skipping_bad_event_time():
     assert set(result.links_by_module) == {"zapis", "bff"}
 
 
+def test_run_ticket_builds_links_despite_issues_when_client_number_known():
+    # «Номер А» в заявке — текст, не номер; номер клиента распознан,
+    # поэтому диагностика строится, а проблема остаётся предупреждением.
+    text = """Номер клиента (msisdn): 79992508883
+Номер А: все номера в этот промежуток
+Номер Б: 79992508883
+Дата проблемного звонка: 04.05.2026
+"""
+    result = gtool.run_ticket(
+        text, open_arg="zapis", write_diagnostics=False
+    )
+
+    assert list(result.links_by_module) == ["zapis"]
+    assert result.status == "success"
+    assert result.errors == []
+    assert any(
+        "Номер А не распознан: все номера в этот промежуток" in line
+        for line in result.lines
+    )
+
+
+def test_run_ticket_still_blocks_without_client_number():
+    # Без номера клиента проблемы разбора блокируют построение ссылок.
+    text = """Номер А: все номера в этот промежуток
+Номер Б: 79991000001
+Дата проблемного звонка: 04.05.2026
+"""
+    result = gtool.run_ticket(
+        text, open_arg="zapis", write_diagnostics=False
+    )
+
+    assert result.status == "failed"
+    assert result.links_by_module == {}
+    assert result.errors == ["Номер А не распознан: все номера в этот промежуток"]
+
+
 def test_prompt_date_only_window_keeps_default_when_empty():
     text = "Дата проблемного звонка: 04.05.2026"
     ctx = parser.parse(text)
