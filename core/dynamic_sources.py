@@ -967,21 +967,34 @@ def _first_phone(ctx, field):
     return next((value for value in values if value), None)
 
 
-def _resolved_phone_pair(ctx):
+def _resolved_phone_pairs(ctx):
+    """Пары «звонящий — принимающий»: по одной на каждый номер А.
+
+    Номер А может быть перечислением («+ 7 999 …, + 7 999 …, …») — тогда
+    ссылка строится на каждого звонящего. Без номеров А пара собирается
+    из номера клиента и Б, как раньше.
+    """
     client = _first_phone(ctx, "msisdn")
-    phone_a = _first_phone(ctx, "phone_a")
     phone_b = _first_phone(ctx, "phone_b")
 
-    if not phone_a and not phone_b:
-        if not client:
-            raise ValueError("В заявке не найден номер клиента или номера А/Б")
-        # приложенных номеров нет — второй слот не заполняем номером клиента
-        return client, None
-    if not phone_a:
-        phone_a = client or phone_b
+    callers = [phone for phone in (ctx.get("phone_a_values") or []) if phone]
+    if client:
+        without_client = [phone for phone in callers if phone != client]
+        callers = without_client or callers
+    if callers:
+        return [(caller, phone_b or client or caller) for caller in callers]
+
+    phone_a = _first_phone(ctx, "phone_a")
+    if phone_a:
+        return [(phone_a, phone_b or client or phone_a)]
+    if not client and not phone_b:
+        raise ValueError("В заявке не найден номер клиента или номера А/Б")
     if not phone_b:
-        phone_b = client or phone_a
-    return phone_a, phone_b
+        # приложенных номеров нет — второй слот не заполняем номером клиента
+        return [(client, None)]
+    if not client:
+        return [(phone_b, phone_b)]
+    return [(client, phone_b)]
 
 
 FIELD_LABELS = (("msisdn", "клиент"), ("phone_a", "номер А"), ("phone_b", "номер Б"))
@@ -1005,23 +1018,24 @@ def build_source_links_labeled(source, ctx, call_uuid=None):
             )
         ]
     elif len(slots) >= 2:
-        phone_a, phone_b = _resolved_phone_pair(ctx)
-        label = f"А {phone_a}" + (f" · Б {phone_b}" if phone_b else "")
-        replacement_sets = [
-            (
-                [
-                    (
-                        slots[0]["match_value"],
-                        _replacement_for("number", slots[0]["strategy"], phone_a),
-                    ),
-                    (
-                        slots[1]["match_value"],
-                        _replacement_for("number", slots[1]["strategy"], phone_b),
-                    ),
-                ],
-                label,
+        replacement_sets = []
+        for phone_a, phone_b in _resolved_phone_pairs(ctx):
+            label = f"А {phone_a}" + (f" · Б {phone_b}" if phone_b else "")
+            replacement_sets.append(
+                (
+                    [
+                        (
+                            slots[0]["match_value"],
+                            _replacement_for("number", slots[0]["strategy"], phone_a),
+                        ),
+                        (
+                            slots[1]["match_value"],
+                            _replacement_for("number", slots[1]["strategy"], phone_b),
+                        ),
+                    ],
+                    label,
+                )
             )
-        ]
     else:
         replacement_sets = []
         seen = []
