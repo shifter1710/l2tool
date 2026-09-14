@@ -4,6 +4,6 @@
 
 [project]
 name = "l2tool"
-version = "1.5.3"
+version = "1.5.4"
 description = "Локальный инструмент диагностики заявок L2: веб-интерфейс и CLI"
 requires-python = ">=3.10"

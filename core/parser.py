@@ -110,6 +110,14 @@ def extract_phone_values(value: str | None, allow_short: bool = False):
         return []
 
     candidates = re.findall(r"(?<!\d)(?:[78]\d{10}|\d{10}|\d{7})(?!\d)", value)
+    # Номера, записанные с разделителями — «+ 7 999 100 00 01» или
+    # «+7 (999) 100-00-01»: сплошной цифровой последовательности нет,
+    # добираем по сегментам между запятыми, точками с запятой и переносами.
+    for segment in re.split(r"[,;\n]", value):
+        digits = re.sub(r"\D", "", segment)
+        if len(digits) in (10, 11) and digits not in candidates:
+            candidates.append(digits)
+
     values = []
     for candidate in candidates:
         if allow_short and len(candidate) == 7:
@@ -214,10 +222,67 @@ def parse_event_time_range(value: str | None):
     return (start, end) if start < end else None
 
 
+def _date_from_match(match, today=None):
+    """Дата из совпадения DATE_PATTERN: как в _event_date_match, но для списка."""
+    today = today or datetime.now().date()
+    raw_year = match.group("year")
+    year = today.year if raw_year is None else int(raw_year)
+    if raw_year and len(raw_year) == 2:
+        year += 2000
+
+    try:
+        event_date = datetime(
+            year, int(match.group("month")), int(match.group("day"))
+        ).date()
+    except ValueError:
+        return None
+
+    if raw_year is None and event_date > today:
+        try:
+            event_date = event_date.replace(year=year - 1)
+        except ValueError:
+            pass
+    return event_date
+
+
+def _event_datetime_groups(value, date_matches):
+    """Пары «дата в время» из перечисления: каждая дата — со своим временем."""
+    today = datetime.now().date()
+    datetimes = []
+    for index, date_match in enumerate(date_matches):
+        event_date = _date_from_match(date_match, today)
+        if event_date is None:
+            continue
+        segment_end = (
+            date_matches[index + 1].start()
+            if index + 1 < len(date_matches)
+            else len(value)
+        )
+        time_match = TIME_PATTERN.search(value[date_match.end() : segment_end])
+        if time_match:
+            datetimes.append(
+                datetime.combine(
+                    event_date,
+                    datetime.strptime(
+                        f"{time_match.group('hour')}:{time_match.group('minute')}:"
+                        f"{time_match.group('second') or '00'}",
+                        "%H:%M:%S",
+                    ).time(),
+                )
+            )
+    return datetimes
+
+
 def parse_event_datetimes(value: str | None):
     date_match, event_date = _event_date_match(value)
     if not date_match or not event_date or parse_event_time_range(value):
         return []
+
+    date_matches = list(DATE_PATTERN.finditer(value))
+    if len(date_matches) > 1:
+        grouped = _event_datetime_groups(value, date_matches)
+        if grouped:
+            return grouped
 
     without_date = value[:date_match[0]] + " " + value[date_match[1]:]
     time_matches = TIME_PATTERN.finditer(without_date)
