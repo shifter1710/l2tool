@@ -392,3 +392,48 @@ def test_region_timezone_resolution(region, tz):
     from core.timezones import resolve_timezone
 
     assert resolve_timezone(region) == tz
+
+
+def test_extract_phone_values_with_separators():
+    # «+ 7 999 100 00 01» — без сплошной цифровой последовательности:
+    # номера достаются по сегментам между запятыми.
+    assert parser.extract_phone_values(
+        "+ 7 999 100 00 01, + 7 999 100 00 02, + 7 999 100 00 03"
+    ) == ["79991000001", "79991000002", "79991000003"]
+    assert parser.extract_phone_values("+7 (999) 100-00-04") == ["79991000004"]
+
+
+def test_parse_ticket_with_spaced_caller_phones():
+    ctx = parser.parse(
+        "Номер клиента (msisdn): 79991234567\n"
+        "Номер звонящего (А): + 7 999 100 00 01, + 7 999 100 00 02\n"
+        "Номер принимающего звонок (Б): 79991234567\n"
+    )
+
+    assert ctx["phone_a"] == "79991000001"
+    assert ctx["phone_a_values"] == ["79991000001", "79991000002"]
+
+
+def test_parse_multiple_datetimes_each_date_with_own_time():
+    ctx = parser.parse(
+        "Дата и время проблемного звонка: "
+        "14.09.2026  в  17:18, 14.09.2026  в  16:57, 14.09.2026  в  16:42"
+    )
+
+    # Каждая дата получает своё время; «14.09» из самой даты время не создаёт.
+    assert [dt.strftime("%d.%m %H:%M") for dt in ctx["event_datetimes"]] == [
+        "14.09 17:18",
+        "14.09 16:57",
+        "14.09 16:42",
+    ]
+
+
+def test_parse_multiple_datetimes_across_dates():
+    ctx = parser.parse(
+        "Дата и время проблемного звонка: 13.09.2026 в 10:00, 14.09.2026 в 12:30"
+    )
+
+    assert [dt.isoformat() for dt in ctx["event_datetimes"]] == [
+        "2026-09-13T10:00:00",
+        "2026-09-14T12:30:00",
+    ]
