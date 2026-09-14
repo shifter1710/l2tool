@@ -654,7 +654,7 @@ def run_ticket(
         # Номер клиента распознан — диагностика строится и при проблемах
         # в остальных полях («все номера в этот промежуток», неизвестное
         # время и т.п.): проблемы показываются предупреждениями.
-        warnings.extend(issue["message"] for issue in issues)
+        warnings.extend(f"[WARN] {issue['message']}" for issue in issues)
 
     matches = history.find_matches(ctx, history_root=history_root)
     lines.extend(history.format_matches(matches))
