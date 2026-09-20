@@ -1,6 +1,8 @@
 import asyncio
+import io
 import json
 import re
+import zipfile
 from urllib.parse import urlencode
 
 import httpx
@@ -379,6 +381,142 @@ def test_analyze_renders_parsed_values_and_links():
         re.DOTALL,
     )
     assert "+3 часа" not in response.text
+
+
+def test_analyze_includes_copyable_case_summary():
+    response = request(
+        "POST",
+        "/analyze",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "product": "recording",
+            "window": "60",
+            "ticket_text": valid_ticket(),
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Скопировать данные кейса" in response.text
+    assert 'data-copy-target="case-summary-text"' in response.text
+    assert re.search(
+        r'<pre id="case-summary-text" hidden>[^<]*Номер клиента: 79991234567 · [0-9a-f]{16}',
+        response.text,
+    )
+    assert "Продукт: Запись" in response.text
+    assert "Окно поиска: 60 мин" in response.text
+
+
+def test_analyze_xhr_fragment_includes_case_summary():
+    response = request(
+        "POST",
+        "/analyze",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "product": "recording",
+            "window": "60",
+            "ticket_text": valid_ticket(),
+        },
+        headers={"X-Requested-With": "XMLHttpRequest"},
+    )
+
+    assert response.status_code == 200
+    assert 'data-copy-target="case-summary-text"' in response.text
+    assert 'id="case-summary-text"' in response.text
+
+
+def case_export_form(ticket_text=None):
+    return {
+        "csrf_token": webapp.app.state.csrf_token,
+        "product": "recording",
+        "window": "60",
+        "effective_ticket_text": ticket_text if ticket_text is not None else valid_ticket(),
+    }
+
+
+def read_case_zip(response):
+    archive = zipfile.ZipFile(io.BytesIO(response.content))
+    return archive, {
+        name: archive.read(name).decode("utf-8") for name in archive.namelist()
+    }
+
+
+def test_case_export_returns_zip_with_json_and_markdown():
+    response = request("POST", "/case-export", data=case_export_form())
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/zip"
+    assert re.fullmatch(
+        r'attachment; filename="case-\d{4}-\d{2}-\d{2}-\d{6}\.zip"',
+        response.headers["content-disposition"],
+    )
+
+    archive, files = read_case_zip(response)
+    assert archive.namelist() == ["case.json", "case.md"]
+
+    case = json.loads(files["case.json"])
+    assert case["schema_version"] == 1
+    assert case["product"] == "recording"
+    assert case["identifiers"]["msisdn"] == "79991234567"
+    assert case["event"]["window_minutes"] == 60
+    assert case["search"]["links_by_module"]["zapis"]
+    assert "raw" not in json.dumps(case)
+
+    markdown = files["case.md"]
+    assert markdown.startswith("# Кейс l2tool")
+    assert "Сформирован: " in markdown
+    assert "Номер клиента: 79991234567 · " in markdown
+    assert "Продукт: Запись" in markdown
+    assert "## Ссылки" in markdown
+    assert "Grafana / find-call-in-logs: https://" in markdown
+
+
+def test_case_export_result_page_contains_download_form():
+    response = request(
+        "POST",
+        "/analyze",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "product": "recording",
+            "window": "60",
+            "ticket_text": valid_ticket(),
+        },
+    )
+
+    assert 'action="/case-export"' in response.text
+    assert "Скачать ZIP кейса" in response.text
+
+
+def test_case_export_requires_csrf_token():
+    form = case_export_form()
+    form["csrf_token"] = "wrong"
+
+    response = request("POST", "/case-export", data=form)
+
+    assert response.status_code == 403
+
+
+def test_case_export_rejects_empty_ticket():
+    response = request("POST", "/case-export", data=case_export_form(ticket_text=""))
+
+    assert response.status_code == 400
+    assert "Текст заявки отсутствует" in response.text
+
+
+def test_case_export_builds_fresh_result_per_ticket():
+    other_ticket = valid_ticket().replace("79991234567", "79997650001")
+
+    first = request("POST", "/case-export", data=case_export_form())
+    second = request("POST", "/case-export", data=case_export_form(other_ticket))
+
+    assert first.status_code == second.status_code == 200
+    _, first_files = read_case_zip(first)
+    _, second_files = read_case_zip(second)
+    first_case = json.loads(first_files["case.json"])
+    second_case = json.loads(second_files["case.json"])
+
+    assert first_case["identifiers"]["msisdn"] == "79991234567"
+    assert second_case["identifiers"]["msisdn"] == "79997650001"
+    assert "79997650001" in second_files["case.md"]
 
 
 def test_utc_offset_supports_non_integer_timezones():

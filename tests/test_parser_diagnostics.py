@@ -1,8 +1,7 @@
 import json
 import stat
 
-import gtool
-from core import parser
+from core import parser, runner
 from core.parser_diagnostics import collect_parse_issues, write_parse_issues
 
 
@@ -32,8 +31,8 @@ def test_bad_phone_creates_issue_and_warning(monkeypatch, tmp_path):
     assert json.loads(saved[0]) == issues[0]
     assert stat.S_IMODE(issues_path.stat().st_mode) == 0o600
 
-    monkeypatch.setattr(gtool, "write_parse_issues", lambda issues: None)
-    result = gtool.run_ticket(text, open_arg="zapis")
+    monkeypatch.setattr(runner, "write_parse_issues", lambda issues: None)
+    result = runner.run_ticket(text, open_arg="zapis")
 
     assert result.links_by_module == {}
     assert "[ERROR] Номер клиента не распознан: 14951234567" in result.lines

@@ -1,20 +1,19 @@
-#!/usr/bin/env python3
+"""Ядро диагностики заявки: каталог сервисов, разбор, сборка ссылок.
 
-import argparse
-import sys
-import webbrowser
+Общий слой для точек входа приложения: превращает текст заявки в контекст,
+строит диагностические ссылки и собирает текстовое представление результата.
+"""
+
 from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from core import call_history, history, parser
-from core.case_export import build_case_dict, parsed_sidecar_path, write_case_json
 from core.config import optional_value
 from core.dynamic_sources import build_source_links, load_store
 from core.parser import is_empty_phone_value
 from core.parser_diagnostics import collect_parse_issues, write_parse_issues
-from core.products import available_products, product_title, resolve_product_modules
+from core.products import available_products
 from core.timezones import resolve_timezone
 from core.utils import hash_phone, normalize_uuid
 from services.opensearch import configured_search_period
@@ -24,18 +23,11 @@ DEFAULT_FILE = "tickets/current.txt"
 DEFAULT_OPEN = "zapis,bff,myconnect,myconnect_call"
 DEFAULT_WINDOW = 60
 LOKI_RETENTION_DAYS = 5
-CALL_HISTORY_DEFAULT_FILE = "tickets/calls.txt"
 CALL_HISTORY_DEFAULT_OPEN = "zapis"
 CALL_HISTORY_MAX_CALLS = 50
 
 MODULES = service_modules()
 MODULE_TITLES = service_titles()
-
-
-def configured_default_open():
-    """Сервисы CLI без --open/--product: секция [gtool] в config.toml."""
-    value = optional_value("gtool.default_open", DEFAULT_OPEN)
-    return str(value).strip() or DEFAULT_OPEN
 
 
 def configured_call_history_open():
@@ -104,22 +96,6 @@ class CallHistoryResult:
     status: str = "success"
 
 
-PARSE_FIX_FIELDS = {
-    "msisdn": ("Номер клиента (msisdn)", "Номер клиента"),
-    "phone_a": ("Номер звонящего (А)", "Номер А"),
-    "phone_b": ("Номер принимающего звонок (Б)", "Номер Б"),
-    "event_datetime": ("Дата и время проблемного звонка", "Дата и время звонка"),
-    "event_date": ("Дата проблемного звонка", "Дата звонка"),
-    "event_time": ("Время проблемного звонка", "Дата и время звонка"),
-}
-PHONE_FIX_FIELDS = {"msisdn", "phone_a", "phone_b"}
-EVENT_FIX_FIELDS = {"event_datetime", "event_date", "event_time"}
-
-
-def read_file(path: str) -> str:
-    return Path(path).read_text(encoding="utf-8")
-
-
 def enabled_dynamic_sources():
     """Включённые блоки из diagnostic_sources.json; пусто — файла нет или он пуст."""
     try:
@@ -132,7 +108,7 @@ def enabled_dynamic_sources():
 def managed_product_keys():
     """Продукты, переведённые на динамические блоки (статика для них не используется).
 
-    Если включённых блоков нет совсем, CLI работает по статической схеме.
+    Если включённых блоков нет совсем, диагностика работает по статической схеме.
     """
     try:
         data = load_store()
@@ -148,7 +124,7 @@ def managed_product_keys():
 
 
 def available_services():
-    """Каталог «ключ → сервис» для --open: динамические блоки + статические модули.
+    """Каталог «ключ → сервис»: динамические блоки + статические модули.
 
     Динамические блоки приоритетны; статические модули остаются фолбэком
     для сервисов, которых нет в динамической конфигурации.
@@ -411,61 +387,6 @@ def format_parse_errors(issues):
     return lines
 
 
-def prompt_parse_fixes(text, issues, input_fn=None):
-    input_fn = input if input_fn is None else input_fn
-    corrections = []
-    prompted_fields = set()
-
-    for issue in issues:
-        field_name = issue["field"]
-        if field_name in prompted_fields or field_name not in PARSE_FIX_FIELDS:
-            continue
-
-        source_label, prompt_label = PARSE_FIX_FIELDS[field_name]
-        if field_name in PHONE_FIX_FIELDS:
-            suffix = " (Enter — оставить пустым)"
-        elif field_name in EVENT_FIX_FIELDS:
-            suffix = " (Enter — пропустить)"
-        else:
-            suffix = ""
-        value = input_fn(f"Введите {prompt_label}{suffix}: ").strip()
-        if value:
-            corrections.append(f"{source_label}: {value}")
-        elif field_name in PHONE_FIX_FIELDS:
-            corrections.append(f"{source_label}: нет")
-        elif field_name in EVENT_FIX_FIELDS:
-            corrections.append(f"{source_label}: пропустить")
-        prompted_fields.add(field_name)
-
-    return "\n".join([*corrections, text])
-
-
-def is_date_only_context(ctx):
-    return bool(
-        ctx.get("event_date")
-        and not ctx.get("event_time")
-        and not ctx.get("event_time_range")
-        and not ctx.get("event_datetimes")
-    )
-
-
-def prompt_date_only_window(text, ctx, input_fn=None):
-    input_fn = input if input_fn is None else input_fn
-    event_datetime = input_fn(
-        "Найдена только дата. Нажмите Enter для поиска с 08:00 до 20:00 "
-        "или введите дату и время звонка (ДД.ММ.ГГГГ ЧЧ:ММ): "
-    ).strip()
-    if not event_datetime:
-        return text
-
-    return "\n".join(
-        [
-            f"Дата и время проблемного звонка: {event_datetime}",
-            text,
-        ]
-    )
-
-
 def build_links(ctx, selected_modules):
     services = available_services()
     links_by_module = {}
@@ -512,99 +433,6 @@ def format_links(links_by_module, titles=None):
         lines.extend(terminal_link(url, url) for url in links)
 
     return lines
-
-
-def open_links(links_by_module):
-    for links in links_by_module.values():
-        for link in links:
-            webbrowser.open(link)
-
-
-def menu_products():
-    """Продукты для меню: в динамическом режиме пустые продукты скрыты."""
-    products = available_products()
-    blocks = enabled_dynamic_sources()
-    if not blocks:
-        return products
-
-    with_blocks = {block.get("product") for block in blocks}
-    visible = []
-    for product_key in products:
-        if product_key in with_blocks:
-            visible.append(product_key)
-            continue
-        try:
-            if resolve_product_modules(product_key):
-                visible.append(product_key)
-        except ValueError:
-            continue
-    return visible
-
-
-def prompt_product():
-    products = menu_products()
-    print("Выберите продукт:")
-    for index, product_key in enumerate(products, start=1):
-        print(f"{index}. {product_title(product_key)}")
-
-    try:
-        choice = int(input("Введите номер: ").strip())
-    except ValueError as error:
-        raise ValueError("Некорректный номер продукта") from error
-
-    if not 1 <= choice <= len(products):
-        raise ValueError("Некорректный номер продукта")
-
-    return products[choice - 1]
-
-
-def product_open_arg(product_key, call_uuid=None):
-    """Список сервисов продукта: динамические блоки приоритетнее статики."""
-    blocks = [
-        block
-        for block in enabled_dynamic_sources()
-        if block.get("product") == product_key
-    ]
-
-    if product_key in managed_product_keys():
-        usable = [
-            block
-            for block in blocks
-            if call_uuid or block.get("level") != "uuid"
-        ]
-        if usable:
-            return ",".join(block["id"] for block in usable)
-        if blocks:
-            print(
-                "Блоки продукта работают по UUID звонка: "
-                "передайте --call-uuid, чтобы открыть их"
-            )
-        else:
-            print(f"Для продукта {product_title(product_key)} пока нет настроенных блоков")
-        return None
-
-    if blocks:
-        usable = [
-            block
-            for block in blocks
-            if call_uuid or block.get("level") != "uuid"
-        ]
-        if usable:
-            return ",".join(block["id"] for block in usable)
-
-    try:
-        modules = resolve_product_modules(product_key)
-    except ValueError:
-        print(
-            f"Продукт «{product_key}» настраивается только в веб-интерфейсе: "
-            "откройте страницу «Настройки источников»"
-        )
-        return None
-    if not modules:
-        print(f"Для продукта {product_title(product_key)} пока нет настроенных сервисов")
-        return None
-
-    return ",".join(modules)
 
 
 def run_ticket(
@@ -784,164 +612,3 @@ def run_call_history(
         warnings=warnings,
         status=status,
     )
-
-
-def format_call_history_result(result):
-    """Строки вывода CLI: сводка и ссылки по каждому звонку."""
-    lines = []
-    forwarded = sum(1 for entry in result.entries if entry.call.forwarded)
-    digital = sum(1 for entry in result.entries if entry.call.digital)
-    shown_note = f", показаны первые {len(result.entries)}" if result.truncated else ""
-    lines.append(f"Распознано звонков: {result.total_calls}{shown_note}")
-    if forwarded or digital:
-        lines.append(f"Переадресаций: {forwarded}, цифровых (MyConnect): {digital}")
-    if result.msisdn:
-        lines.append(f"Номер клиента: {result.msisdn}")
-    lines.extend(format_warnings(result.warnings))
-    if result.warnings:
-        lines.append("")
-
-    for index, entry in enumerate(result.entries, start=1):
-        lines.append(f"[{index}/{len(result.entries)}] {entry.label}")
-        lines.extend(format_warnings(entry.errors))
-        lines.extend(format_links(entry.links_by_module))
-        lines.append("")
-
-    if not any(entry.links_by_module for entry in result.entries):
-        lines.append("No URLs generated")
-
-    return lines
-
-
-def main():
-    ap = argparse.ArgumentParser(description="L2 ticket helper")
-    ap.add_argument("--file", default=DEFAULT_FILE, help="Path to ticket text file")
-    ap.add_argument(
-        "--open",
-        default=None,
-        help=f"Services: {','.join(MODULES)} or all",
-    )
-    ap.add_argument("--product", choices=available_products(), help="Product profile")
-    ap.add_argument(
-        "--window",
-        type=int,
-        default=None,
-        help="Window in minutes for Grafana",
-    )
-    ap.add_argument("--export-case", help="Path to write parsed case JSON")
-    ap.add_argument(
-        "--call-uuid",
-        help="UUID звонка для вторичной диагностики записи",
-    )
-    ap.add_argument("--no-history", action="store_true", help="Do not save a history archive")
-    ap.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Parse, match history and print links without saving history or diagnostics",
-    )
-
-    args = ap.parse_args()
-
-    if args.product and args.open:
-        ap.error("Use either --product or --open, not both")
-    if args.window is not None and args.window < 0:
-        ap.error("--window must be non-negative")
-
-    product_key = args.product
-    interactive = sys.stdin.isatty()
-    call_uuid = args.call_uuid
-
-    if not product_key and not args.open and interactive:
-        try:
-            product_key = prompt_product()
-        except ValueError as error:
-            print(str(error))
-            return 2
-
-    open_arg = args.open or configured_default_open()
-    window = args.window if args.window is not None else configured_default_window()
-    if product_key:
-        open_arg = product_open_arg(product_key, call_uuid=call_uuid)
-        if open_arg is None:
-            return 2
-
-    try:
-        text = read_file(args.file)
-    except FileNotFoundError:
-        ap.error(f"ticket file not found: {args.file}")
-
-    try:
-        preview_selected = resolve_modules(open_arg, call_uuid=call_uuid)
-    except ValueError as error:
-        ap.error(str(error))
-
-    if args.open == "all" and not call_uuid:
-        skipped = requires_call_uuid_modules()
-        if skipped:
-            print(
-                "Сервисы записи пропущены "
-                f"({', '.join(skipped)}): передайте --call-uuid, чтобы включить их"
-            )
-
-    preview_ctx = parser.parse(text)
-    preview_ctx["tz"] = resolve_timezone(preview_ctx.get("region"))
-    preview_ctx["window"] = window
-    preview_ctx["selected_modules"] = preview_selected
-    preview_issues = collect_parse_issues(text, preview_ctx)
-    parse_text = text
-
-    if preview_issues and interactive:
-        print("\n" + "\n".join(format_parsed_context(preview_ctx)))
-        print("\n" + "\n".join(format_parse_errors(preview_issues)))
-        parse_text = prompt_parse_fixes(text, preview_issues)
-
-    date_only_ctx = parser.parse(parse_text)
-    if interactive and is_date_only_context(date_only_ctx):
-        parse_text = prompt_date_only_window(parse_text, date_only_ctx)
-
-    try:
-        result = run_ticket(
-            text,
-            open_arg=open_arg,
-            window=window,
-            input_file=args.file,
-            save_history=not args.no_history and not args.dry_run,
-            write_diagnostics=not args.dry_run,
-            parse_text=parse_text,
-            call_uuid=call_uuid,
-        )
-    except ValueError as error:
-        ap.error(str(error))
-
-    print("\n" + "\n".join(result.lines))
-
-    case_data = build_case_dict(
-        result.ctx,
-        result.selected_modules,
-        result.links_by_module,
-        product=product_key,
-        file_name=Path(args.file).name,
-    )
-
-    result_status = getattr(result, "status", "success")
-
-    if not args.dry_run and result_status == "success":
-        sidecar_path = write_case_json(parsed_sidecar_path(args.file), case_data)
-        print(f"Parsed case saved to: {sidecar_path}")
-    elif not args.dry_run:
-        print("Parsed case not saved: ticket processing was not successful")
-
-    if args.export_case and result_status == "success":
-        output_path = write_case_json(args.export_case, case_data)
-        print(f"Case JSON saved to: {output_path}")
-    elif args.export_case:
-        print("Case JSON not saved: ticket processing was not successful")
-
-    if result_status == "partial":
-        return 1
-    if result_status == "failed":
-        return 2
-    return 0
-
-if __name__ == "__main__":
-    raise SystemExit(main())

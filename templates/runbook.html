@@ -6,10 +6,6 @@
 {% block skip_target %}#runbook-steps{% endblock %}
 {% block skip_label %}Перейти к шагам{% endblock %}
 {% block brand_note %}куда смотреть{% endblock %}
-{% block topbar_links %}
-  <a class="nav-link" href="/">К диагностике</a>
-  <a class="nav-link" href="/settings#runbook">Настройки источников</a>
-{% endblock %}
 
 {% block content %}
       <div class="section-heading">
@@ -21,7 +17,7 @@
       {% if case %}
         <section class="panel runbook-steps-panel" id="runbook-steps" tabindex="-1">
           <div class="panel-heading">
-            <div><span class="step">?</span><h2>Порядок проверки</h2></div>
+            <div><h2>Порядок проверки</h2></div>
             <a class="nav-link" href="/#ticket-form">Разобрать другую заявку</a>
           </div>
           <ol class="runbook-steps">

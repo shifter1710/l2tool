@@ -1,3 +1,5 @@
+{% macro chevron(class="chevron") %}<svg class="{{ class }}" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3 6l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>{% endmacro %}
+
 {% macro service_icon(platform) %}
   {%- if platform == "grafana" -%}
     <svg class="service-icon service-icon--grafana" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><g fill="currentColor"><rect x="1.5" y="8" width="3" height="6.5" rx="1"/><rect x="6.5" y="4.5" width="3" height="10" rx="1"/><rect x="11.5" y="1" width="3" height="13.5" rx="1"/></g></svg>
@@ -59,8 +61,19 @@
     <div class="result-grid">
       <section class="panel result-panel parsed-panel">
         <div class="panel-heading compact-heading">
-          <div><span class="step">02</span><h3>Распознанные данные</h3></div>
+          <h3>Распознанные данные</h3>
+          <button class="copy-link" type="button" data-copy-target="case-summary-text">
+            <span data-copy-label aria-live="polite">Скопировать данные кейса</span>
+          </button>
+          <form method="post" action="/case-export" class="case-export-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="product" value="{{ form.product }}">
+            <input type="hidden" name="window" value="{{ form.window }}">
+            <textarea name="effective_ticket_text" class="hidden-control" aria-hidden="true">{{ effective_ticket_text }}</textarea>
+            <button type="submit" class="secondary-button">Скачать ZIP кейса</button>
+          </form>
         </div>
+        <pre id="case-summary-text" hidden>{{ result.case_summary_text }}</pre>
         <dl class="parsed-list">
           {% for field in result.fields %}
             <div {% if field.unmatched %}class="client-unmatched"{% endif %}>
@@ -83,7 +96,7 @@
 
       <section class="panel result-panel links-panel">
         <div class="panel-heading compact-heading">
-          <div><span class="step">03</span><h3>Диагностические ссылки</h3></div>
+          <h3>Диагностические ссылки</h3>
           {% if result.services %}
             <button class="copy-link copy-all" type="button" data-copy-all>
               <span data-copy-label aria-live="polite">Скопировать все ссылки</span>
@@ -101,7 +114,7 @@
     {% if reference_hints %}
       <section class="panel reference-panel">
         <div class="panel-heading compact-heading">
-          <div><span class="step">i</span><h3>Расшифровка кодов</h3></div>
+          <h3>Расшифровка кодов</h3>
         </div>
         <ul class="reference-hints">
           {% for hint in reference_hints %}
@@ -144,7 +157,7 @@
 
     <div class="followup-grid {% if not has_uuid_level %}single-column{% endif %}">
       <section class="panel followup-panel">
-        <span class="step">Поправить разбор</span>
+        <p class="eyebrow">Поправить разбор</p>
         <h3>Если что-то распознано неверно</h3>
         <p>Заполните только те поля, которые нужно заменить. Исходный текст останется без изменений.</p>
         <form method="post" action="/analyze#result" class="correction-form">
@@ -167,7 +180,7 @@
 
       {% if has_uuid_level %}
         <section class="panel followup-panel uuid-panel">
-          <span class="step">Вторичная диагностика</span>
+          <p class="eyebrow">Вторичная диагностика</p>
           <h3>UUID звонка уже найден?</h3>
           <p>Этот шаг запускается отдельно и не смешивается с первичной проверкой продукта «Запись».</p>
           <form method="post" action="/secondary#secondary-result" class="uuid-form">
@@ -223,6 +236,7 @@
             <span class="call-time">{{ call.time }}</span>
             <span class="call-title call-title--{{ call.direction }}">{{ call.title }}</span>
             {% for badge in call.badges %}<span class="call-badge">{{ badge }}</span>{% endfor %}
+            {{ chevron() }}
           </summary>
           <div class="call-body">
             {% if call.services %}

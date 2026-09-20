@@ -274,10 +274,7 @@ def test_defaults_come_from_config(tmp_path, monkeypatch):
                 'window = 45',
                 'product = "recording"',
                 'calls_product = "calls"',
-                '[gtool]',
-                'default_open = "zapis"',
                 '[call_history]',
-                'default_open = "zapis"',
                 "max_calls = 7",
             ]
         ),
@@ -285,14 +282,13 @@ def test_defaults_come_from_config(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(config, "CONFIG_PATH", config_path)
 
-    import gtool
+    from core import runner
 
-    assert gtool.configured_default_window() == 45
-    assert gtool.configured_default_open() == "zapis"
-    assert gtool.configured_call_history_open() == "zapis"
-    assert gtool.configured_call_history_max_calls() == 7
-    assert gtool.configured_default_product() == "recording"
-    assert gtool.configured_calls_product() == "calls"
+    assert runner.configured_default_window() == 45
+    assert runner.configured_call_history_open() == "zapis"
+    assert runner.configured_call_history_max_calls() == 7
+    assert runner.configured_default_product() == "recording"
+    assert runner.configured_calls_product() == "calls"
 
     home = request("GET", "/")
     assert 'value="45"' in home.text

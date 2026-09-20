@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import io
 import json
 import logging
 import os
@@ -10,9 +11,9 @@ import shutil
 import tempfile
 import threading
 import webbrowser
-from datetime import date, datetime
+import zipfile
+from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse, Response
@@ -23,6 +24,16 @@ from starlette.datastructures import UploadFile
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from core import call_history, history, reference_codes, runbook
+from core.case_export import (
+    build_case_dict,
+    build_case_markdown,
+    case_summary_fields,
+    event_value,
+    format_value,
+    phone_values,
+    phone_with_hash,
+    utc_offset_label,
+)
 from core.config import CONFIG_PATH, feature_enabled
 from core.config_bundle import (
     MAX_BUNDLE_SIZE,
@@ -56,9 +67,7 @@ from core.dynamic_sources import (
 )
 from core.lost_calls_table import TableFormatError, process_table
 from core.products import PRODUCT_COLORS, available_products, product_title, resolve_product_modules
-from core.source_backups import list_backups, restore_backup
-from core.utils import hash_phone, normalize_uuid
-from gtool import (
+from core.runner import (
     MODULE_TITLES,
     RunResult,
     available_services,
@@ -69,6 +78,8 @@ from gtool import (
     run_call_history,
     run_ticket,
 )
+from core.source_backups import list_backups, restore_backup
+from core.utils import normalize_uuid
 from services.registry import SERVICES
 
 LOGGER = logging.getLogger(__name__)
@@ -331,77 +342,6 @@ def normalize_datetime_picker(value):
     return selected.strftime("%d.%m.%Y %H:%M")
 
 
-def format_value(value):
-    if isinstance(value, datetime):
-        return value.strftime("%d.%m.%Y %H:%M:%S")
-    if isinstance(value, date):
-        return value.strftime("%d.%m.%Y")
-    return str(value) if value not in (None, "") else "—"
-
-
-def event_value(ctx):
-    if ctx.get("event_time_range"):
-        start, end = ctx["event_time_range"]
-        return f"{format_value(start)} — {format_value(end)}"
-    if ctx.get("event_datetimes"):
-        return ", ".join(format_value(value) for value in ctx["event_datetimes"])
-    return format_value(ctx.get("event_time") or ctx.get("event_date"))
-
-
-def phone_values(ctx, field_name):
-    values = ctx.get(f"{field_name}_values") or []
-    return [value for value in values if value] or [ctx.get(field_name)]
-
-
-def utc_offset_label(ctx):
-    timezone_name = ctx.get("tz")
-    if not timezone_name:
-        return None
-
-    try:
-        timezone = ZoneInfo(timezone_name)
-    except ZoneInfoNotFoundError:
-        return None
-
-    reference = ctx.get("event_time")
-    if not reference and ctx.get("event_datetimes"):
-        reference = ctx["event_datetimes"][0]
-    if not reference and ctx.get("event_time_range"):
-        reference = ctx["event_time_range"][0]
-    if not reference and ctx.get("event_date"):
-        reference = datetime.combine(ctx["event_date"], datetime.min.time())
-    if not reference:
-        reference = datetime.now(timezone)
-
-    if reference.tzinfo is None:
-        reference = reference.replace(tzinfo=timezone)
-    else:
-        reference = reference.astimezone(timezone)
-
-    offset = reference.utcoffset()
-    if offset is None:
-        return None
-
-    total_minutes = int(offset.total_seconds() / 60)
-    sign = "+" if total_minutes >= 0 else "−"
-    absolute_minutes = abs(total_minutes)
-    hours, minutes = divmod(absolute_minutes, 60)
-    if minutes:
-        return f"{sign}{hours}:{minutes:02d}"
-    return f"{sign}{hours}"
-
-
-def phone_with_hash(value):
-    """Номер с хешем для поиска в логах: «79157771575 · f4156ce0dd60d4e5»."""
-    text = format_value(value)
-    if text == "—":
-        return text
-    try:
-        return f"{text} · {hash_phone(value)}"
-    except (TypeError, ValueError):
-        return text
-
-
 def parsed_fields(ctx):
     msisdn = ctx.get("msisdn")
     phone_a_values = phone_values(ctx, "phone_a")
@@ -483,7 +423,7 @@ def history_view(matches):
     return items
 
 
-def result_view(result: RunResult, title):
+def result_view(result: RunResult, title, product=None):
     warnings = []
     for line in result.lines:
         if line.startswith(("[WARN]", "[ERROR]")):
@@ -505,6 +445,9 @@ def result_view(result: RunResult, title):
             "failed": "Нужна проверка",
         }.get(result.status, result.status),
         "fields": parsed_fields(ctx),
+        "case_summary_text": "\n".join(
+            f"{label}: {value}" for label, value in case_summary_fields(ctx, product)
+        ),
         "services": [
             {
                 "key": module_name,
@@ -1329,7 +1272,7 @@ async def analyze(request: Request):
     return render_index(
         request,
         form=form,
-        result=result_view(result, "Первичная диагностика"),
+        result=result_view(result, "Первичная диагностика", product=product),
         effective_ticket_text=effective_text,
         reference_hints=reference_codes.find_codes(effective_text),
         has_uuid_level=has_uuid_sources(product) or product == "recording",
@@ -1408,7 +1351,7 @@ async def secondary(request: Request):
             request,
             form=form,
             result=(
-                result_view(primary_result, "Первичная диагностика")
+                result_view(primary_result, "Первичная диагностика", product=product)
                 if primary_result
                 else None
             ),
@@ -1423,13 +1366,91 @@ async def secondary(request: Request):
     return render_index(
         request,
         form=form,
-        result=result_view(primary_result, "Первичная диагностика"),
-        secondary_result=result_view(secondary_result, "Вторичная диагностика по UUID"),
+        result=result_view(primary_result, "Первичная диагностика", product=product),
+        secondary_result=result_view(
+            secondary_result, "Вторичная диагностика по UUID", product=product
+        ),
         effective_ticket_text=effective_text,
         reference_hints=reference_codes.find_codes(effective_text),
         secondary_form={"call_uuid": call_uuid, "mode": mode},
         has_uuid_level=has_uuid_sources(product) or product == "recording",
         partial=partial,
+    )
+
+
+@app.post("/case-export")
+async def case_export(request: Request):
+    """ZIP-архив кейса: case.json (схема l2-local-ai) + case.md (сводка).
+
+    Разбор повторяет путь /analyze того же продукта и окна, но ничего
+    не пишет на диск: архив собирается в памяти и сразу отдаётся браузеру.
+    """
+    form_data = await request.form()
+    validate_csrf(form_data)
+
+    product = form_text(form_data, "product", "recording")
+    effective_text = form_text(form_data, "effective_ticket_text") or form_text(
+        form_data, "ticket_text"
+    )
+    form = {
+        "product": product,
+        "window": form_text(form_data, "window", "60"),
+        "ticket_text": effective_text,
+        "save_history": False,
+        "corrections": {},
+        "dynamic_product": False,
+    }
+
+    try:
+        if not effective_text or len(effective_text) > MAX_TICKET_LENGTH:
+            raise ValueError("Текст заявки отсутствует или слишком велик")
+        window = parse_window(form_data)
+        modules = validate_product(product)
+        form["dynamic_product"] = is_managed(product)
+        if is_managed(product):
+            result = run_dynamic_ticket(
+                effective_text,
+                product,
+                "number",
+                window,
+                input_file="web-case-export",
+            )
+        else:
+            result = run_ticket(
+                effective_text,
+                open_arg=",".join(modules),
+                window=window,
+                input_file="web-case-export",
+                save_history=False,
+                write_diagnostics=False,
+            )
+    except (OSError, ValueError) as error:
+        return render_index(
+            request,
+            form=form,
+            error=str(error),
+            status_code=400,
+        )
+
+    case_data = build_case_dict(
+        result.ctx,
+        result.selected_modules,
+        result.links_by_module,
+        product=product,
+        file_name=None,
+    )
+    case_markdown = build_case_markdown(result.ctx, result.links_by_module, product=product)
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("case.json", json.dumps(case_data, ensure_ascii=False, indent=2) + "\n")
+        archive.writestr("case.md", case_markdown)
+
+    stamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="case-{stamp}.zip"'},
     )
 
 

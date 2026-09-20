@@ -20,8 +20,7 @@ flowchart LR
     subgraph local["Локальный компьютер специалиста"]
         browser["Браузер<br/>127.0.0.1:8765"]
         webapp["webapp.py<br/>FastAPI + uvicorn"]
-        cli["gtool.py · lost_calls_table.py<br/>CLI"]
-        store["Локальные данные:<br/>config.toml · diagnostic_sources.json<br/>tickets/ · history/ · cases/<br/>parser_issues/ · *.parsed.json"]
+        store["Локальные данные:<br/>config.toml · diagnostic_sources.json<br/>history/ · parser_issues/"]
     end
 
     subgraph obs["Observability-стенд (внутренний)"]
@@ -30,9 +29,7 @@ flowchart LR
     end
 
     user -->|"вставляет текст заявки"| browser
-    user -->|"файл заявки / выгрузка"| cli
     browser -->|"HTTP только localhost"| webapp
-    cli --> store
     webapp --> store
     browser -.->|"переход по сформированной ссылке"| grafana
     browser -.->|"переход по сформированной ссылке"| opensearch
@@ -43,23 +40,22 @@ flowchart LR
 Код разделён на три слоя. `core/` — доменная логика (разбор заявки, время,
 история, экспорт), `services/` — сборка URL под конкретную платформу,
 `modules/` — диагностические запросы: что и по каким полям искать в каждом
-сервисе. Точки входа не зависят от реализации сервисов: CLI получает модули
-через реестр `services/registry.py`, веб — переиспользует `run_ticket` из
-`gtool.py`. Обе точки входа читают одни и те же пользовательские блоки из
-`core/dynamic_sources.py`: динамическая конфигурация приоритетна, статические
-модули — фолбэк для сервисов, которых в ней нет.
+сервисе. Веб-слой не зависит от реализации сервисов: модули приходят через
+реестр `services/registry.py`, а диагностику заявки выполняет
+`core/runner.py` (`run_ticket`, `run_call_history`). Каталог сервисов читает
+одни и те же пользовательские блоки из `core/dynamic_sources.py`:
+динамическая конфигурация приоритетна, статические модули — фолбэк для
+сервисов, которых в ней нет.
 
 ```mermaid
 flowchart TB
-    subgraph entries["Точки входа"]
+    subgraph entries["Точка входа"]
         webapp["webapp.py<br/>веб-интерфейс (FastAPI, port 8765)"]
-        gtool["gtool.py<br/>CLI: заявка → ссылки, история, case JSON"]
-        lostcli["lost_calls_table.py<br/>CLI: пакетная обработка выгрузок"]
-        callcli["call_history.py<br/>CLI: ссылки по звонкам<br/>из истории баланса"]
     end
 
     subgraph core["core/ — доменная логика"]
         direction TB
+        runner["runner.py<br/>диагностика заявки: каталог сервисов,<br/>run_ticket · run_call_history"]
         parser["parser.py + ticket_fields.py<br/>разбор полей заявки"]
         timetz["timezones.py + time_windows.py<br/>регион → таймзона · UTC-окна"]
         products["products.py<br/>встроенные продукты + каталог<br/>из diagnostic_sources.json"]
@@ -84,19 +80,16 @@ flowchart TB
         recording["recording_mgw · recording_vss_crs<br/>recording_crs · recording_collector<br/>требуют call UUID"]
     end
 
-    webapp --> gtool
+    webapp --> runner
     webapp --> dynamic
     webapp --> lostcore
-    webapp --> callhist
-    gtool --> parser
-    gtool --> history
-    gtool --> caseexp
-    gtool --> pdiag
-    gtool --> dynamic
-    gtool --> registry
-    gtool --> callhist
-    lostcli --> lostcore
-    callcli --> callhist
+    webapp --> caseexp
+    runner --> parser
+    runner --> history
+    runner --> pdiag
+    runner --> dynamic
+    runner --> registry
+    runner --> callhist
     parser --> timetz
     dynamic --> products
     dynamic --> osurl
@@ -132,8 +125,9 @@ flowchart TB
 ```
 
 Результаты разбора проверяются `core/parser_diagnostics.py`: нераспознанные
-номера и даты попадают в `parser_issues/parser_issues.jsonl`, а заявка без
-корректных полей не доходит до сборки ссылок.
+номера и даты становятся проблемами разбора (заявка без корректных полей не
+доходит до сборки ссылок), а при включённой записи диагностики попадают в
+`parser_issues/parser_issues.jsonl`.
 
 ## 4. Поток веб-диагностики `/analyze`
 
@@ -148,7 +142,7 @@ sequenceDiagram
     participant W as webapp.py
     participant P as core/parser.py
     participant D as core/dynamic_sources.py
-    participant G as gtool.run_ticket
+    participant G as core/runner.run_ticket
     participant M as modules/*
     participant H as core/history.py
 
@@ -245,7 +239,7 @@ flowchart TB
 
 - Пять встроенных продуктов (`core/products.py`) — значения по умолчанию, когда
   файла нет; после загрузки каталог читается из файла. Ключ встроенного
-  продукта изменить нельзя — на него ссылается CLI и README.
+  продукта изменить нельзя — на него ссылается статический профиль и README.
 - `builtin: true` + `managed: true` — продукт переведён с профиля `config.toml`
   на динамические блоки (первый блок переключает автоматически). Пользовательский
   продукт без `builtin` работает только через блоки — статических модулей у него
@@ -267,7 +261,8 @@ flowchart TB
 - Предпросмотр: поле «тестовый номер или UUID» в каждой форме блока показывает
   итоговую ссылку с подстановкой и текущим временем до сохранения; ошибки
   подстановки видны сразу.
-- Перенос из `config.toml` (односторонний мост для перехода с CLI): каждый
+- Перенос из `config.toml` (односторонний мост для перехода со статического
+  профиля на блоки): каждый
   `[services.<имя>]` с заполненным `url` становится блоком выбранного продукта
   (уровень number, стратегия определяется автоматически; поле «номер из ваших
   ссылок» помогает распознать хеш). Ссылки, уже существующие в продукте,
@@ -293,8 +288,8 @@ traversal).
 каждая часть применяется правилами своего одиночного импорта, недостающие
 продукты создаются, а заменённый `config.toml` уходит в `backups/`
 (`config.toml.YYYYMMDD-HHMMSS.bak`, последние 5). Значения по умолчанию
-(окна, продукты форм, наборы сервисов CLI, лимиты) читаются из секций
-`[defaults]`, `[gtool]`, `[call_history]` через `config.optional_value` —
+(окна, продукты форм, лимиты) читаются из секций
+`[defaults]` и `[call_history]` через `config.optional_value` —
 без них работают встроенные значения.
 
 Проверка ссылок и секретов сосредоточена в `core/url_guard.py` и одинакова
@@ -326,12 +321,10 @@ flowchart TB
     loki --> out
 ```
 
-CLI-эквивалент: `gtool.py --open recording_mgw,… --call-uuid …`.
-
 ## 7. Пакетная обработка потерянных звонков
 
-Отдельный сценарий для табличных выгрузок (XLSX, XLSM, CSV, TSV), доступный
-из веба (`POST /batch`) и CLI (`lost_calls_table.py`).
+Отдельный сценарий для табличных выгрузок (XLSX, XLSM, CSV, TSV),
+доступный из веба (`POST /batch`).
 
 ```mermaid
 flowchart TB
@@ -340,17 +333,16 @@ flowchart TB
     filter --> rows{"Строка корректна?"}
     rows -->|нет| warn["Строка без ссылок + предупреждение в вывод"]
     rows -->|да| links3["Три ссылки на строку:<br/>Zapis · SIP stack prod (МСК ± окно) · MGW<br/>оба номера без ведущей 7"]
-    links3 --> out["Итоговый XLSX: 5 исходных колонок + 3 ссылки<br/>веб: временный файл, удаление после скачивания<br/>CLI: <имя>.cleaned.xlsx рядом с исходным"]
+    links3 --> out["Итоговый XLSX: 5 исходных колонок + 3 ссылки<br/>временный файл, удаление после скачивания"]
     warn --> out
 ```
 
 ### История звонков из истории баланса
 
 Сценарий для текстовой выгрузки внешнего скрипта детализации, доступный из
-веба (`POST /call-history`) и CLI (`call_history.py`). Ядро —
-`core/call_history.py`; ссылки строит `gtool.run_call_history` тем же
-механизмом `build_links`, что и обычную заявку (динамические блоки +
-статические модули).
+веба (`POST /call-history`). Ядро — `core/call_history.py`; ссылки строит
+`core/runner.run_call_history` тем же механизмом `build_links`, что и
+обычную заявку (динамические блоки + статические модули).
 
 ```mermaid
 flowchart TB
@@ -364,7 +356,7 @@ flowchart TB
     merge --> ctx
     single --> ctx
     ctx --> links["build_links по каждому звонку<br/>(блоки продукта или статика)<br/>метки: цифровой (MyConnect), VoLTE,<br/>условие переадресации, Секретарь"]
-    links --> out["Веб: карточки-аккордеоны по звонкам<br/>CLI: блок ссылок на каждый звонок<br/>лимит 50, предупреждения о Loki/msisdn"]
+    links --> out["Карточки-аккордеоны по звонкам<br/>лимит 50, предупреждения о Loki/msisdn"]
 ```
 
 Номера Секретаря редактируются на странице настроек (панель «История
@@ -399,14 +391,13 @@ flowchart TB
 
 Профили продуктов: `recording` → zapis, sip_stack, bff; `secretary` →
 secretary; `calls` → myconnect, myconnect_call; `noise` → noise; `assistant` →
-пусто. Встроенные профили описаны в `core/products.py` и работают только для
-CLI и статического веба; каталог продуктов редактируется в
+пусто. Встроенные профили описаны в `core/products.py` и работают для
+статического веба; каталог продуктов редактируется в
 `diagnostic_sources.json` (схема v2, см. раздел 5). Первый пользовательский
-блок для встроенного продукта переводит его на динамическую конфигурацию —
-и в вебе, и в CLI (`gtool.py` читает те же блоки: меню продукта и `--open`
-работают по ним, а статические модули остаются фолбэком для сервисов,
-которых нет в динамической конфигурации). `config.toml` при этом сохраняется
-как статический фолбэк.
+блок для встроенного продукта переводит его на динамическую конфигурацию
+(каталог сервисов в `core/runner.py` читает те же блоки, а статические
+модули остаются фолбэком для сервисов, которых нет в динамической
+конфигурации). `config.toml` при этом сохраняется как статический фолбэк.
 
 ## 9. Время и периоды поиска
 
@@ -439,32 +430,28 @@ flowchart TB
         configtoml["config.toml<br/>URL сервисов, периоды, index patterns<br/>(legacy-секции grafana/opensearch)"]
         dsjson["diagnostic_sources.json, схема v2<br/>каталог продуктов + блоки,<br/>0600, атомарная запись"]
         backupsdir["backups/*.json<br/>резервные копии настроек<br/>(последние 20, 0600)"]
-        tickets["tickets/current.txt<br/>текст текущей заявки"]
-        sidecar["*.parsed.json рядом с заявкой<br/>нормализованный контекст + ссылки"]
-        cases["cases/*.json<br/>экспорт --export-case"]
         histdir["history/YYYY/MM/*.yaml<br/>архивы заявок + ссылки<br/>history/index.json — номер → пути"]
         pissues["parser_issues/parser_issues.jsonl<br/>нераспознанные строки заявок"]
-        cleaned["*.cleaned.xlsx<br/>обработанные выгрузки"]
     end
 
-    gtoolCli["gtool.py"] --> tickets
-    gtoolCli --> sidecar
-    gtoolCli --> cases
-    gtoolCli --> histdir
-    gtoolCli --> pissues
-    gtoolCli -.->|"читает блоки"| dsjson
     webapp2["webapp.py"] --> dsjson
     webapp2 --> histdir
     webapp2 --> backupsdir
+    runner2["core/runner.py"] --> pissues
+    runner2 -.->|"читает блоки"| dsjson
     modules2["modules/*"] --> configtoml
     dynamic2["dynamic_sources.py"] --> dsjson
     dynamic2 --> backupsdir
-    lost2["lost_calls_table.py"] --> cleaned
 ```
+
+Обработанные выгрузки потерянных звонков (`*.cleaned.xlsx`) и ZIP-кейс
+отдаются браузеру напрямую из памяти и на диске не появляются.
 
 Case JSON (`core/case_export.py`) содержит нормализованные идентификаторы,
 событие, выбранные модули и ссылки; исходный текст заявки, пути, токены и
-конфигурация в него не попадают.
+конфигурация в него не попадают. Маршрут `/case-export` отдаёт его вместе
+с человекочитаемой сводкой `case.md` одним ZIP-архивом, который собирается
+в памяти и на диске не появляется.
 
 ## 11. Маршруты веб-приложения
 
@@ -479,6 +466,7 @@ config.toml (`core.config.feature_enabled`): выключены по умолч�
 | `GET /` | главная: форма заявки, результаты, пакетная загрузка |
 | `POST /analyze` | первичная диагностика заявки |
 | `POST /secondary` | второй этап по UUID звонка |
+| `POST /case-export` | ZIP-архив кейса: case.json + case.md |
 | `POST /call-history` | ссылки по каждому звонку из истории баланса |
 | `POST /batch` | обработка таблицы потерянных звонков, скачивание XLSX |
 | `GET /settings` | редактор источников: блоки, продукты, копии |
@@ -542,8 +530,8 @@ flowchart TB
     webapp3 --> data
 ```
 
-История успешных заявок выключена по умолчанию и включается галочкой;
-`--dry-run` в CLI отключает и историю, и диагностику парсера.
+История успешных заявок выключена по умолчанию и включается галочкой
+в форме диагностики.
 
 ## 13. Тесты, CI и ветки
 

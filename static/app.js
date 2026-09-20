@@ -9,6 +9,7 @@
     "/secondary": "Запускаем второй этап…",
     "/call-history": "Строим ссылки по звонкам…",
     "/batch": "Обрабатываем таблицу…",
+    "/case-export": "Собираем кейс…",
   };
   const fetchActions = new Set(["/analyze", "/secondary", "/call-history"]);
 
@@ -307,19 +308,42 @@
 
     // Файл скачивается без перезагрузки страницы: возвращаем кнопке
     // рабочее состояние при новом обращении к форме, выборе файла
-    // или возврате на страницу.
-    document.querySelectorAll('form[action$="/batch"]').forEach((form) => {
-      form.addEventListener("focusin", () => resetPending(form));
-      form
-        .querySelector('input[type="file"]')
-        ?.addEventListener("change", () => resetPending(form));
+    // или возврате на страницу. Слушатели делегированы — формы появляются
+    // и в подгруженном XHR-фрагменте результатов.
+    const downloadForm = (element) =>
+      element.closest?.('form[action$="/batch"], form[action$="/case-export"]') || null;
+    document.addEventListener("focusin", (event) => {
+      const form = downloadForm(event.target);
+      if (form) resetPending(form);
+    });
+    document.addEventListener("change", (event) => {
+      const form = downloadForm(event.target);
+      if (form && event.target.type === "file") resetPending(form);
     });
     window.addEventListener("pageshow", () => {
-      document.querySelectorAll('form[action$="/batch"]').forEach(resetPending);
+      document
+        .querySelectorAll('form[action$="/batch"], form[action$="/case-export"]')
+        .forEach(resetPending);
     });
   });
 
   document.addEventListener("click", async (event) => {
+    const copyTargetButton = event.target.closest("[data-copy-target]");
+    if (copyTargetButton) {
+      const source = document.getElementById(copyTargetButton.dataset.copyTarget || "");
+      if (!source) {
+        flashCopyResult(copyTargetButton, false);
+        return;
+      }
+      try {
+        await copyText(source.textContent || "");
+        flashCopyResult(copyTargetButton, true, "Скопировано");
+      } catch (_error) {
+        flashCopyResult(copyTargetButton, false);
+      }
+      return;
+    }
+
     const copyAllButton = event.target.closest("[data-copy-all]");
     if (copyAllButton) {
       const scope = copyAllButton.closest(".links-panel") || document;

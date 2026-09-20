@@ -1,11 +1,8 @@
-import sys
 from datetime import datetime
 from pathlib import Path
 
-import call_history as call_history_cli
-import gtool
 import webapp
-from core import call_history, dynamic_sources
+from core import call_history, dynamic_sources, runner
 from core import config as config_module
 
 # Сводный формат внешнего скрипта: диапазон времени с длительностью
@@ -401,7 +398,7 @@ def test_call_context_directions():
 
 
 def test_run_call_history_builds_links_per_call():
-    result = gtool.run_call_history(
+    result = runner.run_call_history(
         HISTORY_SAMPLE,
         msisdn="79991234567",
         open_arg="zapis",
@@ -437,7 +434,7 @@ def test_run_call_history_builds_links_per_call():
 
 
 def test_run_call_history_truncates_and_warns_without_msisdn():
-    result = gtool.run_call_history(
+    result = runner.run_call_history(
         HISTORY_SAMPLE,
         msisdn=None,
         open_arg="zapis",
@@ -453,46 +450,18 @@ def test_run_call_history_truncates_and_warns_without_msisdn():
 
 def test_run_call_history_rejects_bad_input():
     try:
-        gtool.run_call_history("обычный текст заявки без событий", open_arg="zapis")
+        runner.run_call_history("обычный текст заявки без событий", open_arg="zapis")
     except ValueError as error:
         assert "Не удалось распознать" in str(error)
     else:
         raise AssertionError("expected ValueError")
 
     try:
-        gtool.run_call_history(HISTORY_SAMPLE, msisdn="0900", open_arg="zapis")
+        runner.run_call_history(HISTORY_SAMPLE, msisdn="0900", open_arg="zapis")
     except ValueError as error:
         assert "некорректно" in str(error)
     else:
         raise AssertionError("expected ValueError")
-
-
-def test_cli_prints_links_per_call(monkeypatch, tmp_path, capsys):
-    history_path = tmp_path / "calls.txt"
-    history_path.write_text(HISTORY_SAMPLE, encoding="utf-8")
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "call_history.py",
-            "--file",
-            str(history_path),
-            "--msisdn",
-            "79991234567",
-            "--open",
-            "zapis",
-        ],
-    )
-
-    exit_code = call_history_cli.main()
-
-    assert exit_code == 0
-    output = capsys.readouterr().out
-    assert "Распознано звонков: 8" in output
-    assert "Переадресаций: 3" in output
-    assert output.count("[Grafana / find-call-in-logs]") == 8
-    assert "var-phone=9991234567" in output
 
 
 def test_web_call_history_route_builds_per_call_links():

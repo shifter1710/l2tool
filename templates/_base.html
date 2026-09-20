@@ -22,8 +22,14 @@
       </a>
       <div class="topbar-actions">
         {% block topbar_links %}
-          <a class="nav-link" href="/reference">Справочник кодов</a>
-          <a class="nav-link" href="/settings">Настройки источников</a>
+          {# Единая навигация на всех страницах; /runbook считается частью «Диагностики» #}
+          {% set nav_path = request.url.path %}
+          {% set home_active = nav_path == '/' or nav_path.startswith('/runbook') %}
+          {% set reference_active = nav_path.startswith('/reference') %}
+          {% set settings_active = nav_path.startswith('/settings') %}
+          <a class="nav-link{% if home_active %} is-active{% endif %}" href="/"{% if home_active %} aria-current="page"{% endif %}>Диагностика</a>
+          <a class="nav-link{% if reference_active %} is-active{% endif %}" href="/reference"{% if reference_active %} aria-current="page"{% endif %}>Справочник</a>
+          <a class="nav-link{% if settings_active %} is-active{% endif %}" href="/settings"{% if settings_active %} aria-current="page"{% endif %}>Настройки</a>
         {% endblock %}
         <div class="local-badge"><span></span> {% block local_badge %}Только на этом компьютере{% endblock %}</div>
         <button class="theme-toggle" type="button" data-theme-toggle aria-label="Включить тёмную тему" aria-pressed="false">

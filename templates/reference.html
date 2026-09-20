@@ -5,11 +5,6 @@
 {% block skip_target %}#reference-table{% endblock %}
 {% block skip_label %}Перейти к таблице{% endblock %}
 {% block brand_note %}справочник кодов{% endblock %}
-{% block topbar_links %}
-  <a class="nav-link" href="/">К диагностике</a>
-  <a class="nav-link" href="/settings">Настройки источников</a>
-{% endblock %}
-{% block local_badge %}Локальные настройки{% endblock %}
 {% block main_class %}shell settings-shell{% endblock %}
 
 {% block content %}
@@ -22,18 +17,20 @@
       {% if error %}<div class="alert alert-error" role="alert"><strong>Не удалось импортировать</strong><span>{{ error }}</span></div>{% endif %}
 
       <section class="panel add-source-panel" id="reference-table" tabindex="-1">
-        <div class="panel-heading"><div><span class="step">#</span><h2>Коды и расшифровки</h2></div></div>
+        <div class="panel-heading"><div><h2>Коды и расшифровки</h2></div></div>
         {% if rows %}
-          <table class="reference-table">
-            <thead>
-              <tr><th scope="col">Группа</th><th scope="col">Код</th><th scope="col">Расшифровка</th></tr>
-            </thead>
-            <tbody>
-              {% for row in rows %}
-                <tr><td>{{ row.group }}</td><td><code>{{ row.code }}</code></td><td>{{ row.text }}</td></tr>
-              {% endfor %}
-            </tbody>
-          </table>
+          <div class="table-scroll">
+            <table class="reference-table">
+              <thead>
+                <tr><th scope="col">Группа</th><th scope="col">Код</th><th scope="col">Расшифровка</th></tr>
+              </thead>
+              <tbody>
+                {% for row in rows %}
+                  <tr><td>{{ row.group }}</td><td><code>{{ row.code }}</code></td><td>{{ row.text }}</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
         {% else %}
           <p class="empty-state">Справочник пуст: импортируйте JSON-файл ниже или создайте reference_codes.json в корне проекта по шаблону reference_codes.example.json.</p>
         {% endif %}

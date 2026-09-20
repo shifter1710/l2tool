@@ -8,6 +8,90 @@
 `templates/_results.html` (фрагмент результатов для XHR), `static/styles.css`,
 `static/app.js`.
 
+## Проход 2: «спокойная инженерная консоль» (сентябрь 2026)
+
+Полный редизайн первого прохода по направлению UI-агента: нейтральная
+графитовая база вместо «бумажной» зелёно-лаймовой, плоские поверхности
+с 1px-рамками вместо вложенных плашек, один сдержанный зелёный акцент,
+единая система кнопок и бейджей, моно-шрифт для номеров/UUID/URL/времён.
+
+Токен-слой (`static/styles.css`):
+
+- Новые `:root`/`:root[data-theme="dark"]`: `--bg/--surface/--surface-muted/
+  --surface-hover`, `--border/--border-strong/--border-soft`, `--text/
+  --text-muted/--text-faint`, `--accent(-hover/-contrast/-subtle-bg/-subtle-fg)`,
+  статусные тройки success/warning/danger/info, `--control-*`, `--radius-xs..lg`,
+  `--shadow-sm/md/focus`, `--control-h`, `--skeleton-bg`. Продуктовые
+  `--product-*` не тронуты (синхронизация с `core/products.py`).
+- Удалены: `--page-glow` (фон `body` плоский, без радиального градиента),
+  `--accent-bright/-hover` (лаймовая пара), группа `--on-accent-*`,
+  `--quiet-button`, `--text-2xs`, `--focus-ring`. Возвращены
+  `--radius-md/--radius-lg` — чинит нулевой радиус у `.preview-link`,
+  `.product-row`, `.backup-row`.
+- Типографика: минимум 12px (11px убраны), веса только 400/500/600/700,
+  межстрочные 1.5/1.3/1.6, заголовки ≥16px с letter-spacing -0.01em,
+  eyebrow 12px/600/uppercase/0.06em/`--text-muted`, tabular-nums для времён
+  и счётчиков. `Inter` убран из `--font-sans` (не грузится по CSP), стек
+  только системный; расширен `--font-mono`.
+- Компонентный слой без единого hex/rgba (производные — `color-mix` от
+  токенов); hex допустимы только в токен-блоках и `@media print`.
+
+Компоненты:
+
+- Кнопки: одна система, `--radius-sm`, вес 600; primary (accent) /
+  secondary (прозрачная + рамка, hover фон `--surface-hover` + рамка accent) /
+  danger (outline → hover-заливка `--danger-strong`) / ghost (`.quiet-button`,
+  `.copy-link`, `.download-config`, `.button-link` — без заливки, hover
+  `--surface-hover`). Убран `translateY(1px)` на `:active`. Размеры: CTA
+  формы заявки 40px, стандарт 36px, микро 28–30px. `disabled` —
+  `--control-disabled-*`, `button[aria-busy]` — opacity 0.75 + progress.
+- Поля: высота `--control-h` (36px, форма заявки 40px), нативный select без
+  `appearance:none`, чекбоксы 16px с `accent-color`, readonly/disabled —
+  disabled-токены, `::placeholder` через `--text-faint`.
+- Панели: `1px var(--border)` + `--radius-md` + `--surface`, без теней;
+  тень только у sticky-элементов (topbar). `service-card` — вложенность
+  фоном `--surface-muted`. Бейджи статусов — pill из статусных токенов,
+  нейтральные (`call-badge`, `timezone-badge`, `source-status`) —
+  `--surface-hover`/`--text-muted`, `--radius-xs`. Скелетоны — `--skeleton-bg`.
+
+Шаблоны:
+
+- `_base.html`: единый topbar на всех страницах («Диагностика / Справочник /
+  Настройки» + local-badge + тема), активный пункт — `request.url.path` +
+  `aria-current="page"` + `--accent-subtle-*` (без правок `webapp.py`);
+  `/runbook` считается частью «Диагностики». Блоки `topbar_links`/
+  `local_badge` из дочерних шаблонов убраны.
+- `index.html`: порядок «форма → `#result-zone` → «Ещё сценарии»» (ранбук,
+  история звонков, пакетная обработка снесены вниз под результат).
+- `_results.html`: чипы-нумерация `02/03/i` убраны, заголовки панелей —
+  eyebrow + h3; uuid-панель второго этапа стала обычной панелью (была
+  тёмно-зелёная плашка на `--on-accent-*`); строки звонков — грид
+  «время (mono) → направление → бейджи → шеврон», раскрытое тело —
+  `--surface-muted`; dict распознанных данных: dt 12px muted, dd mono 13px.
+- Шевроны всех `<details>` унифицированы одним inline-SVG (макрос `chevron`
+  в `_results.html`) вместо текстовых `▾/▴` через `::after`.
+- `settings.html`: ряд из 4 кнопок `source-controls` над карточкой
+  расформирован — «Включить/Выключить» ушло в шапку карточки рядом со
+  статусом (кнопка связана со скрытой формой атрибутом `form`), «Выше/
+  Ниже/Дублировать» — в строку действий раскрытой формы рядом с
+  «Сохранить»/«Удалить» через `formaction` + `name=direction` (у move) +
+  `formnovalidate`. Все имена полей, `formaction`, `data-confirm*`
+  сохранены. Буквенные чипы `+ P S R ★ ↺ i ?` убраны; якорная навигация
+  `settings-jump` стала sticky; now-выражения в сводке — `<code>`.
+- `reference.html`: таблица обёрнута в `.table-scroll` (max-height
+  min(60vh, 560px), sticky thead).
+
+Инфраструктура:
+
+- `app.js` не менялся: все хуки (`#result-zone`, `data-copy-*`,
+  `[data-theme-toggle]`, `.ticket-form`/`.calls-form`, batch-форма,
+  `data-confirm*`, скелетоны) сохранены.
+- Кэшбастинг `styles.css?v=` берётся из mtime файла (`webapp._asset_version`)
+  и обновляется автоматически при перезапуске приложения.
+- `@media print` переведён на новую светлую палитру, `.table-scroll`
+  раскрывается; `--product-*`, `.product-levels`/`flex: 0 0 auto`
+  (вертикальная раскладка уровней, проверяется тестом) сохранены.
+
 > **Пересечение с редактором сервисов (ветка `feature/service-config`).**
 > Страница настроек расширена: секция «Продукты», кнопки
 > «Выключить/Выше/Ниже/Дублировать» и массовое включение, поле
