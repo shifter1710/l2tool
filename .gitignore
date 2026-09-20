@@ -29,3 +29,9 @@ backups/
 parser_issues/
 parser_issues.jsonl
 .codex/
+
+# local AI/IDE tool files and test artifacts
+.zcode/
+.v2c/
+.video_agent/
+gui-test-screenshots/
