@@ -8,31 +8,23 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from core import call_history, history, parser
+from core import call_history, parser
 from core.config import optional_value
 from core.dynamic_sources import build_source_links, load_store
 from core.parser import is_empty_phone_value
-from core.parser_diagnostics import collect_parse_issues, write_parse_issues
+from core.parser_diagnostics import collect_parse_issues
 from core.products import available_products
 from core.timezones import resolve_timezone
-from core.utils import hash_phone, normalize_uuid
-from services.opensearch import configured_search_period
+from core.utils import normalize_uuid
 from services.registry import service_modules, service_titles
 
-DEFAULT_FILE = "tickets/current.txt"
 DEFAULT_OPEN = "zapis,bff,myconnect,myconnect_call"
 DEFAULT_WINDOW = 60
 LOKI_RETENTION_DAYS = 5
-CALL_HISTORY_DEFAULT_OPEN = "zapis"
 CALL_HISTORY_MAX_CALLS = 50
 
 MODULES = service_modules()
 MODULE_TITLES = service_titles()
-
-
-def configured_call_history_open():
-    value = optional_value("call_history.default_open", CALL_HISTORY_DEFAULT_OPEN)
-    return str(value).strip() or CALL_HISTORY_DEFAULT_OPEN
 
 
 def configured_default_window():
@@ -71,7 +63,7 @@ class RunResult:
     ctx: dict
     selected_modules: list[str]
     links_by_module: dict[str, list[str]]
-    lines: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     status: str = "success"
 
@@ -81,7 +73,6 @@ class CallHistoryEntry:
     """Один звонок из истории баланса и ссылки, построенные по нему."""
 
     call: call_history.HistoryCall
-    label: str
     links_by_module: dict[str, list[str]]
     errors: list[str] = field(default_factory=list)
 
@@ -158,8 +149,14 @@ def _services_hint(services):
     return ", ".join(items)
 
 
-def resolve_modules(open_arg: str, call_uuid=None):
-    services = available_services()
+def resolve_modules(open_arg: str, call_uuid=None, services=None):
+    """Разрешить имена сервисов в ключи; services — каталог available_services().
+
+    Каталог можно передать снаружи, чтобы одно чтение хранилища блоков
+    переиспользовалось для всех звонков истории.
+    """
+    if services is None:
+        services = available_services()
     if open_arg == "all":
         resolved = list(services)
     else:
@@ -193,99 +190,47 @@ def resolve_modules(open_arg: str, call_uuid=None):
     return resolved
 
 
-def requires_call_uuid_modules():
-    return [
-        key
-        for key, service in available_services().items()
-        if service["requires_call_uuid"]
-    ]
+def _has_event_time(ctx):
+    return bool(
+        ctx.get("event_time")
+        or ctx.get("event_datetimes")
+        or ctx.get("event_time_range")
+        or ctx.get("event_date")
+    )
 
 
-def format_phone_normalization(ctx):
-    labels = {
-        "msisdn": "Номер клиента",
-        "phone_a": "Номер А",
-        "phone_b": "Номер Б",
-        "caller": "caller",
-        "callee": "callee",
-    }
+def _parsed_context_warnings(ctx):
+    """Предупреждения разбора заявки — в порядке прежнего текстового вывода."""
+    warnings = []
+
+    if ctx.get("phone_a_partial"):
+        warnings.append("Номер А распознан частично: используется известный префикс")
+
+    if ctx.get("problem_scope") == "general":
+        warnings.append(
+            "Похоже на общую проблему: поиск за предыдущий день с 08:00 до 20:00"
+        )
+
+    if not _has_event_time(ctx):
+        warnings.append("Дата/время не найдены — выполняю поиск без привязки ко времени")
 
     phone_fields = ctx.get("phone_fields", {})
     normalized_phones = ctx.get("normalized_phones", {})
-    lines = []
-
-    for field_name, raw_value in phone_fields.items():
-        if not raw_value:
+    for field_name, label in (
+        ("msisdn", "Номер клиента"),
+        ("phone_a", "Номер А"),
+        ("phone_b", "Номер Б"),
+    ):
+        raw_value = phone_fields.get(field_name)
+        if not raw_value or normalized_phones.get(field_name):
             continue
+        if not is_empty_phone_value(raw_value):
+            warnings.append(f"Не удалось нормализовать номер {label}: {raw_value}")
 
-        label = labels.get(field_name, field_name)
-        normalized_value = normalized_phones.get(field_name)
+    if ctx.get("msisdn_raw") and not ctx.get("msisdn"):
+        warnings.append("Поиск по msisdn пропущен")
 
-        if normalized_value:
-            lines.append(f"{label} нормализован: {raw_value} -> {normalized_value}")
-        elif is_empty_phone_value(raw_value):
-            lines.append(f"{label} не задан: {raw_value}")
-        else:
-            lines.append(f"[WARN] Не удалось нормализовать номер {label}: {raw_value}")
-
-    return lines
-
-
-def format_event_time(ctx):
-    event_count = len(ctx.get("event_datetimes", []))
-    lines = []
-
-    if ctx.get("problem_scope") == "general":
-        lines.append(
-            "[WARN] Похоже на общую проблему: поиск за предыдущий день с 08:00 до 20:00"
-        )
-
-    if ctx.get("event_time_range"):
-        start, end = ctx["event_time_range"]
-        lines.append(
-            f"Найден диапазон времени события: {start:%Y-%m-%d %H:%M:%S} - {end:%Y-%m-%d %H:%M:%S}"
-        )
-        return lines
-
-    if event_count:
-        lines.append(f"События звонков найдены: {event_count}")
-
-    if len(ctx.get("event_datetimes", [])) > 1:
-        lines.append("Найдено несколько времен события:")
-        lines.extend(
-            f"- {event_datetime:%Y-%m-%d %H:%M:%S}"
-            for event_datetime in ctx["event_datetimes"]
-        )
-    elif ctx.get("event_time"):
-        lines.append(f"Найдено время события: {ctx['event_time']:%Y-%m-%d %H:%M:%S}")
-    elif ctx.get("event_date"):
-        lines.append(
-            f"Найдена только дата события: {ctx['event_date']:%Y-%m-%d}, поиск с 08:00 до 20:00"
-        )
-    else:
-        lines.append("[WARN] Дата/время не найдены — выполняю поиск без привязки ко времени")
-
-    return lines
-
-
-def format_opensearch_periods(selected_modules, ctx=None):
-    periods = []
-
-    for name in selected_modules:
-        mod = MODULES.get(name)
-        if mod is None:
-            continue
-        period = getattr(mod, "SEARCH_PERIOD", None)
-        if period:
-            period = configured_search_period(name, period, ctx)
-        if period and period not in periods:
-            periods.append(period)
-
-    lines = []
-    for date_from, date_to in periods:
-        lines.append(f"OpenSearch: период поиска с {date_from} по {date_to}")
-
-    return lines
+    return warnings
 
 
 def format_loki_retention_warning(ctx, now=None):
@@ -319,76 +264,10 @@ def format_loki_retention_warning(ctx, now=None):
     return []
 
 
-def format_parsed_context(ctx):
-    lines = ["--- Parsed context ---"]
-
-    phone_fields = ctx.get("phone_fields", {})
-    number_lines = [
-        ("Номер клиента", "msisdn"),
-        ("Номер А", "phone_a"),
-        ("Номер Б", "phone_b"),
-    ]
-    for label, field_name in number_lines:
-        values = ctx.get(f"{field_name}_values") or []
-        value = ", ".join(values) if values else ctx.get(field_name)
-        value = value or phone_fields.get(field_name) or "не найден"
-        lines.append(f"{label}: {value}")
-
-    if ctx.get("phone_a_partial"):
-        lines.append("[WARN] Номер А распознан частично: используется известный префикс")
-
-    lines.extend(format_event_time(ctx))
-    lines.append(f"Timezone: {ctx.get('tz')}")
-    lines.append(f"Window: {ctx.get('window')}")
-    lines.append(f"selected_modules: {', '.join(ctx.get('selected_modules', []))}")
-    lines.extend(format_opensearch_periods(ctx.get("selected_modules", []), ctx))
-    lines.extend(format_phone_normalization(ctx))
-
-    if ctx.get("msisdn_raw") and not ctx.get("msisdn"):
-        lines.append("[WARN] Поиск по msisdn пропущен")
-
-    if ctx.get("msisdn"):
-        lines.append(f"msisdn_hash: {hash_phone(ctx['msisdn'])}")
-
-    lines.append("----------------------")
-    return lines
-
-
-def partition_warnings(lines):
-    regular = []
-    warnings = []
-    for line in lines:
-        if line.startswith(("[WARN]", "[ERROR]")):
-            warnings.append(line)
-        else:
-            regular.append(line)
-    return regular, warnings
-
-
-def format_warnings(warnings):
-    if not warnings:
-        return []
-
-    return ["--- Warnings and errors ---", *warnings, "---------------------------"]
-
-
-def format_parse_errors(issues):
-    lines = ["--- Parse errors ---"]
-    for issue in issues:
-        lines.append(f"[ERROR] {issue['message']}")
-        if issue["line_number"]:
-            lines.append(f"  Строка {issue['line_number']}: {issue['line_text']}")
-    lines.extend(
-        [
-            "Исправьте указанные поля; ссылки не сформированы.",
-            "--------------------",
-        ]
-    )
-    return lines
-
-
-def build_links(ctx, selected_modules):
-    services = available_services()
+def build_links(ctx, selected_modules, services=None):
+    """Собрать ссылки выбранных сервисов; services переиспользуется между звонками."""
+    if services is None:
+        services = available_services()
     links_by_module = {}
     errors = []
 
@@ -417,38 +296,14 @@ def build_links(ctx, selected_modules):
     return links_by_module, errors
 
 
-def terminal_link(label: str, url: str) -> str:
-    return f"\033]8;;{url}\033\\{label}\033]8;;\033\\"
-
-
-def format_links(links_by_module, titles=None):
-    if titles is None:
-        titles = {
-            key: service["title"] for key, service in available_services().items()
-        }
-    lines = []
-
-    for name, links in links_by_module.items():
-        lines.append(f"[{titles.get(name, name)}]")
-        lines.extend(terminal_link(url, url) for url in links)
-
-    return lines
-
-
 def run_ticket(
     text,
     open_arg=DEFAULT_OPEN,
     window=DEFAULT_WINDOW,
-    input_file=DEFAULT_FILE,
-    save_history=False,
-    history_root=None,
-    write_diagnostics=True,
     parse_text=None,
     call_uuid=None,
     require_time=True,
 ):
-    # None → history.HISTORY_ROOT читается в момент вызова, а не импорта
-    history_root = history_root or history.HISTORY_ROOT
     if call_uuid:
         call_uuid = normalize_uuid(call_uuid)
 
@@ -456,25 +311,26 @@ def run_ticket(
     ctx = parser.parse(source_text)
     ctx["tz"] = resolve_timezone(ctx.get("region"))
     ctx["window"] = window
-    selected = resolve_modules(open_arg, call_uuid=call_uuid)
+    services = available_services()
+    selected = resolve_modules(open_arg, call_uuid=call_uuid, services=services)
     ctx["selected_modules"] = selected
     ctx["call_uuid"] = call_uuid
 
     issues = collect_parse_issues(source_text, ctx, require_time=require_time)
-    lines, warnings = partition_warnings(format_parsed_context(ctx))
-    warnings.extend(format_loki_retention_warning(ctx))
-    lines.append("")
-
-    if issues and write_diagnostics:
-        write_parse_issues(issues)
+    warnings = _parsed_context_warnings(ctx)
+    warnings.extend(
+        message.removeprefix("[WARN] ")
+        for message in format_loki_retention_warning(ctx)
+    )
 
     if issues and not ctx.get("msisdn"):
-        lines.extend(format_parse_errors(issues))
+        # Без номера клиента проблемы разбора блокируют построение ссылок;
+        # предупреждения разбора при этом не показываются.
         return RunResult(
             ctx,
             selected,
             {},
-            lines,
+            [],
             [issue["message"] for issue in issues],
             status="failed",
         )
@@ -482,14 +338,9 @@ def run_ticket(
         # Номер клиента распознан — диагностика строится и при проблемах
         # в остальных полях («все номера в этот промежуток», неизвестное
         # время и т.п.): проблемы показываются предупреждениями.
-        warnings.extend(f"[WARN] {issue['message']}" for issue in issues)
+        warnings.extend(issue["message"] for issue in issues)
 
-    matches = history.find_matches(ctx, history_root=history_root)
-    lines.extend(history.format_matches(matches))
-    lines.append("")
-
-    links_by_module, errors = build_links(ctx, selected)
-    warnings.extend(errors)
+    links_by_module, errors = build_links(ctx, selected, services=services)
 
     if errors and links_by_module:
         status = "partial"
@@ -498,46 +349,11 @@ def run_ticket(
     else:
         status = "success"
 
-    saved_history_path = None
-    if save_history and status == "success":
-        saved_history_path = history.save_ticket_history(
-            ctx=ctx,
-            input_file=input_file,
-            raw_ticket=text,
-            links_by_module=links_by_module,
-            history_root=history_root,
-        )
-
-    if not links_by_module:
-        lines.extend(format_warnings(warnings))
-        if warnings:
-            lines.append("")
-        lines.append("No URLs generated")
-        if saved_history_path:
-            lines.append(f"History saved: {saved_history_path.as_posix()}")
-        return RunResult(
-            ctx,
-            selected,
-            links_by_module,
-            lines,
-            errors,
-            status=status,
-        )
-
-    lines.extend(format_warnings(warnings))
-    if warnings:
-        lines.append("")
-    lines.extend(format_links(links_by_module))
-
-    if saved_history_path:
-        lines.append("")
-        lines.append(f"History saved: {saved_history_path.as_posix()}")
-
     return RunResult(
         ctx,
         selected,
         links_by_module,
-        lines,
+        warnings,
         errors,
         status=status,
     )
@@ -555,13 +371,12 @@ def normalize_client_phone(value):
 
 def run_call_history(
     text,
+    open_arg,
     msisdn=None,
-    open_arg=None,
     window=DEFAULT_WINDOW,
     max_calls=None,
 ):
     """Ссылки по каждому звонку из истории, вытянутой из истории баланса."""
-    open_arg = open_arg or configured_call_history_open()
     max_calls = max_calls or configured_call_history_max_calls()
     client_phone = normalize_client_phone(msisdn)
 
@@ -572,7 +387,8 @@ def run_call_history(
             "история звонков, вытянутая из истории баланса"
         )
 
-    selected = resolve_modules(open_arg)
+    services = available_services()
+    selected = resolve_modules(open_arg, services=services)
     shown = calls[:max_calls]
     truncated = len(calls) > max_calls
 
@@ -593,11 +409,10 @@ def run_call_history(
     entries = []
     for call in shown:
         ctx = call_history.call_context(call, client_phone, window)
-        links_by_module, errors = build_links(ctx, selected)
+        links_by_module, errors = build_links(ctx, selected, services=services)
         entries.append(
             CallHistoryEntry(
                 call=call,
-                label=call_history.call_label(call),
                 links_by_module=links_by_module,
                 errors=errors,
             )

@@ -3,12 +3,13 @@ import io
 import json
 import re
 import zipfile
+from types import SimpleNamespace
 from urllib.parse import urlencode
 
 import httpx
 
 import webapp
-from core import dynamic_sources
+from core import dynamic_sources, runner
 
 
 def opensearch_example(index_pattern="web-bff"):
@@ -424,6 +425,35 @@ def test_analyze_xhr_fragment_includes_case_summary():
     assert 'id="case-summary-text"' in response.text
 
 
+def test_analyze_shows_service_failure_once(monkeypatch):
+    # Сбой сервиса — одно событие в блоке предупреждений: сообщение живёт
+    # только в errors (с префиксом «[ERROR] ») и не дублируется вторым
+    # повтором без префикса.
+    def failing_build(_ctx):
+        raise RuntimeError("synthetic-failure")
+
+    monkeypatch.setitem(
+        runner.MODULES,
+        "zapis",
+        SimpleNamespace(build=failing_build),
+    )
+
+    response = request(
+        "POST",
+        "/analyze",
+        data={
+            "csrf_token": webapp.app.state.csrf_token,
+            "product": "recording",
+            "window": "60",
+            "ticket_text": valid_ticket(),
+        },
+    )
+
+    assert response.status_code == 200
+    assert "[ERROR] Service failed: zapis: synthetic-failure" in response.text
+    assert response.text.count("Service failed") == 1
+
+
 def case_export_form(ticket_text=None):
     return {
         "csrf_token": webapp.app.state.csrf_token,
@@ -547,36 +577,6 @@ def test_client_number_falls_back_to_separate_row_when_it_matches_neither_side()
     assert response.status_code == 200
     assert "client-unmatched" in response.text
     assert "79990000001" in response.text
-
-
-def test_history_matches_render_dates_and_paths(monkeypatch):
-    monkeypatch.setattr(
-        webapp.history,
-        "find_matches",
-        lambda ctx, **_kwargs: {
-            "79991234567": [
-                "history/2026/09/2026-09-03_79991234567_ab12cd34.yaml",
-                "history/2026/08/2026-08-14_79991234567_ff00ff00.yaml",
-            ]
-        },
-    )
-    response = request(
-        "POST",
-        "/analyze",
-        data={
-            "csrf_token": webapp.app.state.csrf_token,
-            "product": "recording",
-            "window": "60",
-            "ticket_text": valid_ticket(),
-        },
-    )
-
-    assert response.status_code == 200
-    assert "Найдены похожие заявки в локальной истории" in response.text
-    assert "<time datetime=\"2026-09-03\">2026-09-03</time>" in response.text
-    assert "<time datetime=\"2026-08-14\">2026-08-14</time>" in response.text
-    assert "history/2026/09/2026-09-03_79991234567_ab12cd34.yaml" in response.text
-    assert "history/2026/08/2026-08-14_79991234567_ff00ff00.yaml" in response.text
 
 
 def test_analyze_returns_partial_fragment_for_xhr():

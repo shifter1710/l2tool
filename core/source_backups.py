@@ -1,9 +1,9 @@
 import json
-import os
 import re
 from datetime import datetime
 from pathlib import Path
-from tempfile import NamedTemporaryFile
+
+from core.utils import atomic_write_text, rotate_backups
 
 BACKUP_KEEP = 20
 BACKUP_NAME_PATTERN = re.compile(
@@ -27,23 +27,6 @@ def _backup_files(directory):
     )
 
 
-def _write_file_atomic(target, content):
-    with NamedTemporaryFile(
-        "w",
-        encoding="utf-8",
-        dir=target.parent,
-        prefix=f".{target.name}.",
-        suffix=".tmp",
-        delete=False,
-    ) as temporary:
-        temporary.write(content)
-        temporary.flush()
-        os.fsync(temporary.fileno())
-        temporary_path = Path(temporary.name)
-    os.chmod(temporary_path, 0o600)
-    temporary_path.replace(target)
-
-
 def create_backup(path=None):
     """Сохранить копию текущего хранилища в backups/ и удалить старые копии."""
     from core.dynamic_sources import STORE_PATH
@@ -59,15 +42,9 @@ def create_backup(path=None):
     while target.exists():
         suffix += 1
         target = directory / f"diagnostic_sources.{stamp}-{suffix}.json"
-    _write_file_atomic(target, store.read_text(encoding="utf-8"))
-    _rotate(directory)
+    atomic_write_text(target, store.read_text(encoding="utf-8"))
+    rotate_backups(directory, BACKUP_NAME_PATTERN, BACKUP_KEEP)
     return target.name
-
-
-def _rotate(directory):
-    files = _backup_files(directory)
-    for stale in files[:-BACKUP_KEEP]:
-        stale.unlink(missing_ok=True)
 
 
 def _parse_stamp(name):

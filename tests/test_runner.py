@@ -7,14 +7,6 @@ import pytest
 
 from core import parser, runner
 from core.dynamic_sources import save_source
-from core.runner import (
-    format_event_time,
-    format_links,
-    format_opensearch_periods,
-    format_parsed_context,
-    format_phone_normalization,
-    terminal_link,
-)
 
 PHONE_URL = (
     "https://dashboards.example.local/app/data-explorer/discover"
@@ -38,37 +30,6 @@ def add_number_block(name="Пользовательский BFF", product="recor
     )
 
 
-def test_format_phone_b_normalization():
-    ctx = parser.parse("Номер принимающего звонок (Б): 83912777454")
-
-    assert "Номер Б нормализован: 83912777454 -> 73912777454" in format_phone_normalization(ctx)
-
-
-def test_format_phone_a_not_set():
-    ctx = parser.parse("Номер звонящего (А): любой")
-
-    assert "Номер А не задан: любой" in format_phone_normalization(ctx)
-
-
-def test_format_multiple_event_times():
-    ctx = parser.parse("Дата и время проблемного звонка: 04.05.2026  10-49    11-01")
-
-    assert format_event_time(ctx) == [
-        "События звонков найдены: 2",
-        "Найдено несколько времен события:",
-        "- 2026-05-04 10:49:00",
-        "- 2026-05-04 11:01:00",
-    ]
-
-
-def test_format_date_only_event_time():
-    ctx = parser.parse("Дата проблемного звонка: 04.05.2026")
-
-    assert format_event_time(ctx) == [
-        "Найдена только дата события: 2026-05-04, поиск с 08:00 до 20:00",
-    ]
-
-
 def test_format_loki_retention_warning_for_old_date():
     ctx = parser.parse("Дата проблемного звонка: 04.05.2026")
     ctx["tz"] = "Europe/Moscow"
@@ -90,35 +51,6 @@ def test_format_loki_retention_warning_for_recent_date():
         ctx,
         now=datetime(2026, 5, 8, 12, 0, tzinfo=ZoneInfo("Europe/Moscow")),
     ) == []
-
-
-def test_format_opensearch_periods():
-    assert format_opensearch_periods(["zapis", "bff", "myconnect", "myconnect_call"]) == [
-        "OpenSearch: период поиска с now-1M по now",
-        "OpenSearch: период поиска с now-2M по now",
-    ]
-
-
-def test_format_links_uses_human_readable_titles():
-    links = format_links({"zapis": ["https://example.test/a"], "bff": ["https://example.test/b"]})
-    assert links == [
-        "[Grafana / find-call-in-logs]",
-        "\033]8;;https://example.test/a\033\\https://example.test/a\033]8;;\033\\",
-        "[BFF / OpenSearch]",
-        "\033]8;;https://example.test/b\033\\https://example.test/b\033]8;;\033\\",
-    ]
-
-
-def test_terminal_link_keeps_complex_url_unchanged():
-    url = (
-        "https://example.test/discover#?_g=(time:(from:'now-1h',to:now))"
-        "&_q=(query:(query:foo!bar))"
-    )
-
-    rendered = terminal_link(url, url)
-
-    assert rendered == f"\033]8;;{url}\033\\{url}\033]8;;\033\\"
-    assert rendered.removeprefix("\033]8;;").split("\033\\", 1)[0] == url
 
 
 def test_resolve_modules_accepts_known_modules():
@@ -156,15 +88,15 @@ def test_run_ticket_builds_links_despite_issues_when_client_number_known():
 Дата проблемного звонка: 04.05.2026
 """
     result = runner.run_ticket(
-        text, open_arg="zapis", write_diagnostics=False
+        text, open_arg="zapis"
     )
 
     assert list(result.links_by_module) == ["zapis"]
     assert result.status == "success"
     assert result.errors == []
     assert any(
-        "Номер А не распознан: все номера в этот промежуток" in line
-        for line in result.lines
+        "Номер А не распознан: все номера в этот промежуток" in warning
+        for warning in result.warnings
     )
 
 
@@ -175,7 +107,7 @@ def test_run_ticket_still_blocks_without_client_number():
 Дата проблемного звонка: 04.05.2026
 """
     result = runner.run_ticket(
-        text, open_arg="zapis", write_diagnostics=False
+        text, open_arg="zapis"
     )
 
     assert result.status == "failed"
@@ -195,61 +127,62 @@ def test_run_ticket_uses_parse_text_override():
         text,
         open_arg="zapis,bff",
         parse_text=repaired,
-        write_diagnostics=False,
     )
     assert set(result.links_by_module) == {"zapis", "bff"}
 
 
-def test_format_parsed_context_omits_technical_duplicates():
-    ctx = parser.parse("""Номер клиента (msisdn): +7 (999) 123-45-67
-Номер принимающего звонок (Б): 83912777454
-Дата и время проблемного звонка: 04.05.2026 10-49 11-01
-""")
-    ctx["tz"] = "Europe/Moscow"
-    ctx["window"] = 120
-    ctx["selected_modules"] = ["zapis", "bff"]
-
-    output = "\n".join(format_parsed_context(ctx))
-
-    assert "Номер клиента: 79991234567" in output
-    assert "Номер Б: 73912777454" in output
-    assert "Timezone: Europe/Moscow" in output
-    assert "Window: 120" in output
-    assert "selected_modules: zapis, bff" in output
-    assert "msisdn_hash:" in output
-    assert "event_datetimes:" not in output
-    assert "number_b:" not in output
-    assert "callee:" not in output
-    assert "phone_fields:" not in output
-    assert "normalized_phones:" not in output
-
-
-def test_warnings_are_grouped_after_history_before_links(monkeypatch, tmp_path):
+def test_run_ticket_partial_when_service_generated_no_links(monkeypatch):
+    # Один сервис вернул ссылки, другой — нет: результат частичный.
     monkeypatch.setitem(
         runner.MODULES,
         "dummy",
-        SimpleNamespace(build=lambda ctx: ["https://example.test/logs"]),
+        SimpleNamespace(build=lambda _ctx: ["https://example.test/logs"]),
     )
+    monkeypatch.setitem(
+        runner.MODULES,
+        "empty",
+        SimpleNamespace(build=lambda _ctx: []),
+    )
+
     result = runner.run_ticket(
         """Номер клиента (msisdn): 79991234567
-Дата и время проблемного звонка: 04.05.2026 10:49
+Дата и время проблемного звонка: 06.05.2026 10:30
 """,
-        open_arg="dummy",
-        history_root=tmp_path / "history",
-        write_diagnostics=False,
+        open_arg="dummy,empty",
     )
 
-    parsed_end = result.lines.index("----------------------")
-    history_end = result.lines.index("-----------------------")
-    warning_header = result.lines.index("--- Warnings and errors ---")
-    warning = next(
-        index
-        for index, line in enumerate(result.lines)
-        if line.startswith("[WARN] Loki хранит логи")
-    )
-    links_header = result.lines.index("[dummy]")
+    assert result.status == "partial"
+    assert list(result.links_by_module) == ["dummy"]
+    assert result.errors == ["[ERROR] Service generated no links: empty"]
+    # Ошибка сборки не дублируется в warnings: событие живёт только в errors,
+    # веб-слой показывает его один раз с префиксом «[ERROR] ».
+    assert "Service generated no links: empty" not in result.warnings
 
-    assert parsed_end < history_end < warning_header < warning < links_header
+
+def test_run_call_history_reads_service_catalog_once(monkeypatch):
+    # 50 звонков должны обходиться одним чтением каталога сервисов,
+    # а не одним чтением хранилища блоков на каждый звонок.
+    entries = []
+    for index in range(50):
+        entries.append(f"08.09.2026 10:{index % 60:02d}:00-10:{index % 60:02d}:30 (0:00:30)")
+        entries.append(f"79991234567 → 7999100{index:04d}")
+        entries.append("")
+    history_text = "\n".join(entries)
+
+    calls = []
+    original = runner.available_services
+
+    def counting_available_services():
+        calls.append(1)
+        return original()
+
+    monkeypatch.setattr(runner, "available_services", counting_available_services)
+
+    result = runner.run_call_history(history_text, open_arg="zapis", msisdn="79991234567")
+
+    assert result.status == "success"
+    assert len(result.entries) == 50
+    assert calls == [1]
 
 
 def test_run_ticket_rejects_invalid_call_uuid(monkeypatch):
@@ -266,7 +199,6 @@ def test_run_ticket_rejects_invalid_call_uuid(monkeypatch):
 """,
             open_arg="dummy",
             call_uuid='broken" |~ ".*"',
-            write_diagnostics=False,
         )
 
 

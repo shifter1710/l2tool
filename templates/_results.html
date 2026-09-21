@@ -137,24 +137,6 @@
       </div>
     {% endif %}
 
-    {% if result.history %}
-      <section class="history-strip">
-        <strong>Найдены похожие заявки в локальной истории</strong>
-        <ul class="history-list">
-          {% for item in result.history %}
-            <li>
-              <span class="history-number">{{ item.number }}</span>
-              <ul class="history-entries">
-                {% for entry in item.entries %}
-                  <li>{% if entry.date %}<time datetime="{{ entry.date }}">{{ entry.date }}</time> · {% endif %}<code>{{ entry.path }}</code></li>
-                {% endfor %}
-              </ul>
-            </li>
-          {% endfor %}
-        </ul>
-      </section>
-    {% endif %}
-
     <div class="followup-grid {% if not has_uuid_level %}single-column{% endif %}">
       <section class="panel followup-panel">
         <p class="eyebrow">Поправить разбор</p>
@@ -164,7 +146,6 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="product" value="{{ form.product }}">
           <input type="hidden" name="window" value="{{ form.window }}">
-          {% if form.save_history %}<input type="hidden" name="save_history" value="1">{% endif %}
           <textarea name="ticket_text" class="hidden-control" aria-hidden="true">{{ form.ticket_text }}</textarea>
           <div class="correction-grid">
             <label><span>Номер клиента</span><input name="override_msisdn" value="{{ form.corrections.msisdn|default('') }}" placeholder="79991234567"></label>

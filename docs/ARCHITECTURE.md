@@ -20,7 +20,7 @@ flowchart LR
     subgraph local["Локальный компьютер специалиста"]
         browser["Браузер<br/>127.0.0.1:8765"]
         webapp["webapp.py<br/>FastAPI + uvicorn"]
-        store["Локальные данные:<br/>config.toml · diagnostic_sources.json<br/>history/ · parser_issues/"]
+        store["Локальные данные:<br/>config.toml · diagnostic_sources.json"]
     end
 
     subgraph obs["Observability-стенд (внутренний)"]
@@ -38,7 +38,7 @@ flowchart LR
 ## 2. Слои и компоненты
 
 Код разделён на три слоя. `core/` — доменная логика (разбор заявки, время,
-история, экспорт), `services/` — сборка URL под конкретную платформу,
+экспорт), `services/` — сборка URL под конкретную платформу,
 `modules/` — диагностические запросы: что и по каким полям искать в каждом
 сервисе. Веб-слой не зависит от реализации сервисов: модули приходят через
 реестр `services/registry.py`, а диагностику заявки выполняет
@@ -60,9 +60,8 @@ flowchart TB
         timetz["timezones.py + time_windows.py<br/>регион → таймзона · UTC-окна"]
         products["products.py<br/>встроенные продукты + каталог<br/>из diagnostic_sources.json"]
         dynamic["dynamic_sources.py<br/>пользовательские блоки<br/>diagnostic_sources.json, схема v2<br/>+ core/source_backups.py — копии"]
-        history["history.py<br/>YAML-архивы + index.json"]
         caseexp["case_export.py<br/>case JSON для l2-local-ai"]
-        pdiag["parser_diagnostics.py<br/>parser_issues.jsonl"]
+        pdiag["parser_diagnostics.py<br/>проблемы разбора заявки"]
         lostcore["lost_calls_table.py<br/>очистка выгрузок + ссылки"]
         callhist["call_history.py<br/>история звонков из баланса:<br/>парсер, группировка переадресаций,<br/>контекст звонка для модулей"]
         config["config.py<br/>чтение config.toml"]
@@ -85,7 +84,6 @@ flowchart TB
     webapp --> lostcore
     webapp --> caseexp
     runner --> parser
-    runner --> history
     runner --> pdiag
     runner --> dynamic
     runner --> registry
@@ -126,8 +124,7 @@ flowchart TB
 
 Результаты разбора проверяются `core/parser_diagnostics.py`: нераспознанные
 номера и даты становятся проблемами разбора (заявка без корректных полей не
-доходит до сборки ссылок), а при включённой записи диагностики попадают в
-`parser_issues/parser_issues.jsonl`.
+доходит до сборки ссылок).
 
 ## 4. Поток веб-диагностики `/analyze`
 
@@ -144,7 +141,6 @@ sequenceDiagram
     participant D as core/dynamic_sources.py
     participant G as core/runner.run_ticket
     participant M as modules/*
-    participant H as core/history.py
 
     B->>W: POST /analyze (текст, продукт, окно, правки, CSRF)
     W->>W: validate_csrf · parse_window · validate_product
@@ -157,15 +153,11 @@ sequenceDiagram
     else статический профиль config.toml
         W->>G: run_ticket(open=модули продукта)
         G->>P: parse + таймзона + диагностика полей
-        G->>H: find_matches по index.json
         G->>M: build(ctx) для каждого модуля
         M-->>G: готовые URL
         G-->>W: RunResult(status: success/partial/failed)
     end
-    opt успех + галочка «сохранить историю»
-        W->>H: save_ticket_history → YAML + index.json
-    end
-    W-->>B: index.html: поля, предупреждения, ссылки,<br/>совпадения истории, формы правок и UUID-этапа
+    W-->>B: index.html: поля, предупреждения, ссылки,<br/>формы правок и UUID-этапа
 ```
 
 ## 5. Динамические источники (конструктор блоков)
@@ -430,15 +422,11 @@ flowchart TB
         configtoml["config.toml<br/>URL сервисов, периоды, index patterns<br/>(legacy-секции grafana/opensearch)"]
         dsjson["diagnostic_sources.json, схема v2<br/>каталог продуктов + блоки,<br/>0600, атомарная запись"]
         backupsdir["backups/*.json<br/>резервные копии настроек<br/>(последние 20, 0600)"]
-        histdir["history/YYYY/MM/*.yaml<br/>архивы заявок + ссылки<br/>history/index.json — номер → пути"]
-        pissues["parser_issues/parser_issues.jsonl<br/>нераспознанные строки заявок"]
     end
 
     webapp2["webapp.py"] --> dsjson
-    webapp2 --> histdir
     webapp2 --> backupsdir
-    runner2["core/runner.py"] --> pissues
-    runner2 -.->|"читает блоки"| dsjson
+    runner2["core/runner.py"] -.->|"читает блоки"| dsjson
     modules2["modules/*"] --> configtoml
     dynamic2["dynamic_sources.py"] --> dsjson
     dynamic2 --> backupsdir
@@ -518,7 +506,7 @@ flowchart TB
     subgraph data["Защита данных"]
         local["Ничего не отправляется во внешние сервисы:<br/>ссылки открывает браузер пользователя"]
         secrets["Секреты блокируются: ключи TOML и параметры ссылок<br/>(core/url_guard.py), URL только http(s) без паролей"]
-        perms["diagnostic_sources.json · parser_issues ·<br/>case JSON пишутся с правами 0600"]
+        perms["diagnostic_sources.json · case JSON<br/>пишутся с правами 0600"]
     end
 
     host --> webapp3["webapp.py"]
@@ -530,12 +518,9 @@ flowchart TB
     webapp3 --> data
 ```
 
-История успешных заявок выключена по умолчанию и включается галочкой
-в форме диагностики.
-
 ## 13. Тесты, CI и ветки
 
-- `tests/` — pytest по всем слоям: парсер, история, экспорт, ссылки сервисов,
+- `tests/` — pytest по всем слоям: парсер, экспорт, ссылки сервисов,
   динамические источники, веб-маршруты (`TestClient` + `httpx`), таблицы.
 - CI (`.github/workflows/ci.yml`): Python 3.10–3.12 → `ruff check .` → `pytest -q`.
 - Локально: `python -m pip install -r requirements-dev.txt`,

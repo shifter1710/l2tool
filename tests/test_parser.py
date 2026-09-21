@@ -23,12 +23,12 @@ def test_normalize_phone_formats():
 
 
 def test_normalize_phone_invalid_formats(capsys):
+    # Нормализация нераспознаваемых значений возвращает None без
+    # побочных эффектов: предупреждения формирует вызывающий слой.
     assert parser.normalize_phone("12345") is None
     assert parser.normalize_phone("14951234567") is None
 
-    warnings = capsys.readouterr().err
-    assert "[WARN] Не удалось нормализовать номер: 12345" in warnings
-    assert "[WARN] Не удалось нормализовать номер: 14951234567" in warnings
+    assert capsys.readouterr().err == ""
 
 
 def test_empty_phone_values_are_not_normalized():

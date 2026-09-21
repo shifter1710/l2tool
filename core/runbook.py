@@ -2,13 +2,13 @@
 
 import json
 import logging
-import os
 import re
 import secrets
 import threading
 from datetime import datetime
 from pathlib import Path
-from tempfile import NamedTemporaryFile
+
+from core.utils import atomic_write_json, atomic_write_text, rotate_backups
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 STORE_PATH = ROOT_DIR / "runbook.json"
@@ -104,27 +104,8 @@ def write_store(cases, path=None):
     path = Path(path or STORE_PATH)
     validated = validate_store(cases)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path = None
     with _WRITE_LOCK:
-        try:
-            with NamedTemporaryFile(
-                "w",
-                encoding="utf-8",
-                dir=path.parent,
-                prefix=f".{path.name}.",
-                suffix=".tmp",
-                delete=False,
-            ) as temporary:
-                json.dump(validated, temporary, ensure_ascii=False, indent=2)
-                temporary.write("\n")
-                temporary.flush()
-                os.fsync(temporary.fileno())
-                temporary_path = Path(temporary.name)
-            os.chmod(temporary_path, 0o600)
-            temporary_path.replace(path)
-        finally:
-            if temporary_path and temporary_path.exists():
-                temporary_path.unlink()
+        atomic_write_json(path, validated)
 
 
 def create_backup(path=None):
@@ -141,30 +122,8 @@ def create_backup(path=None):
         suffix += 1
         target = directory / f"runbook.{stamp}-{suffix}.json"
     content = path.read_text(encoding="utf-8")
-    temporary_path = None
-    try:
-        with NamedTemporaryFile(
-            "w",
-            encoding="utf-8",
-            dir=directory,
-            prefix=".runbook.",
-            suffix=".tmp",
-            delete=False,
-        ) as temporary:
-            temporary.write(content)
-            temporary.flush()
-            os.fsync(temporary.fileno())
-            temporary_path = Path(temporary.name)
-        os.chmod(temporary_path, 0o600)
-        temporary_path.replace(target)
-    finally:
-        if temporary_path and temporary_path.exists():
-            temporary_path.unlink()
-    stale = sorted(
-        item for item in directory.iterdir() if BACKUP_NAME_PATTERN.fullmatch(item.name)
-    )
-    for item in stale[:-BACKUP_KEEP]:
-        item.unlink(missing_ok=True)
+    atomic_write_text(target, content)
+    rotate_backups(directory, BACKUP_NAME_PATTERN, BACKUP_KEEP)
     return target.name
 
 

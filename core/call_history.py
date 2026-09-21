@@ -528,11 +528,6 @@ def call_badges(call):
     return badges
 
 
-def call_label(call):
-    parts = [f"{call.started_at:%d.%m.%Y %H:%M:%S}", call_title(call), *call_badges(call)]
-    return " · ".join(parts)
-
-
 def call_context(call, msisdn=None, window=60):
     """Контекст одного звонка, совместимый с модулями и динамическими блоками."""
     remote = call.remote_phone

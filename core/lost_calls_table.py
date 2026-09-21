@@ -140,20 +140,13 @@ def _find_xlsx_header(sheet, max_rows=50):
     raise TableFormatError(_missing_header_message({}))
 
 
-def _read_xlsx(path, sheet_name=None):
+def _read_xlsx(path):
     from openpyxl import load_workbook
 
     workbook = load_workbook(path, data_only=True, read_only=True)
     try:
-        if sheet_name:
-            if sheet_name not in workbook.sheetnames:
-                raise TableFormatError(f"Лист не найден: {sheet_name}")
-            sheets = [workbook[sheet_name]]
-        else:
-            sheets = list(workbook.worksheets)
-
         last_error = None
-        for sheet in sheets:
+        for sheet in workbook.worksheets:
             try:
                 header_row, header_map = _find_xlsx_header(sheet)
             except TableFormatError as error:
@@ -176,7 +169,7 @@ def _read_xlsx(path, sheet_name=None):
 
             return sheet.title, rows
 
-        if sheet_name and last_error:
+        if last_error:
             raise last_error
         raise TableFormatError(
             "Ни на одном листе не найдены все обязательные столбцы: "
@@ -226,17 +219,15 @@ def _read_csv(path):
     raise TableFormatError(_missing_header_message({}))
 
 
-def read_source_rows(input_path, sheet_name=None):
+def read_source_rows(input_path):
     path = Path(input_path)
     if not path.exists():
         raise FileNotFoundError(f"Файл не найден: {path}")
 
     suffix = path.suffix.lower()
     if suffix in {".xlsx", ".xlsm"}:
-        return _read_xlsx(path, sheet_name=sheet_name)
+        return _read_xlsx(path)
     if suffix in {".csv", ".tsv"}:
-        if sheet_name:
-            raise TableFormatError("Параметр --sheet применим только к XLSX")
         return _read_csv(path)
 
     raise TableFormatError("Поддерживаются файлы XLSX, XLSM, CSV и TSV")
@@ -571,7 +562,6 @@ def process_table(
     input_path,
     output_path=None,
     *,
-    sheet_name=None,
     now=None,
 ):
     input_path = Path(input_path)
@@ -579,7 +569,7 @@ def process_table(
     if input_path.resolve() == output_path.resolve():
         raise TableFormatError("Выходной файл не должен перезаписывать исходную таблицу")
 
-    source_title, rows = read_source_rows(input_path, sheet_name=sheet_name)
+    source_title, rows = read_source_rows(input_path)
     rows, dropped_count = filter_recent_rows(rows, now=now)
     return write_clean_workbook(
         rows,

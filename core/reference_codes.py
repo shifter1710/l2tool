@@ -2,11 +2,11 @@
 
 import json
 import logging
-import os
 import re
 import threading
 from pathlib import Path
-from tempfile import NamedTemporaryFile
+
+from core.utils import atomic_write_json
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 STORE_PATH = ROOT_DIR / "reference_codes.json"
@@ -78,27 +78,8 @@ def write_store(groups, path=None):
     path = Path(path or STORE_PATH)
     validated = validate_store(groups)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path = None
     with _WRITE_LOCK:
-        try:
-            with NamedTemporaryFile(
-                "w",
-                encoding="utf-8",
-                dir=path.parent,
-                prefix=f".{path.name}.",
-                suffix=".tmp",
-                delete=False,
-            ) as temporary:
-                json.dump(validated, temporary, ensure_ascii=False, indent=2)
-                temporary.write("\n")
-                temporary.flush()
-                os.fsync(temporary.fileno())
-                temporary_path = Path(temporary.name)
-            os.chmod(temporary_path, 0o600)
-            temporary_path.replace(path)
-        finally:
-            if temporary_path and temporary_path.exists():
-                temporary_path.unlink()
+        atomic_write_json(path, validated)
 
 
 def import_store(content, path=None):

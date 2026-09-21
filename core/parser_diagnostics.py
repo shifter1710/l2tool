@@ -1,7 +1,3 @@
-import json
-import os
-from pathlib import Path
-
 from core.parser import (
     is_empty_phone_value,
     parse_date_value,
@@ -9,8 +5,6 @@ from core.parser import (
     parse_time_value,
 )
 from core.ticket_fields import TICKET_FIELDS, find_ticket_field
-
-ROOT_DIR = Path(__file__).resolve().parents[1]
 
 PHONE_FIELDS = (
     ("msisdn", "msisdn_raw"),
@@ -118,23 +112,3 @@ def collect_parse_issues(text, ctx, require_time=True) -> list[dict]:
         )
 
     return issues
-
-
-def write_parse_issues(issues, path=None):
-    if not issues:
-        return
-
-    # Путь по умолчанию — всегда внутри каталога проекта, а не текущего CWD
-    path = Path(path) if path else ROOT_DIR / "parser_issues" / "parser_issues.jsonl"
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    file_descriptor = os.open(
-        path,
-        os.O_WRONLY | os.O_CREAT | os.O_APPEND,
-        0o600,
-    )
-    os.fchmod(file_descriptor, 0o600)
-    with os.fdopen(file_descriptor, "a", encoding="utf-8") as file:
-        for issue in issues:
-            file.write(json.dumps(issue, ensure_ascii=False, sort_keys=True))
-            file.write("\n")

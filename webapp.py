@@ -5,7 +5,6 @@ import io
 import json
 import logging
 import os
-import re
 import secrets
 import shutil
 import tempfile
@@ -23,7 +22,7 @@ from starlette.background import BackgroundTask
 from starlette.datastructures import UploadFile
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from core import call_history, history, reference_codes, runbook
+from core import call_history, reference_codes, runbook
 from core.case_export import (
     build_case_dict,
     build_case_markdown,
@@ -187,7 +186,6 @@ def page_context(request: Request, **values):
             "product": configured_default_product(),
             "window": configured_default_window(),
             "ticket_text": "",
-            "save_history": False,
             "corrections": {},
             "dynamic_product": False,
         },
@@ -262,8 +260,6 @@ def run_dynamic_ticket(
     *,
     parse_text=None,
     call_uuid=None,
-    save_history=False,
-    input_file="web",
 ):
     if level == "uuid":
         call_uuid = normalize_uuid(call_uuid)
@@ -271,9 +267,6 @@ def run_dynamic_ticket(
         text,
         open_arg="",
         window=window,
-        input_file=input_file,
-        save_history=False,
-        write_diagnostics=False,
         parse_text=parse_text,
         require_time=False,
     )
@@ -306,18 +299,11 @@ def run_dynamic_ticket(
     if not links and not errors:
         errors = [f"Для уровня «{LEVELS[level]}» ещё не добавлены диагностические блоки"]
     status = "partial" if links and errors else "failed" if errors or not links else "success"
-    if save_history and status == "success":
-        history.save_ticket_history(
-            ctx=parsed.ctx,
-            input_file=input_file,
-            raw_ticket=text,
-            links_by_module=links,
-        )
     return RunResult(
         parsed.ctx,
         list(links),
         links,
-        parsed.lines,
+        parsed.warnings,
         errors,
         status,
     )
@@ -395,9 +381,6 @@ def parsed_fields(ctx):
     return fields
 
 
-HISTORY_DATE_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}")
-
-
 def service_platforms():
     platforms = {name: definition.platform for name, definition in SERVICES.items()}
     try:
@@ -409,27 +392,11 @@ def service_platforms():
     return platforms
 
 
-def history_view(matches):
-    items = []
-    for number, paths in matches.items():
-        entries = []
-        for path in paths:
-            name = str(path).replace("\\", "/").rsplit("/", 1)[-1]
-            prefix = HISTORY_DATE_PREFIX.match(name)
-            entries.append(
-                {"date": prefix.group(0) if prefix else "", "path": str(path)}
-            )
-        items.append({"number": str(number), "entries": entries})
-    return items
-
-
 def result_view(result: RunResult, title, product=None):
     warnings = []
-    for line in result.lines:
-        if line.startswith(("[WARN]", "[ERROR]")):
-            message = line.split("]", 1)[-1].strip()
-            if message and message not in warnings:
-                warnings.append(message)
+    for message in result.warnings:
+        if message and message not in warnings:
+            warnings.append(message)
     for message in result.errors:
         if message and message not in warnings:
             warnings.append(message)
@@ -461,7 +428,6 @@ def result_view(result: RunResult, title, product=None):
             for module_name, links in result.links_by_module.items()
         ],
         "warnings": warnings,
-        "history": history_view(history.find_matches(ctx)),
     }
 
 
@@ -1045,9 +1011,6 @@ def runbook_step_views(case, ticket_text, window):
             ticket_text,
             open_arg="",
             window=window,
-            input_file="web-runbook",
-            save_history=False,
-            write_diagnostics=False,
         )
         if parsed.errors:
             parse_error = parsed.errors[0]
@@ -1214,7 +1177,6 @@ async def analyze(request: Request):
 
     product = form_text(form_data, "product", "recording")
     ticket_text = form_text(form_data, "ticket_text")
-    save_history = form_text(form_data, "save_history") == "1"
     corrections = {
         field_name: form_text(form_data, f"override_{field_name}")
         for field_name, _label in CORRECTION_FIELDS
@@ -1225,7 +1187,6 @@ async def analyze(request: Request):
         "product": product,
         "window": form_text(form_data, "window", "60"),
         "ticket_text": ticket_text,
-        "save_history": save_history,
         "corrections": corrections,
     }
 
@@ -1246,8 +1207,6 @@ async def analyze(request: Request):
                 product,
                 "number",
                 window,
-                input_file="web",
-                save_history=save_history,
                 parse_text=effective_text,
             )
         else:
@@ -1255,9 +1214,6 @@ async def analyze(request: Request):
                 ticket_text,
                 open_arg=",".join(modules),
                 window=window,
-                input_file="web",
-                save_history=save_history,
-                write_diagnostics=False,
                 parse_text=effective_text,
             )
     except (OSError, ValueError) as error:
@@ -1294,7 +1250,6 @@ async def secondary(request: Request):
         "product": product,
         "window": form_text(form_data, "window", "60"),
         "ticket_text": effective_text,
-        "save_history": False,
         "corrections": {},
         "dynamic_product": False,
     }
@@ -1314,14 +1269,12 @@ async def secondary(request: Request):
                 product,
                 "number",
                 window,
-                input_file="web-secondary",
             )
             secondary_result = run_dynamic_ticket(
                 effective_text,
                 product,
                 "uuid",
                 window,
-                input_file="web-secondary",
                 call_uuid=call_uuid,
             )
         else:
@@ -1333,17 +1286,11 @@ async def secondary(request: Request):
                 effective_text,
                 open_arg=",".join(primary_modules),
                 window=window,
-                input_file="web-secondary",
-                save_history=False,
-                write_diagnostics=False,
             )
             secondary_result = run_ticket(
                 effective_text,
                 open_arg=",".join(SECONDARY_MODULES[mode]),
                 window=window,
-                input_file="web-secondary",
-                save_history=False,
-                write_diagnostics=False,
                 call_uuid=call_uuid,
             )
     except (OSError, ValueError) as error:
@@ -1396,7 +1343,6 @@ async def case_export(request: Request):
         "product": product,
         "window": form_text(form_data, "window", "60"),
         "ticket_text": effective_text,
-        "save_history": False,
         "corrections": {},
         "dynamic_product": False,
     }
@@ -1413,16 +1359,12 @@ async def case_export(request: Request):
                 product,
                 "number",
                 window,
-                input_file="web-case-export",
             )
         else:
             result = run_ticket(
                 effective_text,
                 open_arg=",".join(modules),
                 window=window,
-                input_file="web-case-export",
-                save_history=False,
-                write_diagnostics=False,
             )
     except (OSError, ValueError) as error:
         return render_index(

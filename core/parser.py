@@ -1,5 +1,4 @@
 import re
-import sys
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -101,7 +100,6 @@ def normalize_phone(value: str | None):
     if len(digits) == 11 and digits.startswith("7"):
         return digits
 
-    print(f"[WARN] Не удалось нормализовать номер: {value}", file=sys.stderr)
     return None
 
 

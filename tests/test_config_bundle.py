@@ -285,7 +285,6 @@ def test_defaults_come_from_config(tmp_path, monkeypatch):
     from core import runner
 
     assert runner.configured_default_window() == 45
-    assert runner.configured_call_history_open() == "zapis"
     assert runner.configured_call_history_max_calls() == 7
     assert runner.configured_default_product() == "recording"
     assert runner.configured_calls_product() == "calls"

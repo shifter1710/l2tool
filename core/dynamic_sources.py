@@ -10,6 +10,7 @@ from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsp
 from zoneinfo import ZoneInfo
 
 from core.products import (
+    MAX_PRODUCTS,
     available_products,
     builtin_product_title,
     default_product_entries,
@@ -485,7 +486,7 @@ def create_product(key, title, color=None, path=None):
         data = load_store(path)
         if any(entry["key"] == key for entry in data["products"]):
             raise ValueError("Продукт с таким ключом уже существует")
-        if len(data["products"]) >= 50:
+        if len(data["products"]) >= MAX_PRODUCTS:
             raise ValueError("Достигнут лимит количества продуктов")
         if is_builtin_product(key):
             entry = {"key": key, "title": title, "color": color, "builtin": True, "managed": False}

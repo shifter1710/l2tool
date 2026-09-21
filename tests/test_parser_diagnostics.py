@@ -1,11 +1,8 @@
-import json
-import stat
-
 from core import parser, runner
-from core.parser_diagnostics import collect_parse_issues, write_parse_issues
+from core.parser_diagnostics import collect_parse_issues
 
 
-def test_bad_phone_creates_issue_and_warning(monkeypatch, tmp_path):
+def test_bad_phone_creates_issue_and_warning():
     text = """Номер клиента (msisdn): 14951234567
 Дата и время проблемного звонка: 04.05.2026 10:30
 """
@@ -23,20 +20,12 @@ def test_bad_phone_creates_issue_and_warning(monkeypatch, tmp_path):
         }
     ]
 
-    issues_path = tmp_path / "parser_issues.jsonl"
-    write_parse_issues(issues, path=issues_path)
-
-    saved = issues_path.read_text(encoding="utf-8").splitlines()
-    assert len(saved) == 1
-    assert json.loads(saved[0]) == issues[0]
-    assert stat.S_IMODE(issues_path.stat().st_mode) == 0o600
-
-    monkeypatch.setattr(runner, "write_parse_issues", lambda issues: None)
     result = runner.run_ticket(text, open_arg="zapis")
 
     assert result.links_by_module == {}
-    assert "[ERROR] Номер клиента не распознан: 14951234567" in result.lines
-    assert "  Строка 1: Номер клиента (msisdn): 14951234567" in result.lines
+    assert result.status == "failed"
+    assert result.warnings == []
+    assert result.errors == ["Номер клиента не распознан: 14951234567"]
 
 
 def test_issue_location_skips_blank_lines_before_indented_field():

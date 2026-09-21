@@ -13,12 +13,10 @@
 """
 
 import json
-import os
 import re
 import shutil
 from datetime import datetime
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 
 from core import reference_codes, runbook
 from core.config import CONFIG_PATH, parse_simple_toml
@@ -31,6 +29,7 @@ from core.dynamic_sources import (
     save_call_history_secretary_numbers,
 )
 from core.url_guard import find_config_issues
+from core.utils import atomic_write_text, rotate_backups
 
 BUNDLE_VERSION = 1
 BUNDLE_MARKER = "configs"
@@ -149,16 +148,7 @@ def import_config_toml(text):
     path = Path(CONFIG_PATH)
     if path.exists():
         _backup_config(path)
-    with NamedTemporaryFile(
-        "w", encoding="utf-8", dir=path.parent, prefix=f".{path.name}.", suffix=".tmp",
-        delete=False,
-    ) as temporary:
-        temporary.write(content)
-        temporary.flush()
-        os.fsync(temporary.fileno())
-        temporary_path = Path(temporary.name)
-    os.chmod(temporary_path, 0o600)
-    temporary_path.replace(path)
+    atomic_write_text(path, content)
     return True
 
 
@@ -172,16 +162,7 @@ def _backup_config(path):
         suffix += 1
         target = backups_dir / f"config.toml.{stamp}-{suffix}.bak"
     shutil.copy2(path, target)
-    _rotate_config_backups(backups_dir)
-
-
-def _rotate_config_backups(backups_dir):
-    files = sorted(
-        (item for item in backups_dir.iterdir() if _CONFIG_BACKUP_PATTERN.fullmatch(item.name)),
-        key=lambda item: item.name,
-    )
-    for stale in files[:-CONFIG_BACKUP_KEEP]:
-        stale.unlink(missing_ok=True)
+    rotate_backups(backups_dir, _CONFIG_BACKUP_PATTERN, CONFIG_BACKUP_KEEP)
 
 
 _CONFIG_BACKUP_PATTERN = re.compile(r"^config\.toml\.\d{8}-\d{6}(?:-\d+)?\.bak$")
