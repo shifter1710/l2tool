@@ -1,3 +1,6 @@
+"""Сводка кейса и форматтеры полей для блока «Распознанные данные»."""
+
+
 from datetime import date, datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -76,80 +79,6 @@ def phone_with_hash(value):
         return text
 
 
-def iso_value(value, timezone_name: str | None = None):
-    if value is None:
-        return None
-
-    if isinstance(value, datetime):
-        if value.tzinfo is None:
-            value = value.replace(tzinfo=ZoneInfo(timezone_name or "Europe/Moscow"))
-        return value.isoformat()
-
-    if isinstance(value, date):
-        return value.isoformat()
-
-    return value
-
-
-def build_case_dict(
-    ctx: dict,
-    selected_modules: list[str],
-    links_by_module: dict[str, list[str]],
-    *,
-    product: str | None,
-    file_name: str | None,
-):
-    timezone_name = ctx.get("tz") or "Europe/Moscow"
-
-    return {
-        "schema_version": 1,
-        "case_type": "unknown",
-        "product": product,
-        "identifiers": {
-            "msisdn": ctx.get("msisdn"),
-            "phone_a": ctx.get("phone_a"),
-            "phone_a_values": list(ctx.get("phone_a_values") or []),
-            "phone_b": ctx.get("phone_b"),
-            "phone_b_values": list(ctx.get("phone_b_values") or []),
-            "call_uuid": ctx.get("call_uuid") or "",
-        },
-        "event": {
-            "timezone": timezone_name,
-            "date": iso_value(ctx.get("event_date"), timezone_name),
-            "time": iso_value(ctx.get("event_time"), timezone_name),
-            "datetimes": [
-                iso_value(value, timezone_name)
-                for value in ctx.get("event_datetimes", [])
-            ],
-            "time_range": [
-                iso_value(value, timezone_name)
-                for value in (ctx.get("event_time_range") or [])
-            ],
-            "window_minutes": ctx.get("window"),
-        },
-        "interpretation": {
-            "problem_scope": ctx.get("problem_scope"),
-            "event_date_source": ctx.get("event_date_source"),
-            "phone_a_partial": bool(ctx.get("phone_a_partial")),
-        },
-        "location": {
-            "region": ctx.get("region"),
-        },
-        "search": {
-            "selected_modules": list(selected_modules),
-            "links_by_module": {
-                module_name: list(links)
-                for module_name, links in links_by_module.items()
-            },
-        },
-        "source": {
-            "tool": "l2tool",
-            "file_name": file_name,
-            "submitted_at_msk": iso_value(ctx.get("submitted_at"), "Europe/Moscow"),
-        },
-    }
-
-
 def _summary_product_title(product):
     try:
         return product_title(product)
@@ -213,34 +142,3 @@ def case_summary_fields(ctx, product=None):
         fields.append(("Общая проблема", "да"))
 
     return fields
-
-
-def build_case_markdown(ctx, links_by_module, product=None, now=None):
-    """Человекочитаемая сводка кейса: поля билдера + раздел ссылок.
-
-    Пустые блоки (нет полей или нет ссылок) в текст не попадают.
-    """
-    from core.runner import MODULE_TITLES
-
-    formed = now or datetime.now()
-    lines = [
-        "# Кейс l2tool",
-        "",
-        f"Сформирован: {formed:%d.%m.%Y %H:%M:%S}",
-    ]
-
-    fields = case_summary_fields(ctx, product)
-    if fields:
-        lines.append("")
-        lines.extend(f"{label}: {value}" for label, value in fields)
-
-    if links_by_module:
-        titles = dict(ctx.get("service_titles") or {})
-        lines.append("")
-        lines.append("## Ссылки")
-        lines.append("")
-        for module_name, links in links_by_module.items():
-            title = titles.get(module_name) or MODULE_TITLES.get(module_name, module_name)
-            lines.extend(f"{title}: {link}" for link in links)
-
-    return "\n".join(lines) + "\n"

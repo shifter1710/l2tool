@@ -9,7 +9,6 @@
     "/secondary": "Запускаем второй этап…",
     "/call-history": "Строим ссылки по звонкам…",
     "/batch": "Обрабатываем таблицу…",
-    "/case-export": "Собираем кейс…",
   };
   const fetchActions = new Set(["/analyze", "/secondary", "/call-history"]);
 
@@ -311,7 +310,7 @@
     // или возврате на страницу. Слушатели делегированы — формы появляются
     // и в подгруженном XHR-фрагменте результатов.
     const downloadForm = (element) =>
-      element.closest?.('form[action$="/batch"], form[action$="/case-export"]') || null;
+      element.closest?.('form[action$="/batch"]') || null;
     document.addEventListener("focusin", (event) => {
       const form = downloadForm(event.target);
       if (form) resetPending(form);
@@ -322,7 +321,7 @@
     });
     window.addEventListener("pageshow", () => {
       document
-        .querySelectorAll('form[action$="/batch"], form[action$="/case-export"]')
+        .querySelectorAll('form[action$="/batch"]')
         .forEach(resetPending);
     });
   });

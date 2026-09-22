@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse
-import io
 import json
 import logging
 import os
@@ -10,7 +9,6 @@ import shutil
 import tempfile
 import threading
 import webbrowser
-import zipfile
 from datetime import datetime
 from pathlib import Path
 
@@ -23,9 +21,7 @@ from starlette.datastructures import UploadFile
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from core import call_history, reference_codes, runbook
-from core.case_export import (
-    build_case_dict,
-    build_case_markdown,
+from core.case_summary import (
     case_summary_fields,
     event_value,
     format_value,
@@ -1322,77 +1318,6 @@ async def secondary(request: Request):
         secondary_form={"call_uuid": call_uuid, "mode": mode},
         has_uuid_level=has_uuid_sources(product) or product == "recording",
         partial=partial,
-    )
-
-
-@app.post("/case-export")
-async def case_export(request: Request):
-    """ZIP-архив кейса: case.json (схема l2-local-ai) + case.md (сводка).
-
-    Разбор повторяет путь /analyze того же продукта и окна, но ничего
-    не пишет на диск: архив собирается в памяти и сразу отдаётся браузеру.
-    """
-    form_data = await request.form()
-    validate_csrf(form_data)
-
-    product = form_text(form_data, "product", "recording")
-    effective_text = form_text(form_data, "effective_ticket_text") or form_text(
-        form_data, "ticket_text"
-    )
-    form = {
-        "product": product,
-        "window": form_text(form_data, "window", "60"),
-        "ticket_text": effective_text,
-        "corrections": {},
-        "dynamic_product": False,
-    }
-
-    try:
-        if not effective_text or len(effective_text) > MAX_TICKET_LENGTH:
-            raise ValueError("Текст заявки отсутствует или слишком велик")
-        window = parse_window(form_data)
-        modules = validate_product(product)
-        form["dynamic_product"] = is_managed(product)
-        if is_managed(product):
-            result = run_dynamic_ticket(
-                effective_text,
-                product,
-                "number",
-                window,
-            )
-        else:
-            result = run_ticket(
-                effective_text,
-                open_arg=",".join(modules),
-                window=window,
-            )
-    except (OSError, ValueError) as error:
-        return render_index(
-            request,
-            form=form,
-            error=str(error),
-            status_code=400,
-        )
-
-    case_data = build_case_dict(
-        result.ctx,
-        result.selected_modules,
-        result.links_by_module,
-        product=product,
-        file_name=None,
-    )
-    case_markdown = build_case_markdown(result.ctx, result.links_by_module, product=product)
-
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("case.json", json.dumps(case_data, ensure_ascii=False, indent=2) + "\n")
-        archive.writestr("case.md", case_markdown)
-
-    stamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
-    return Response(
-        content=buffer.getvalue(),
-        media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="case-{stamp}.zip"'},
     )
 
 

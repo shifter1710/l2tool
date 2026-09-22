@@ -65,13 +65,6 @@
           <button class="copy-link" type="button" data-copy-target="case-summary-text">
             <span data-copy-label aria-live="polite">Скопировать данные кейса</span>
           </button>
-          <form method="post" action="/case-export" class="case-export-form">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input type="hidden" name="product" value="{{ form.product }}">
-            <input type="hidden" name="window" value="{{ form.window }}">
-            <textarea name="effective_ticket_text" class="hidden-control" aria-hidden="true">{{ effective_ticket_text }}</textarea>
-            <button type="submit" class="secondary-button">Скачать ZIP кейса</button>
-          </form>
         </div>
         <pre id="case-summary-text" hidden>{{ result.case_summary_text }}</pre>
         <dl class="parsed-list">

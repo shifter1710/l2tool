@@ -60,7 +60,7 @@ flowchart TB
         timetz["timezones.py + time_windows.py<br/>регион → таймзона · UTC-окна"]
         products["products.py<br/>встроенные продукты + каталог<br/>из diagnostic_sources.json"]
         dynamic["dynamic_sources.py<br/>пользовательские блоки<br/>diagnostic_sources.json, схема v2<br/>+ core/source_backups.py — копии"]
-        caseexp["case_export.py<br/>case JSON для l2-local-ai"]
+        caseexp["case_summary.py<br/>сводка кейса и форматтеры полей"]
         pdiag["parser_diagnostics.py<br/>проблемы разбора заявки"]
         lostcore["lost_calls_table.py<br/>очистка выгрузок + ссылки"]
         callhist["call_history.py<br/>история звонков из баланса:<br/>парсер, группировка переадресаций,<br/>контекст звонка для модулей"]
@@ -432,14 +432,8 @@ flowchart TB
     dynamic2 --> backupsdir
 ```
 
-Обработанные выгрузки потерянных звонков (`*.cleaned.xlsx`) и ZIP-кейс
-отдаются браузеру напрямую из памяти и на диске не появляются.
-
-Case JSON (`core/case_export.py`) содержит нормализованные идентификаторы,
-событие, выбранные модули и ссылки; исходный текст заявки, пути, токены и
-конфигурация в него не попадают. Маршрут `/case-export` отдаёт его вместе
-с человекочитаемой сводкой `case.md` одним ZIP-архивом, который собирается
-в памяти и на диске не появляется.
+Обработанные выгрузки потерянных звонков (`*.cleaned.xlsx`) отдаются
+браузеру напрямую из памяти и на диске не появляются.
 
 ## 11. Маршруты веб-приложения
 
@@ -454,7 +448,6 @@ config.toml (`core.config.feature_enabled`): выключены по умолч�
 | `GET /` | главная: форма заявки, результаты, пакетная загрузка |
 | `POST /analyze` | первичная диагностика заявки |
 | `POST /secondary` | второй этап по UUID звонка |
-| `POST /case-export` | ZIP-архив кейса: case.json + case.md |
 | `POST /call-history` | ссылки по каждому звонку из истории баланса |
 | `POST /batch` | обработка таблицы потерянных звонков, скачивание XLSX |
 | `GET /settings` | редактор источников: блоки, продукты, копии |
@@ -506,7 +499,7 @@ flowchart TB
     subgraph data["Защита данных"]
         local["Ничего не отправляется во внешние сервисы:<br/>ссылки открывает браузер пользователя"]
         secrets["Секреты блокируются: ключи TOML и параметры ссылок<br/>(core/url_guard.py), URL только http(s) без паролей"]
-        perms["diagnostic_sources.json · case JSON<br/>пишутся с правами 0600"]
+        perms["diagnostic_sources.json<br/>пишутся с правами 0600"]
     end
 
     host --> webapp3["webapp.py"]
@@ -520,7 +513,7 @@ flowchart TB
 
 ## 13. Тесты, CI и ветки
 
-- `tests/` — pytest по всем слоям: парсер, экспорт, ссылки сервисов,
+- `tests/` — pytest по всем слоям: парсер, сводка кейса, ссылки сервисов,
   динамические источники, веб-маршруты (`TestClient` + `httpx`), таблицы.
 - CI (`.github/workflows/ci.yml`): Python 3.10–3.12 → `ruff check .` → `pytest -q`.
 - Локально: `python -m pip install -r requirements-dev.txt`,
